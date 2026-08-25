@@ -29,13 +29,14 @@ import urllib.error
 import urllib.parse
 import sys
 import html as html_lib
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 
-APP_TITLE = "무신사 판매 추적기"
+APP_TITLE = "무신사 판매 추적기 v2"
+APP_VERSION = "2.0.0"
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -47,6 +48,8 @@ WATCHLIST_FILE = BASE_DIR / "musinsa_watchlist.txt"
 BRANDS_FILE = BASE_DIR / "musinsa_brands.txt"
 NEW_PRODUCTS_FILE = BASE_DIR / "musinsa_new_products.csv"
 DAILY_SUMMARY_FILE = BASE_DIR / "musinsa_daily_summary.csv"
+DAILY_PRODUCT_SALES_FILE = BASE_DIR / "musinsa_daily_product_sales.csv"
+DAILY_BRAND_SALES_FILE = BASE_DIR / "musinsa_daily_brand_sales.csv"
 SNAPSHOT_DIR = BASE_DIR / "daily_snapshots"
 AUTO_LOG_FILE = BASE_DIR / "musinsa_auto_update.log"
 MAX_WATCHLIST = 1200
@@ -389,6 +392,302 @@ def append_history(rows):
 
 
 # -----------------------------
+# 일별 상품 / 브랜드 판매 분석
+# -----------------------------
+DAILY_PRODUCT_FIELDS = [
+    "date", "checked_at", "brand_name", "goods_no", "product_name",
+    "purchase_total", "daily_sales", "interval_sales", "interval_days",
+    "normal_price", "current_price", "sale_rate",
+    "daily_estimated_gmv", "simple_gmv",
+    "page_view_total", "daily_page_view_increase",
+    "review_count", "daily_review_increase",
+    "like_count", "daily_like_increase",
+    "sales_7d", "sales_7d_avg_per_day", "estimated_gmv_7d",
+    "sales_30d", "sales_30d_avg_per_day", "estimated_gmv_30d",
+    "availability", "product_url", "errors",
+]
+
+DAILY_BRAND_FIELDS = [
+    "date", "checked_at", "brand_name", "product_count",
+    "daily_baseline_product_count", "purchase_total_sum", "simple_gmv_sum",
+    "daily_sales_sum", "daily_estimated_gmv_sum",
+    "daily_page_view_increase_sum", "daily_review_increase_sum", "daily_like_increase_sum",
+    "sales_7d_sum", "sales_7d_avg_per_day", "estimated_gmv_7d",
+    "sales_30d_sum", "sales_30d_avg_per_day", "estimated_gmv_30d",
+    "products_with_7d_baseline", "products_with_30d_baseline", "new_products",
+]
+
+
+def _safe_date(value):
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value)[:10]).date()
+    except Exception:
+        return None
+
+
+def _load_csv_rows(path):
+    if not path.exists():
+        return []
+    try:
+        with path.open("r", encoding="utf-8-sig", newline="") as f:
+            return list(csv.DictReader(f))
+    except Exception:
+        return []
+
+
+def load_daily_product_history():
+    """goods_no -> 날짜 오름차순 일별 스냅샷 목록."""
+    grouped = {}
+    for row in _load_csv_rows(DAILY_PRODUCT_SALES_FILE):
+        goods_no = str(row.get("goods_no") or "").strip()
+        if not goods_no:
+            continue
+        grouped.setdefault(goods_no, []).append(row)
+    for rows in grouped.values():
+        rows.sort(key=lambda r: (str(r.get("date") or ""), str(r.get("checked_at") or "")))
+    return grouped
+
+
+def _last_row_before(history_rows, today):
+    candidates = []
+    for row in history_rows or []:
+        d = _safe_date(row.get("date") or row.get("checked_at"))
+        if d and d < today:
+            candidates.append((d, row))
+    if not candidates:
+        return None, None
+    candidates.sort(key=lambda x: (x[0], str(x[1].get("checked_at") or "")))
+    return candidates[-1]
+
+
+def _baseline_at_or_before(history_rows, target_date):
+    # 7일/30일 수치가 기간보다 길어진 판매량을 섞지 않도록
+    # 정확히 target_date의 일별 스냅샷이 있을 때만 기준값으로 사용합니다.
+    candidates = []
+    for row in history_rows or []:
+        d = _safe_date(row.get("date") or row.get("checked_at"))
+        if d == target_date:
+            total = to_int(row.get("purchase_total"))
+            if total is not None:
+                candidates.append(row)
+    if not candidates:
+        return None
+    candidates.sort(key=lambda r: str(r.get("checked_at") or ""))
+    return candidates[-1]
+
+
+def calculate_daily_metrics(current, history_rows=None, today=None):
+    """
+    일별 전용 지표를 계산합니다.
+    - daily_sales는 정확히 1일 전 스냅샷이 있을 때만 기록합니다.
+    - PC가 꺼져 며칠 누락된 경우 interval_sales/interval_days에만 기록하여
+      여러 날 판매량을 하루 판매량으로 오인하지 않게 합니다.
+    - 7일/30일 판매량은 정확히 7일 전/30일 전의 기준 스냅샷이
+      존재할 때만 계산합니다.
+    """
+    history_rows = history_rows or []
+    today = today or datetime.now().astimezone().date()
+    now_iso = current.get("checked_at") or datetime.now().astimezone().isoformat(timespec="seconds")
+    cur_purchase = to_int(current.get("purchase_total"))
+    cur_views = to_int(current.get("page_view_total"))
+    cur_reviews = to_int(current.get("review_count"))
+    cur_likes = to_int(current.get("like_count"))
+    price = to_int(current.get("current_price"))
+
+    prev_date, prev = _last_row_before(history_rows, today)
+    interval_days = (today - prev_date).days if prev_date else None
+
+    def delta(field, current_value):
+        if prev is None or current_value is None:
+            return None
+        old = to_int(prev.get(field))
+        return current_value - old if old is not None else None
+
+    interval_sales = delta("purchase_total", cur_purchase)
+    interval_views = delta("page_view_total", cur_views)
+    interval_reviews = delta("review_count", cur_reviews)
+    interval_likes = delta("like_count", cur_likes)
+
+    # '일별' 값은 정확히 전날 데이터가 있을 때만 사용합니다.
+    daily_sales = interval_sales if interval_days == 1 else None
+    daily_views = interval_views if interval_days == 1 else None
+    daily_reviews = interval_reviews if interval_days == 1 else None
+    daily_likes = interval_likes if interval_days == 1 else None
+    daily_gmv = daily_sales * price if daily_sales is not None and price is not None else None
+
+    def period_metrics(days):
+        if cur_purchase is None:
+            return None, None, None
+        baseline = _baseline_at_or_before(history_rows, today - timedelta(days=days))
+        if not baseline:
+            return None, None, None
+        base_total = to_int(baseline.get("purchase_total"))
+        if base_total is None:
+            return None, None, None
+        sales = cur_purchase - base_total
+        avg = round(sales / days, 2)
+        gmv = sales * price if price is not None else None
+        return sales, avg, gmv
+
+    sales_7d, avg_7d, gmv_7d = period_metrics(7)
+    sales_30d, avg_30d, gmv_30d = period_metrics(30)
+
+    return {
+        "date": today.isoformat(),
+        "checked_at": now_iso,
+        "brand_name": current.get("brand_name") or "",
+        "goods_no": str(current.get("goods_no") or ""),
+        "product_name": current.get("product_name") or "",
+        "purchase_total": cur_purchase,
+        "daily_sales": daily_sales,
+        "interval_sales": interval_sales,
+        "interval_days": interval_days,
+        "normal_price": to_int(current.get("normal_price")),
+        "current_price": price,
+        "sale_rate": to_int(current.get("sale_rate")),
+        "daily_estimated_gmv": daily_gmv,
+        "simple_gmv": to_int(current.get("simple_gmv")),
+        "page_view_total": cur_views,
+        "daily_page_view_increase": daily_views,
+        "review_count": cur_reviews,
+        "daily_review_increase": daily_reviews,
+        "like_count": cur_likes,
+        "daily_like_increase": daily_likes,
+        "sales_7d": sales_7d,
+        "sales_7d_avg_per_day": avg_7d,
+        "estimated_gmv_7d": gmv_7d,
+        "sales_30d": sales_30d,
+        "sales_30d_avg_per_day": avg_30d,
+        "estimated_gmv_30d": gmv_30d,
+        "availability": current.get("availability") or "",
+        "product_url": current.get("product_url") or "",
+        "errors": current.get("errors") or "",
+    }
+
+
+def enrich_with_daily_metrics(current, history_rows=None):
+    metrics = calculate_daily_metrics(current, history_rows)
+    current.update({
+        "daily_sales": metrics.get("daily_sales"),
+        "daily_estimated_gmv": metrics.get("daily_estimated_gmv"),
+        "daily_page_view_increase": metrics.get("daily_page_view_increase"),
+        "daily_review_increase": metrics.get("daily_review_increase"),
+        "daily_like_increase": metrics.get("daily_like_increase"),
+        "sales_7d": metrics.get("sales_7d"),
+        "sales_7d_avg_per_day": metrics.get("sales_7d_avg_per_day"),
+        "sales_30d": metrics.get("sales_30d"),
+        "sales_30d_avg_per_day": metrics.get("sales_30d_avg_per_day"),
+        "interval_sales": metrics.get("interval_sales"),
+        "interval_days": metrics.get("interval_days"),
+    })
+    return current
+
+
+def upsert_daily_product_sales(rows):
+    history = load_daily_product_history()
+    today = datetime.now().astimezone().date()
+    calculated = []
+    for current in rows:
+        goods_no = str(current.get("goods_no") or "")
+        daily = calculate_daily_metrics(current, history.get(goods_no, []), today=today)
+        calculated.append(daily)
+        # GUI / 이후 합계를 위해 원본 결과에도 일별 지표 반영
+        current.update({
+            "daily_sales": daily.get("daily_sales"),
+            "daily_estimated_gmv": daily.get("daily_estimated_gmv"),
+            "daily_page_view_increase": daily.get("daily_page_view_increase"),
+            "daily_review_increase": daily.get("daily_review_increase"),
+            "daily_like_increase": daily.get("daily_like_increase"),
+            "sales_7d": daily.get("sales_7d"),
+            "sales_7d_avg_per_day": daily.get("sales_7d_avg_per_day"),
+            "sales_30d": daily.get("sales_30d"),
+            "sales_30d_avg_per_day": daily.get("sales_30d_avg_per_day"),
+        })
+
+    old_rows = _load_csv_rows(DAILY_PRODUCT_SALES_FILE)
+    replace_keys = {(r["date"], str(r["goods_no"])) for r in calculated}
+    kept = [
+        r for r in old_rows
+        if (str(r.get("date") or ""), str(r.get("goods_no") or "")) not in replace_keys
+    ]
+    combined = kept + calculated
+    combined.sort(key=lambda r: (str(r.get("date") or ""), str(r.get("brand_name") or ""), str(r.get("goods_no") or "")))
+
+    with DAILY_PRODUCT_SALES_FILE.open("w", encoding="utf-8-sig", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=DAILY_PRODUCT_FIELDS)
+        w.writeheader()
+        for row in combined:
+            w.writerow({k: row.get(k, "") for k in DAILY_PRODUCT_FIELDS})
+    return calculated
+
+
+def upsert_daily_brand_sales(daily_rows, new_product_rows=None):
+    new_product_rows = new_product_rows or []
+    new_by_brand = {}
+    for p in new_product_rows:
+        b = str(p.get("brand_name") or "").strip() or "(브랜드 미확인)"
+        new_by_brand[b] = new_by_brand.get(b, 0) + 1
+
+    grouped = {}
+    for r in daily_rows:
+        b = str(r.get("brand_name") or "").strip() or "(브랜드 미확인)"
+        grouped.setdefault(b, []).append(r)
+
+    now = datetime.now().astimezone()
+    brand_rows = []
+    for brand, items in sorted(grouped.items()):
+        def isum(key):
+            vals = [to_int(x.get(key)) for x in items]
+            return sum(v for v in vals if v is not None)
+
+        daily_valid = [x for x in items if to_int(x.get("daily_sales")) is not None]
+        d7_valid = [x for x in items if to_int(x.get("sales_7d")) is not None]
+        d30_valid = [x for x in items if to_int(x.get("sales_30d")) is not None]
+        sales7 = sum(to_int(x.get("sales_7d")) or 0 for x in d7_valid)
+        sales30 = sum(to_int(x.get("sales_30d")) or 0 for x in d30_valid)
+        gmv7 = sum(to_int(x.get("estimated_gmv_7d")) or 0 for x in d7_valid)
+        gmv30 = sum(to_int(x.get("estimated_gmv_30d")) or 0 for x in d30_valid)
+
+        brand_rows.append({
+            "date": now.date().isoformat(),
+            "checked_at": now.isoformat(timespec="seconds"),
+            "brand_name": brand,
+            "product_count": len(items),
+            "daily_baseline_product_count": len(daily_valid),
+            "purchase_total_sum": isum("purchase_total"),
+            "simple_gmv_sum": isum("simple_gmv"),
+            "daily_sales_sum": sum(to_int(x.get("daily_sales")) or 0 for x in daily_valid),
+            "daily_estimated_gmv_sum": sum(to_int(x.get("daily_estimated_gmv")) or 0 for x in daily_valid),
+            "daily_page_view_increase_sum": sum(to_int(x.get("daily_page_view_increase")) or 0 for x in daily_valid),
+            "daily_review_increase_sum": sum(to_int(x.get("daily_review_increase")) or 0 for x in daily_valid),
+            "daily_like_increase_sum": sum(to_int(x.get("daily_like_increase")) or 0 for x in daily_valid),
+            "sales_7d_sum": sales7 if d7_valid else None,
+            "sales_7d_avg_per_day": round(sales7 / 7, 2) if d7_valid else None,
+            "estimated_gmv_7d": gmv7 if d7_valid else None,
+            "sales_30d_sum": sales30 if d30_valid else None,
+            "sales_30d_avg_per_day": round(sales30 / 30, 2) if d30_valid else None,
+            "estimated_gmv_30d": gmv30 if d30_valid else None,
+            "products_with_7d_baseline": len(d7_valid),
+            "products_with_30d_baseline": len(d30_valid),
+            "new_products": new_by_brand.get(brand, 0),
+        })
+
+    old_rows = _load_csv_rows(DAILY_BRAND_SALES_FILE)
+    replace_keys = {(r["date"], r["brand_name"]) for r in brand_rows}
+    kept = [r for r in old_rows if (str(r.get("date") or ""), str(r.get("brand_name") or "")) not in replace_keys]
+    combined = kept + brand_rows
+    combined.sort(key=lambda r: (str(r.get("date") or ""), str(r.get("brand_name") or "")))
+    with DAILY_BRAND_SALES_FILE.open("w", encoding="utf-8-sig", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=DAILY_BRAND_FIELDS)
+        w.writeheader()
+        for row in combined:
+            w.writerow({k: row.get(k, "") for k in DAILY_BRAND_FIELDS})
+    return brand_rows
+
+
+# -----------------------------
 # 브랜드 자동 발견 / 자동 업데이트
 # -----------------------------
 def _read_lines(path):
@@ -572,9 +871,12 @@ def write_snapshot(rows):
     path = SNAPSHOT_DIR / f"musinsa_snapshot_{stamp}.csv"
     fields = [
         "checked_at", "goods_no", "brand_name", "product_name",
-        "purchase_total", "delta_purchase", "normal_price", "current_price",
+        "purchase_total", "daily_sales", "daily_estimated_gmv",
+        "sales_7d", "sales_7d_avg_per_day", "sales_30d", "sales_30d_avg_per_day",
+        "delta_purchase", "normal_price", "current_price",
         "sale_rate", "simple_gmv", "delta_gmv", "page_view_total",
-        "review_count", "rating", "like_count", "availability", "product_url", "errors",
+        "daily_page_view_increase", "review_count", "daily_review_increase",
+        "rating", "like_count", "daily_like_increase", "availability", "product_url", "errors",
     ]
     with path.open("w", encoding="utf-8-sig", newline="") as f:
         w = csv.DictWriter(f, fieldnames=fields)
@@ -585,31 +887,38 @@ def write_snapshot(rows):
 
 
 def append_daily_summary(rows, new_product_count=0):
+    """전체 watchlist 일별 합계. 같은 날짜 재실행 시 해당 날짜 행을 교체합니다."""
     valid_purchase = [r for r in rows if isinstance(r.get("purchase_total"), int)]
     valid_gmv = [r for r in rows if isinstance(r.get("simple_gmv"), int)]
-    valid_delta = [r for r in rows if isinstance(r.get("delta_purchase"), int)]
-    valid_delta_gmv = [r for r in rows if isinstance(r.get("delta_gmv"), int)]
+    valid_daily = [r for r in rows if isinstance(r.get("daily_sales"), int)]
     fields = [
-        "checked_at", "date", "product_count", "purchase_total_sum",
-        "simple_gmv_sum", "delta_purchase_sum", "delta_gmv_sum",
-        "new_products",
+        "checked_at", "date", "product_count", "daily_baseline_product_count",
+        "purchase_total_sum", "simple_gmv_sum", "daily_sales_sum", "daily_estimated_gmv_sum",
+        "sales_7d_sum", "sales_30d_sum", "new_products",
     ]
+    now = datetime.now().astimezone()
     row = {
-        "checked_at": datetime.now().astimezone().isoformat(timespec="seconds"),
-        "date": datetime.now().astimezone().date().isoformat(),
+        "checked_at": now.isoformat(timespec="seconds"),
+        "date": now.date().isoformat(),
         "product_count": len(rows),
+        "daily_baseline_product_count": len(valid_daily),
         "purchase_total_sum": sum(r["purchase_total"] for r in valid_purchase),
         "simple_gmv_sum": sum(r["simple_gmv"] for r in valid_gmv),
-        "delta_purchase_sum": sum(r["delta_purchase"] for r in valid_delta),
-        "delta_gmv_sum": sum(r["delta_gmv"] for r in valid_delta_gmv),
+        "daily_sales_sum": sum(r["daily_sales"] for r in valid_daily),
+        "daily_estimated_gmv_sum": sum((r.get("daily_estimated_gmv") or 0) for r in valid_daily),
+        "sales_7d_sum": sum((r.get("sales_7d") or 0) for r in rows if r.get("sales_7d") is not None),
+        "sales_30d_sum": sum((r.get("sales_30d") or 0) for r in rows if r.get("sales_30d") is not None),
         "new_products": new_product_count,
     }
-    exists = DAILY_SUMMARY_FILE.exists()
-    with DAILY_SUMMARY_FILE.open("a", encoding="utf-8-sig", newline="") as f:
+    old_rows = _load_csv_rows(DAILY_SUMMARY_FILE)
+    kept = [r for r in old_rows if str(r.get("date") or "") != row["date"]]
+    combined = kept + [row]
+    combined.sort(key=lambda r: str(r.get("date") or ""))
+    with DAILY_SUMMARY_FILE.open("w", encoding="utf-8-sig", newline="") as f:
         w = csv.DictWriter(f, fieldnames=fields)
-        if not exists:
-            w.writeheader()
-        w.writerow(row)
+        w.writeheader()
+        for item in combined:
+            w.writerow({k: item.get(k, "") for k in fields})
     return row
 
 
@@ -629,10 +938,11 @@ def run_auto_update():
             return 0
 
         history = load_history_index()
+        daily_history = load_daily_product_history()
         rows = []
         with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
             futures = {
-                executor.submit(query_goods, goods_no, history.get(goods_no)): goods_no
+                executor.submit(query_goods, goods_no, history.get(goods_no), daily_history.get(goods_no, [])): goods_no
                 for goods_no in watchlist[:MAX_WATCHLIST]
             }
             for fut in as_completed(futures):
@@ -644,11 +954,14 @@ def run_auto_update():
 
         if rows:
             append_history(rows)
+            daily_rows = upsert_daily_product_sales(rows)
+            brand_rows = upsert_daily_brand_sales(daily_rows, new_rows)
             snapshot = write_snapshot(rows)
             summary = append_daily_summary(rows, len(new_rows))
             auto_log(
                 f"완료: {len(rows)}개 조회 / 신규 {len(new_rows)}개 / "
-                f"구매수 증가 {summary['delta_purchase_sum']} / 스냅샷 {snapshot.name}"
+                f"일판매 {summary['daily_sales_sum']} / 브랜드 {len(brand_rows)}개 / "
+                f"스냅샷 {snapshot.name}"
             )
         return 0
     except Exception as e:
@@ -658,7 +971,7 @@ def run_auto_update():
 # -----------------------------
 # 조회
 # -----------------------------
-def query_goods(goods_no, previous=None):
+def query_goods(goods_no, previous=None, daily_history=None):
     product_url = f"https://www.musinsa.com/products/{goods_no}"
     errors = []
 
@@ -723,6 +1036,7 @@ def query_goods(goods_no, previous=None):
                 result["delta_gmv"] = result["delta_purchase"] * current_price
         result["previous_checked_at"] = previous.get("checked_at")
 
+    enrich_with_daily_metrics(result, daily_history or [])
     return result
 
 
@@ -755,6 +1069,7 @@ class App(tk.Tk):
         self.minsize(1100, 650)
 
         self.history_index = load_history_index()
+        self.daily_history_index = load_daily_product_history()
         self.results = []
         self.total_target = 0
         self.done_count = 0
@@ -800,6 +1115,8 @@ class App(tk.Tk):
         ttk.Button(btnbox, text="CSV 불러오기", command=self.load_csv_goods).pack(fill="x", pady=(6, 0))
         ttk.Button(btnbox, text="결과 CSV 저장", command=self.export_csv).pack(fill="x", pady=(6, 0))
         ttk.Button(btnbox, text="조회이력 열기", command=self.open_history).pack(fill="x", pady=(6, 0))
+        ttk.Button(btnbox, text="일별 상품판매 열기", command=self.open_daily_products).pack(fill="x", pady=(6, 0))
+        ttk.Button(btnbox, text="브랜드 일별합계 열기", command=self.open_daily_brands).pack(fill="x", pady=(6, 0))
 
         tools = ttk.LabelFrame(outer, text="자동 추적", padding=8)
         tools.pack(fill="x", pady=(10, 0))
@@ -834,8 +1151,9 @@ class App(tk.Tk):
 
         columns = (
             "goods_no", "brand_name", "product_name",
-            "purchase_total", "delta_purchase",
-            "normal_price", "current_price", "sale_rate",
+            "purchase_total", "daily_sales", "daily_estimated_gmv",
+            "sales_7d", "sales_7d_avg_per_day", "sales_30d", "sales_30d_avg_per_day",
+            "delta_purchase", "normal_price", "current_price", "sale_rate",
             "simple_gmv", "delta_gmv",
             "page_view_total", "review_count", "rating",
             "like_count", "availability", "errors",
@@ -846,7 +1164,13 @@ class App(tk.Tk):
             "brand_name": "브랜드",
             "product_name": "상품명",
             "purchase_total": "누적구매수",
-            "delta_purchase": "이전대비",
+            "daily_sales": "오늘판매",
+            "daily_estimated_gmv": "오늘추정GMV",
+            "sales_7d": "최근7일",
+            "sales_7d_avg_per_day": "7일/일평균",
+            "sales_30d": "최근30일",
+            "sales_30d_avg_per_day": "30일/일평균",
+            "delta_purchase": "이전조회대비",
             "normal_price": "정상가",
             "current_price": "현재가",
             "sale_rate": "할인율",
@@ -865,7 +1189,13 @@ class App(tk.Tk):
             "brand_name": 120,
             "product_name": 260,
             "purchase_total": 90,
-            "delta_purchase": 80,
+            "daily_sales": 80,
+            "daily_estimated_gmv": 110,
+            "sales_7d": 80,
+            "sales_7d_avg_per_day": 90,
+            "sales_30d": 80,
+            "sales_30d_avg_per_day": 95,
+            "delta_purchase": 90,
             "normal_price": 90,
             "current_price": 90,
             "sale_rate": 70,
@@ -901,7 +1231,7 @@ class App(tk.Tk):
 
         note = (
             "※ 단순 누적 GMV = 현재가 × 누적 구매수. 실제 과거 결제액/정산매출과 동일하지 않습니다. "
-            "이전대비 값은 이 프로그램으로 과거에 조회한 이력이 있을 때 표시됩니다."
+            "오늘판매는 정확히 전날 자동 스냅샷이 있을 때만 계산합니다. 7일/30일은 충분한 과거 기준값이 쌓인 뒤 표시됩니다."
         )
         ttk.Label(outer, text=note, wraplength=1450).pack(anchor="w", pady=(8, 0))
 
@@ -997,7 +1327,7 @@ class App(tk.Tk):
                 if self.stop_requested:
                     break
                 prev = self.history_index.get(goods_no)
-                fut = executor.submit(query_goods, goods_no, prev)
+                fut = executor.submit(query_goods, goods_no, prev, self.daily_history_index.get(goods_no, []))
                 futures[fut] = goods_no
 
             for fut in as_completed(futures):
@@ -1024,6 +1354,12 @@ class App(tk.Tk):
                         "like_count": None,
                         "availability": None,
                         "simple_gmv": None,
+                        "daily_sales": None,
+                        "daily_estimated_gmv": None,
+                        "sales_7d": None,
+                        "sales_7d_avg_per_day": None,
+                        "sales_30d": None,
+                        "sales_30d_avg_per_day": None,
                         "delta_purchase": None,
                         "delta_gmv": None,
                         "product_url": f"https://www.musinsa.com/products/{goods_no}",
@@ -1064,6 +1400,12 @@ class App(tk.Tk):
             r.get("brand_name") or "-",
             r.get("product_name") or "-",
             fmt_num(r.get("purchase_total")),
+            fmt_num(r.get("daily_sales")),
+            fmt_won(r.get("daily_estimated_gmv")),
+            fmt_num(r.get("sales_7d")),
+            r.get("sales_7d_avg_per_day") if r.get("sales_7d_avg_per_day") is not None else "-",
+            fmt_num(r.get("sales_30d")),
+            r.get("sales_30d_avg_per_day") if r.get("sales_30d_avg_per_day") is not None else "-",
             fmt_signed(r.get("delta_purchase")),
             fmt_won(r.get("normal_price")),
             fmt_won(r.get("current_price")),
@@ -1095,6 +1437,16 @@ class App(tk.Tk):
             for r in self.results
             if isinstance(r.get("simple_gmv"), int)
         )
+        total_daily = sum(
+            r["daily_sales"]
+            for r in self.results
+            if isinstance(r.get("daily_sales"), int)
+        )
+        total_daily_gmv = sum(
+            r["daily_estimated_gmv"]
+            for r in self.results
+            if isinstance(r.get("daily_estimated_gmv"), int)
+        )
         total_delta = sum(
             r["delta_purchase"]
             for r in self.results
@@ -1110,7 +1462,8 @@ class App(tk.Tk):
             f"조회 {len(self.results):,}개 | "
             f"누적 구매수 합계 {total_purchase:,} | "
             f"단순 누적 GMV 합계 {total_gmv:,}원 | "
-            f"이전 대비 구매수 {total_delta:+,} | "
+            f"오늘 판매 {total_daily:,} | 오늘 추정 GMV {total_daily_gmv:,}원 | "
+            f"이전 조회 대비 {total_delta:+,} | "
             f"증가 GMV {total_delta_gmv:+,}원"
         )
 
@@ -1147,8 +1500,9 @@ class App(tk.Tk):
 
         fields = [
             "checked_at", "goods_no", "brand_name", "product_name",
-            "purchase_total", "delta_purchase",
-            "normal_price", "current_price", "sale_rate",
+            "purchase_total", "daily_sales", "daily_estimated_gmv",
+            "sales_7d", "sales_7d_avg_per_day", "sales_30d", "sales_30d_avg_per_day",
+            "delta_purchase", "normal_price", "current_price", "sale_rate",
             "simple_gmv", "delta_gmv",
             "page_view_total", "review_count", "rating",
             "like_count", "availability", "product_url", "errors",
@@ -1208,6 +1562,22 @@ class App(tk.Tk):
             os.startfile(str(HISTORY_FILE))
         except Exception:
             messagebox.showinfo("조회이력 위치", str(HISTORY_FILE))
+
+    def open_daily_products(self):
+        self._open_data_file(DAILY_PRODUCT_SALES_FILE, "아직 일별 상품판매 데이터가 없습니다. 자동 업데이트를 최소 1회 실행하세요.")
+
+    def open_daily_brands(self):
+        self._open_data_file(DAILY_BRAND_SALES_FILE, "아직 브랜드 일별합계 데이터가 없습니다. 자동 업데이트를 최소 1회 실행하세요.")
+
+    def _open_data_file(self, path, empty_message):
+        if not path.exists():
+            messagebox.showinfo("데이터", empty_message)
+            return
+        try:
+            import os
+            os.startfile(str(path))
+        except Exception:
+            messagebox.showinfo("파일 위치", str(path))
 
     def sort_by(self, col, descending):
         # 화면 표시 문자열에서 숫자 정렬 보정
