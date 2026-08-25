@@ -2,8 +2,8 @@ name: Daily Musinsa Collection
 
 on:
   schedule:
-    # GitHub cron is UTC. 14:50 UTC = 23:50 KST.
-    - cron: '50 14 * * *'
+    # GitHub cron is UTC. 14:40 UTC = 23:40 KST.
+    - cron: '40 14 * * *'
   workflow_dispatch:
 
 permissions:
