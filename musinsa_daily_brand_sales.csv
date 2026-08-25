@@ -1,0 +1,6 @@
+﻿date,checked_at,brand_name,product_count,daily_baseline_product_count,purchase_total_sum,simple_gmv_sum,daily_sales_sum,daily_estimated_gmv_sum,daily_page_view_increase_sum,daily_review_increase_sum,daily_like_increase_sum,sales_7d_sum,sales_7d_avg_per_day,estimated_gmv_7d,sales_30d_sum,sales_30d_avg_per_day,estimated_gmv_30d,products_with_7d_baseline,products_with_30d_baseline,new_products
+2026-08-25,2026-08-25T14:15:08+09:00,(브랜드 미확인),269,0,515908,212863327791205121,0,0,0,0,0,,,,,,,0,0,0
+2026-08-25,2026-08-25T14:15:08+09:00,데이,1,0,612,15850800,0,0,0,0,0,,,,,,,0,0,22
+2026-08-25,2026-08-25T14:15:08+09:00,디미트리블랙,445,0,1439500,44753894700,0,0,0,0,0,,,,,,,0,0,528
+2026-08-25,2026-08-25T14:15:08+09:00,키뮤어,332,0,301427,21204969950,0,0,0,0,0,,,,,,,0,0,401
+2026-08-25,2026-08-25T14:15:08+09:00,트릴리온,153,0,79141,3313097970,0,0,0,0,0,,,,,,,0,0,245
