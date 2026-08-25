@@ -1,0 +1,91 @@
+name: Daily Musinsa Collection
+
+on:
+  schedule:
+    # GitHub cron is UTC. 14:50 UTC = 23:50 KST.
+    - cron: '50 14 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: musinsa-daily-collection
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: windows-latest
+    timeout-minutes: 40
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set runner timezone to Korea
+        shell: pwsh
+        run: |
+          tzutil /s "Korea Standard Time"
+          Get-TimeZone
+
+      - name: Run Musinsa daily collector
+        shell: pwsh
+        env:
+          PYTHONUTF8: '1'
+        run: |
+          python musinsa_tracker.py --auto
+
+      - name: Commit collected data back to repository
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          $files = @(
+            "musinsa_watchlist.txt",
+            "musinsa_bulk_history.csv",
+            "musinsa_daily_product_sales.csv",
+            "musinsa_daily_brand_sales.csv",
+            "musinsa_daily_summary.csv",
+            "musinsa_new_products.csv"
+          )
+
+          foreach ($file in $files) {
+            if (Test-Path $file) {
+              git add -- $file
+            }
+          }
+
+          git diff --cached --quiet
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "No data changes to commit."
+            exit 0
+          }
+
+          git commit -m "chore(data): daily Musinsa snapshot [skip ci]"
+
+          # If the branch changed while this job was running, rebase first.
+          git pull --rebase origin $env:GITHUB_REF_NAME
+          git push origin HEAD:$env:GITHUB_REF_NAME
+
+      - name: Upload collection log and CSV backup
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: musinsa-daily-run-${{ github.run_id }}
+          if-no-files-found: ignore
+          retention-days: 30
+          path: |
+            musinsa_auto_update.log
+            musinsa_watchlist.txt
+            musinsa_daily_product_sales.csv
+            musinsa_daily_brand_sales.csv
+            musinsa_daily_summary.csv
+            musinsa_new_products.csv
