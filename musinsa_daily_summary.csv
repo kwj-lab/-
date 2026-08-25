@@ -1,2 +1,3 @@
 ﻿checked_at,date,product_count,daily_baseline_product_count,purchase_total_sum,simple_gmv_sum,daily_sales_sum,daily_estimated_gmv_sum,sales_7d_sum,sales_30d_sum,new_products
 2026-08-25T14:15:09+09:00,2026-08-25,1200,0,2336588,212863397079018541,0,0,0,0,1196
+2026-08-26T01:52:47+09:00,2026-08-26,1200,1196,2338735,213052091197960464,2147,188694118941923,0,0,0
