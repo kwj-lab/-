@@ -122,7 +122,7 @@ dialog{width:min(1200px,96vw);max-height:92vh;border:0;border-radius:16px;paddin
 
 <section class="panel">
 <div class="head"><div><div class="title">상품별 최종 확정 일매출</div><div class="small">상품명을 누르면 아래 상품별 일일 판매량 영역에서 날짜별 판매·매출·가격변화 확인</div></div><div class="small" id="productCount"></div></div>
-<div class="tablewrap"><table><thead><tr><th>#</th><th>브랜드</th><th>상품명</th><th>상품번호</th><th>누적 구매수</th><th>기준값 수집</th><th>마지막 수집시각</th><th><button class="sortbtn active" id="sortSales" type="button" data-sort="estimated_sales">추정 일판매 <span class="arrow">▼</span></button></th><th><button class="sortbtn" id="sortGmv" type="button" data-sort="estimated_gmv">추정 GMV <span class="arrow">↕</span></button></th><th>판매가</th><th>가격변화</th><th>시간범위</th><th>신뢰도</th></tr></thead><tbody id="productBody"></tbody></table></div>
+<div class="tablewrap"><table><thead><tr><th>#</th><th>브랜드</th><th>상품명</th><th>상품번호</th><th><button class="sortbtn" id="sortPurchase" type="button" data-sort="purchase_total">누적 구매수 <span class="arrow">↕</span></button></th><th>기준값 수집</th><th>마지막 수집시각</th><th><button class="sortbtn active" id="sortSales" type="button" data-sort="estimated_sales">추정 일판매 <span class="arrow">▼</span></button></th><th><button class="sortbtn" id="sortGmv" type="button" data-sort="estimated_gmv">추정 GMV <span class="arrow">↕</span></button></th><th>판매가</th><th>가격변화</th><th>시간범위</th><th>신뢰도</th></tr></thead><tbody id="productBody"></tbody></table></div>
 </section>
 
 <div class="footer">추정판매량 = 연속된 purchaseTotal 관측값의 증가량을 실제 관측시간 간격에 균등 배분한 뒤 KST 00:00~24:00와 겹치는 시간만 합산합니다. 가격은 새 가격을 처음 관측하기 전까지 이전 관측가를 유지하는 방식(LOCF)으로 추정 GMV에 적용합니다. 따라서 실제 시간대별 주문 집중도, 쿠폰, 적립금, 취소·반품, 실정산매출과는 차이가 날 수 있습니다.</div>
@@ -449,7 +449,7 @@ async function loadAll(){
     ` · 판매통계 수집완료(${latestRawDate||'-'}) ${f(latestRawCount)} / ${f(products.length)}`+
     ` · catalog ${f(catalogCount)}개`+
     (calCount?` · 캘린더 확정 ${f(calCount)}개`:' · 캘린더 계산 대기')+
-    ` · 최근 3일 자동 재계산(backfill) · UI v9.6`;
+    ` · 최근 3일 자동 재계산(backfill) · UI v9.7`;
  }catch(e){
   er.textContent='데이터 로드 실패: '+e.message;
   er.style.display='block';
@@ -466,6 +466,7 @@ document.getElementById('brandDaily').addEventListener('change',renderBrandDaily
 document.getElementById('productDailyPeriod').addEventListener('change',renderSelectedProductDaily);
 document.getElementById('sortSales').addEventListener('click',()=>setProductSort('estimated_sales'));
 document.getElementById('sortGmv').addEventListener('click',()=>setProductSort('estimated_gmv'));
+document.getElementById('sortPurchase').addEventListener('click',()=>setProductSort('purchase_total'));
 loadAll();
 </script>
 </body>
