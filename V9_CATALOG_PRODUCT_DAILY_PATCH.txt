@@ -1,0 +1,52 @@
+무신사 v9 catalog + 상품별 일판매 패치
+======================================
+
+수정사항
+--------
+1. 전체상품 CSV 버튼
+   -> musinsa_catalog.csv 직접 다운로드
+
+2. 일별판매 CSV 버튼
+   -> musinsa_calendar_latest_products.csv 다운로드
+
+3. 브랜드 CSV 버튼
+   -> musinsa_calendar_brand_daily.csv 다운로드
+
+4. 상품별 최종 확정 일매출에서 상품명을 클릭
+   -> 페이지 안의 '상품별 일일 판매량' 영역으로 이동
+   -> 30/90/180/365일 선택
+   -> 날짜별 추정판매 / 추정GMV / 판매가 / 가격변경 / coverage / confidence 표시
+
+5. 브랜드 catalog 수집 보강
+   - count API가 100 등으로 제한되어도 exhaustive discovery가 거기서 멈추지 않음
+   - 실제 검색 결과가 끝날 때까지 pagination
+   - 브랜드 공백/괄호/한영병기 차이 정규화
+   - repeated page / 관련결과 소진 시 안전 종료
+
+적용
+----
+A. Repository 최상위 기존 musinsa_collector_v9.py를
+   musinsa_collector_v9_catalogfix.py 내용으로 덮어쓰기
+   최종 파일명은 반드시 musinsa_collector_v9.py
+
+B. 기존 index.html을
+   index-v9-product-daily.html 내용으로 덮어쓰기
+   최종 파일명은 반드시 index.html
+
+C. .github/workflows/initialize-catalog-v9.yml을
+   initialize-catalog-v9-fixed.yml 내용으로 덮어쓰기
+   최종 파일명은 initialize-catalog-v9.yml
+
+D. Actions -> Initialize Full Musinsa Catalog v9를 다시 한 번 실행
+   기존 catalog는 삭제할 필요 없음.
+   새 pagination 로직이 누락된 상품을 추가/갱신함.
+
+E. 초기화 완료 후 생성:
+   musinsa_catalog_brand_counts.csv
+   브랜드별 실제 catalog 수집 상품 수를 확인 가능.
+
+주의
+----
+무신사 검색 화면의 '상품 개수'와 공개 검색 API에서 접근 가능한 goodsNo 개수는
+품절/판매중지/검색노출 상태 등에 따라 완전히 같다고 보장할 수 없습니다.
+하지만 이번 패치는 기존처럼 count=100 때문에 100개에서 조기 종료되는 문제를 제거합니다.

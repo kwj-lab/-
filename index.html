@@ -33,7 +33,7 @@ dialog{width:min(1200px,96vw);max-height:92vh;border:0;border-radius:16px;paddin
 <div class="wrap">
 <header>
 <div><h1>무신사 캘린더 일별 판매 대시보드</h1><div class="sub" id="updated">데이터 불러오는 중...</div></div>
-<div class="actions"><button id="reload">새로고침</button><button id="productCsv">상품 CSV</button><button id="brandCsv">브랜드 CSV</button></div>
+<div class="actions"><button id="reload">새로고침</button><button id="catalogCsv">전체상품 CSV</button><button id="dailyCsv">일별판매 CSV</button><button id="brandCsv">브랜드 CSV</button></div>
 </header>
 <div class="notice"><b>날짜 기준:</b> 한국시간 00:00~24:00. 예를 들어 20일 수치는 20일 하루 전체를 뜻합니다. 다만 상품당 하루 1회 누적구매수를 관측하므로 관측 사이 증가량을 시간 비율로 나눈 <b>캘린더 일별 추정치</b>입니다. 20일의 완전한 추정치는 21일 각 시간대 관측이 끝난 뒤 확정됩니다.</div>
 <div class="error" id="err"></div>
@@ -68,18 +68,60 @@ dialog{width:min(1200px,96vw);max-height:92vh;border:0;border-radius:16px;paddin
 <div class="body brandlayout"><div class="chart" id="brandChart"></div><div class="tablewrap" style="max-height:310px"><table><thead><tr><th>날짜</th><th>추정판매</th><th>추정GMV</th><th>상품완성도</th><th>가격변경</th></tr></thead><tbody id="brandDailyBody"></tbody></table></div></div>
 </section>
 
+<section class="panel" id="productDailySection">
+<div class="head">
+  <div>
+    <div class="title">상품별 일일 판매량</div>
+    <div class="small" id="productDailyMeta">아래 상품별 최종 확정 일매출에서 상품명을 선택하세요.</div>
+  </div>
+  <select id="productDailyPeriod">
+    <option value="30">30일</option>
+    <option value="90">90일</option>
+    <option value="180">180일</option>
+    <option value="365">365일</option>
+  </select>
+</div>
+<div class="body">
+  <div class="detailgrid">
+    <div class="box">
+      <h3>캘린더 일별 판매량</h3>
+      <div class="inside"><div class="chart smallchart" id="productSalesChart"></div></div>
+    </div>
+    <div class="box">
+      <h3>캘린더 일별 추정 GMV</h3>
+      <div class="inside"><div class="chart smallchart" id="productGmvChart"></div></div>
+    </div>
+  </div>
+  <div class="tablewrap" style="max-height:360px;margin-top:11px">
+    <table>
+      <thead>
+        <tr>
+          <th>날짜</th>
+          <th>추정판매</th>
+          <th>추정GMV</th>
+          <th>판매가</th>
+          <th>가격변경</th>
+          <th>시간범위</th>
+          <th>신뢰도</th>
+        </tr>
+      </thead>
+      <tbody id="productDailyBody">
+        <tr><td colspan="7" class="empty">상품을 선택하세요.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+</section>
+
 <section class="panel">
-<div class="head"><div><div class="title">상품별 최종 확정 일매출</div><div class="small">상품명을 누르면 30/90/180/365일 일별 판매·매출·가격변화 확인</div></div><div class="small" id="productCount"></div></div>
+<div class="head"><div><div class="title">상품별 최종 확정 일매출</div><div class="small">상품명을 누르면 아래 상품별 일일 판매량 영역에서 날짜별 판매·매출·가격변화 확인</div></div><div class="small" id="productCount"></div></div>
 <div class="tablewrap"><table><thead><tr><th>#</th><th>브랜드</th><th>상품명</th><th>상품번호</th><th>추정 일판매</th><th>추정 GMV</th><th>판매가</th><th>가격변화</th><th>시간범위</th><th>신뢰도</th></tr></thead><tbody id="productBody"></tbody></table></div>
 </section>
 
 <div class="footer">추정판매량 = 연속된 purchaseTotal 관측값의 증가량을 실제 관측시간 간격에 균등 배분한 뒤 KST 00:00~24:00와 겹치는 시간만 합산합니다. 가격은 새 가격을 처음 관측하기 전까지 이전 관측가를 유지하는 방식(LOCF)으로 추정 GMV에 적용합니다. 따라서 실제 시간대별 주문 집중도, 쿠폰, 적립금, 취소·반품, 실정산매출과는 차이가 날 수 있습니다.</div>
 </div>
 
-<dialog id="dlg">
-<div class="modalhead"><div><div class="modaltitle" id="dTitle">상품 상세</div><div class="small" id="dSub"></div></div><div class="actions"><select id="period"><option value="30">30일</option><option value="90">90일</option><option value="180">180일</option><option value="365">365일</option></select><button id="close">×</button></div></div>
-<div class="modalbody" id="dBody"><div class="empty">불러오는 중...</div></div>
-</dialog>
+
 
 <script>
 const F={latest:'musinsa_calendar_latest_products.csv',brands:'musinsa_calendar_brand_daily.csv',summary:'musinsa_calendar_summary.csv',manifest:'data/calendar/calendar_manifest.json',catalog:'musinsa_catalog.csv',raw:'musinsa_daily_product_sales.csv',watchlist:'musinsa_watchlist.txt'};
@@ -110,26 +152,70 @@ function monthList(start,end){const out=[];let [y,m]=start.slice(0,7).split('-')
 function addDays(s,d){const x=new Date(s+'T00:00:00Z');x.setUTCDate(x.getUTCDate()+d);return x.toISOString().slice(0,10)}
 async function historyFor(p,days){const end=manifest.latest_finalized_date||latestDate(products),start=addDays(end,-days+1),months=monthList(start,end),bucket=String(p.history_bucket).padStart(2,'0'),rows=[];for(const m of months){const t=await txt(`data/calendar/history/${m}/bucket-${bucket}.csv`,true);if(t)rows.push(...csvParse(t).filter(r=>String(r.goods_no)===String(p.goods_no)&&r.date>=start&&r.date<=end))}rows.sort((a,b)=>a.date.localeCompare(b.date));return rows}
 function detailHtml(p,h){const last=h.at(-1)||{},chg=h.filter(r=>n(r.price_change_detected)===1),avgCov=h.length?h.reduce((a,r)=>a+(n(r.coverage_pct)||0),0)/h.length:0;return `<div class="detailkpis"><div class="card"><div class="label">최근 추정판매</div><div class="value">${f(n(last.estimated_sales),1)}</div></div><div class="card"><div class="label">최근 추정GMV</div><div class="value">${won(n(last.estimated_gmv))}</div></div><div class="card"><div class="label">현재 관측가</div><div class="value">${won(n(last.display_price))}</div></div><div class="card"><div class="label">기간 평균 시간범위</div><div class="value">${f(avgCov,1)}%</div></div><div class="card"><div class="label">가격변경 횟수</div><div class="value">${f(chg.length)}</div></div></div><div class="detailgrid"><div class="box"><h3>캘린더 일별 판매량</h3><div class="inside"><div class="chart smallchart" id="salesC"></div></div></div><div class="box"><h3>캘린더 일별 추정 GMV</h3><div class="inside"><div class="chart smallchart" id="gmvC"></div></div></div></div><div class="box" style="margin-top:11px"><h3>판매가 변화</h3><div class="inside"><div class="chart smallchart" id="priceC"></div></div></div><div class="detailgrid" style="margin-top:11px"><div class="box"><h3>가격 변경 감지일</h3><div class="tablewrap" style="max-height:300px"><table><thead><tr><th>날짜</th><th>이전가</th><th>변경가</th><th>변화</th></tr></thead><tbody>${chg.length?[...chg].reverse().map(r=>`<tr><td>${r.date}</td><td>${won(n(r.previous_display_price))}</td><td>${won(n(r.display_price))}</td><td>${n(r.price_change_amount)>0?'+':''}${won(n(r.price_change_amount))} (${f(n(r.price_change_pct),1)}%)</td></tr>`).join(''):'<tr><td colspan="4" class="empty">가격 변경 없음</td></tr>'}</tbody></table></div></div><div class="box"><h3>일별 상세</h3><div class="tablewrap" style="max-height:300px"><table><thead><tr><th>날짜</th><th>추정판매</th><th>추정GMV</th><th>판매가</th><th>시간범위</th><th>신뢰도</th></tr></thead><tbody>${[...h].reverse().map(r=>`<tr><td>${r.date}</td><td>${f(n(r.estimated_sales),1)}</td><td>${won(n(r.estimated_gmv))}</td><td>${won(n(r.display_price))}</td><td>${f(n(r.coverage_pct),1)}%</td><td>${esc(r.confidence)}</td></tr>`).join('')}</tbody></table></div></div></div>`}
-async function openProduct(g){
- active=products.find(r=>String(r.goods_no)===String(g));if(!active)return;
- document.getElementById('dTitle').textContent=active.product_name||g;
- document.getElementById('dSub').textContent=`${active.brand_name||'-'} · 상품번호 ${g} · 캘린더 일별 추정`;
- document.getElementById('dlg').showModal();
+async function renderSelectedProductDaily(){
+ if(!active)return;
+
+ const meta=document.getElementById('productDailyMeta');
+ const salesEl=document.getElementById('productSalesChart');
+ const gmvEl=document.getElementById('productGmvChart');
+ const body=document.getElementById('productDailyBody');
+
+ meta.textContent=`${active.brand_name||'-'} · ${active.product_name||active.goods_no} · 상품번호 ${active.goods_no}`;
 
  if(!active.history_bucket){
-   const price=n(active.display_price);
-   document.getElementById('dBody').innerHTML=
-     `<div class="detailkpis">
-        <div class="card"><div class="label">현재 상태</div><div class="value">${esc(active.confidence||'대기')}</div></div>
-        <div class="card"><div class="label">현재 관측가</div><div class="value">${won(price)}</div></div>
-      </div>
-      <div class="empty">상품은 검색되었지만 아직 캘린더 일별 기록이 충분하지 않습니다. 다음 관측 후 Finalizer가 실행되면 일별 판매량·매출·가격이력이 표시됩니다.</div>`;
+   salesEl.innerHTML='<div class="empty">아직 일별 데이터 없음</div>';
+   gmvEl.innerHTML='<div class="empty">아직 일별 데이터 없음</div>';
+   body.innerHTML=`<tr><td colspan="7" class="empty">상품은 검색되었지만 아직 최종화된 캘린더 일별 기록이 없습니다. 다음 관측 후 Finalizer가 실행되면 날짜별 판매량이 표시됩니다.</td></tr>`;
    return;
  }
- document.getElementById('dBody').innerHTML='<div class="empty">상품 일별 이력을 불러오는 중...</div>';
- await refreshDetail();
+
+ salesEl.innerHTML='<div class="empty">불러오는 중...</div>';
+ gmvEl.innerHTML='<div class="empty">불러오는 중...</div>';
+ body.innerHTML='<tr><td colspan="7" class="empty">상품 이력을 불러오는 중...</td></tr>';
+
+ try{
+   const h=await historyFor(active,Number(document.getElementById('productDailyPeriod').value));
+
+   if(!h.length){
+     salesEl.innerHTML='<div class="empty">아직 일별 데이터 없음</div>';
+     gmvEl.innerHTML='<div class="empty">아직 일별 데이터 없음</div>';
+     body.innerHTML='<tr><td colspan="7" class="empty">아직 최종화된 일별 기록이 없습니다.</td></tr>';
+     return;
+   }
+
+   chart(salesEl,h,'estimated_sales');
+   chart(gmvEl,h,'estimated_gmv');
+
+   body.innerHTML=[...h].reverse().map(r=>{
+     const changed=n(r.price_change_detected)===1;
+     const priceChange=changed
+       ? `${n(r.price_change_amount)>0?'+':''}${won(n(r.price_change_amount))} (${f(n(r.price_change_pct),1)}%)`
+       : '-';
+
+     return `<tr>
+       <td>${esc(r.date)}</td>
+       <td class="${(n(r.estimated_sales)||0)>0?'positive':''}">${f(n(r.estimated_sales),1)}</td>
+       <td>${won(n(r.estimated_gmv))}</td>
+       <td>${won(n(r.display_price))}</td>
+       <td class="${changed?'warn':''}">${priceChange}</td>
+       <td>${f(n(r.coverage_pct),1)}%</td>
+       <td><span class="badge ${esc(r.confidence||'')}">${esc(r.confidence||'-')}</span></td>
+     </tr>`;
+   }).join('');
+ }catch(e){
+   salesEl.innerHTML='<div class="empty">데이터 로드 실패</div>';
+   gmvEl.innerHTML='<div class="empty">데이터 로드 실패</div>';
+   body.innerHTML=`<tr><td colspan="7" class="empty">${esc(e.message)}</td></tr>`;
+ }
 }
-async function refreshDetail(){if(!active)return;try{const h=await historyFor(active,Number(document.getElementById('period').value));document.getElementById('dBody').innerHTML=h.length?detailHtml(active,h):'<div class="empty">아직 최종화된 일별 기록이 없습니다.</div>';if(h.length){chart(document.getElementById('salesC'),h,'estimated_sales');chart(document.getElementById('gmvC'),h,'estimated_gmv');priceChart(document.getElementById('priceC'),h)}}catch(e){document.getElementById('dBody').innerHTML=`<div class="error" style="display:block">${esc(e.message)}</div>`}}
+
+async function openProduct(g){
+ active=products.find(r=>String(r.goods_no)===String(g));
+ if(!active)return;
+ await renderSelectedProductDaily();
+ document.getElementById('productDailySection').scrollIntoView({behavior:'smooth',block:'start'});
+}
+
 
 function renderAll(){renderK();renderOverall();renderBrandRank();renderProducts();renderBrandDaily()}
 async function loadAll(){
@@ -259,17 +345,13 @@ async function loadAll(){
 }
 
 document.getElementById('reload').addEventListener('click',loadAll);
-document.getElementById('productCsv').addEventListener('click',()=>{
- const target=products.some(x=>x.history_bucket)?F.latest:F.raw;
- window.open('./'+target,'_blank');
-});
+document.getElementById('catalogCsv').addEventListener('click',()=>window.open('./'+F.catalog,'_blank'));
+document.getElementById('dailyCsv').addEventListener('click',()=>window.open('./'+F.latest,'_blank'));
 document.getElementById('brandCsv').addEventListener('click',()=>window.open('./'+F.brands,'_blank'));
 document.getElementById('brandFilter').addEventListener('change',()=>{renderK();renderProducts()});
 document.getElementById('search').addEventListener('input',renderProducts);
 document.getElementById('brandDaily').addEventListener('change',renderBrandDaily);
-document.getElementById('period').addEventListener('change',refreshDetail);
-document.getElementById('close').addEventListener('click',()=>document.getElementById('dlg').close());
-document.getElementById('dlg').addEventListener('click',e=>{if(e.target===document.getElementById('dlg'))e.target.close()});
+document.getElementById('productDailyPeriod').addEventListener('change',renderSelectedProductDaily);
 loadAll();
 </script>
 </body>

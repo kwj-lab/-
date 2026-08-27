@@ -59,6 +59,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import unicodedata
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -451,11 +452,82 @@ def search_json(url, brand_name):
     return json.loads(http_get(url, referer=referer))
 
 
+def _extract_brand_name(item):
+    candidates = [
+        item.get("brandName"),
+        item.get("brandKorName"),
+        item.get("brandKoreanName"),
+        item.get("brand"),
+    ]
+    for value in candidates:
+        if isinstance(value, dict):
+            for key in ("name", "brandName", "korName", "koreanName"):
+                v = value.get(key)
+                if v:
+                    return str(v).strip()
+        elif value:
+            return str(value).strip()
+    return ""
+
+
+def _brand_keys(value):
+    """
+    브랜드 표기 흔들림을 안전하게 흡수합니다.
+    예:
+      디미트리블랙
+      디미트리 블랙
+      디미트리블랙(DIMITRI BLACK)
+    는 같은 브랜드로 인식합니다.
+
+    prefix/fuzzy 매칭은 하지 않아 다른 브랜드가 섞이는 위험을 줄입니다.
+    """
+    s = unicodedata.normalize("NFKC", str(value or "")).strip().casefold()
+    if not s:
+        return set()
+
+    keys = set()
+
+    compact = re.sub(r"[^0-9a-z가-힣]+", "", s)
+    if compact:
+        keys.add(compact)
+
+    korean = "".join(re.findall(r"[가-힣]+", s))
+    if korean:
+        keys.add(korean)
+
+    latin = "".join(re.findall(r"[a-z0-9]+", s))
+    if latin:
+        keys.add(latin)
+
+    base = re.sub(r"\([^)]*\)", "", s)
+    base_compact = re.sub(r"[^0-9a-z가-힣]+", "", base)
+    if base_compact:
+        keys.add(base_compact)
+
+    for part in re.findall(r"\(([^)]*)\)", s):
+        p = re.sub(r"[^0-9a-z가-힣]+", "", part)
+        if p:
+            keys.add(p)
+
+    return keys
+
+
+def _brand_matches(requested, candidate):
+    a = _brand_keys(requested)
+    b = _brand_keys(candidate)
+    return bool(a and b and (a & b))
+
+
 def search_brand_products(brand_name, known_goods=None, exhaustive=False):
     """
-    brandName 정확 일치 상품을 NEW 정렬로 읽습니다.
-    평일에는 기존 catalog 상품을 전부 다시 확인해 현재 표시가를 일별 갱신하고,
-    일요일/신규 브랜드/강제 실행은 더 깊게 전체 재탐색합니다.
+    무신사 검색결과에서 요청 브랜드의 상품을 수집합니다.
+
+    핵심 수정:
+    - count API의 total 값을 '하드 페이지 제한'으로 사용하지 않습니다.
+      일부 검색에서 count가 100처럼 제한되어도 exhaustive 모드는 실제 결과가
+      끝날 때까지 계속 pagination 합니다.
+    - 브랜드 표기 공백/괄호/한영 병기 차이를 정규화해 매칭합니다.
+    - 같은 페이지가 반복되거나 해당 브랜드 결과가 연속해서 사라지면 안전 종료합니다.
     """
     brand_name = brand_name.strip()
     if not brand_name:
@@ -463,29 +535,43 @@ def search_brand_products(brand_name, known_goods=None, exhaustive=False):
 
     known_goods = set(str(x) for x in (known_goods or set()))
     keyword = urllib.parse.quote(brand_name)
+
+    # 참고용 count. 페이지 제한에는 사용하지 않습니다.
     count_url = (
         "https://api.musinsa.com/api2/sc/v2/search/tab/count"
         f"?gf=A&keyword={keyword}&sendLog=true"
     )
     try:
         count_data = search_json(count_url, brand_name)
-        total = to_int(((((count_data or {}).get("data") or {}).get("goods") or {}).get("all"))) or 0
+        reported_total = to_int(
+            ((((count_data or {}).get("data") or {}).get("goods") or {}).get("all"))
+        ) or 0
     except Exception:
-        total = 0
+        reported_total = 0
 
     page_size = 60
-    total_pages = max(1, (total + page_size - 1) // page_size) if total > 0 else MAX_SEARCH_PAGES
-    page_limit = min(total_pages, MAX_SEARCH_PAGES if exhaustive else QUICK_SEARCH_MAX_PAGES)
-    target = brand_name.casefold()
-    results, seen = [], set()
+
+    if exhaustive:
+        page_limit = MAX_SEARCH_PAGES
+    else:
+        # 기존 catalog 상품을 모두 다시 볼 수 있을 만큼의 페이지는 최소 확보
+        known_pages = ((len(known_goods) + page_size - 1) // page_size) + 5 if known_goods else 0
+        page_limit = min(MAX_SEARCH_PAGES, max(QUICK_SEARCH_MAX_PAGES, known_pages))
+
+    results = []
+    seen_exact = set()
+    seen_any = set()
     seen_known = set()
-    known_only_streak = 0
+
+    no_exact_streak = 0
+    repeated_page_streak = 0
 
     for page in range(1, page_limit + 1):
         url = (
             "https://api.musinsa.com/api2/dp/v1/plp/goods"
             f"?gf=A&keyword={keyword}&sortCode=NEW&page={page}&size={page_size}&caller=SEARCH"
         )
+
         try:
             data = search_json(url, brand_name)
         except Exception as e:
@@ -496,61 +582,88 @@ def search_brand_products(brand_name, known_goods=None, exhaustive=False):
         if not isinstance(items, list) or not items:
             break
 
-        exact_page = 0
-        new_page = 0
+        page_any_new = 0
+        page_exact = 0
+
         for item in items:
             if not isinstance(item, dict):
                 continue
-            item_brand = str(item.get("brandName") or "").strip()
-            if item_brand.casefold() != target:
-                continue
+
             goods_no = str(item.get("goodsNo") or "").strip()
-            if not goods_no or goods_no in seen:
+            if not goods_no:
                 continue
-            seen.add(goods_no)
-            exact_page += 1
+
+            if goods_no not in seen_any:
+                seen_any.add(goods_no)
+                page_any_new += 1
+
+            item_brand = _extract_brand_name(item)
+            if not _brand_matches(brand_name, item_brand):
+                continue
+
+            if goods_no in seen_exact:
+                continue
+
+            seen_exact.add(goods_no)
+            page_exact += 1
+
             if goods_no in known_goods:
                 seen_known.add(goods_no)
-            else:
-                new_page += 1
 
             current_price = to_int(item.get("finalPrice"))
             if current_price is None:
                 current_price = to_int(item.get("price"))
+
             results.append({
                 "goods_no": goods_no,
-                "brand_name": item_brand,
+                "brand_name": item_brand or brand_name,
                 "product_name": item.get("goodsName") or "",
                 "normal_price": to_int(item.get("normalPrice")),
                 "current_price": current_price,
-                "sale_rate": to_int(item.get("finalDiscount")) if to_int(item.get("finalDiscount")) is not None else to_int(item.get("saleRate")),
+                "sale_rate": (
+                    to_int(item.get("finalDiscount"))
+                    if to_int(item.get("finalDiscount")) is not None
+                    else to_int(item.get("saleRate"))
+                ),
                 "review_count": to_int(item.get("reviewCount")),
                 "rating": item.get("reviewScore"),
                 "availability": "OutOfStock" if item.get("isSoldOut") else "InStock",
                 "product_url": f"https://www.musinsa.com/products/{goods_no}",
             })
 
-        if not exhaustive and known_goods:
-            all_known_seen = len(seen_known) >= len(known_goods)
-            if exact_page > 0 and new_page == 0:
-                known_only_streak += 1
-            else:
-                known_only_streak = 0
-            if all_known_seen and known_only_streak >= 1:
-                break
+        if page_any_new == 0:
+            repeated_page_streak += 1
+        else:
+            repeated_page_streak = 0
 
-        if not exhaustive and not known_goods:
-            if exact_page == 0:
-                known_only_streak += 1
-            else:
-                known_only_streak = 0
-            if known_only_streak >= QUICK_KNOWN_STOP_PAGES:
+        if page_exact == 0:
+            no_exact_streak += 1
+        else:
+            no_exact_streak = 0
+
+        # API가 같은 페이지를 반복하기 시작하면 무한 loop 방지
+        if repeated_page_streak >= 2:
+            break
+
+        if exhaustive:
+            # 관련없는 검색결과만 연속으로 나오는 구간까지 도달하면 종료
+            if no_exact_streak >= 3:
+                break
+        else:
+            # 기존 상품을 모두 확인했으면 daily price refresh 목적 달성
+            if known_goods and len(seen_known) >= len(known_goods):
+                break
+            if not known_goods and no_exact_streak >= QUICK_KNOWN_STOP_PAGES:
                 break
 
         time.sleep(0.15 + random.uniform(0.03, 0.12))
 
+    print(
+        f"[brand-search] {brand_name}: reported_total={reported_total}, "
+        f"matched={len(results)}, pages_scanned={page}",
+        file=sys.stderr,
+    )
     return results
-
 def discover_slot(state_dir, slot, force_full=False):
     state_dir = Path(state_dir)
     state_dir.mkdir(parents=True, exist_ok=True)
