@@ -40,7 +40,7 @@ dialog{width:min(1200px,96vw);max-height:92vh;border:0;border-radius:16px;paddin
 <div><h1>무신사 캘린더 일별 판매 대시보드</h1><div class="sub" id="updated">데이터 불러오는 중...</div></div>
 <div class="actions"><button id="reload">새로고침</button><button id="catalogCsv">전체상품 CSV</button><button id="dailyCsv">일별판매 CSV</button><button id="brandCsv">브랜드 CSV</button></div>
 </header>
-<div class="notice"><b>날짜 기준:</b> 한국시간 00:00~24:00. 예를 들어 20일 수치는 20일 하루 전체를 뜻합니다. 다만 상품당 하루 1회 누적구매수를 관측하므로 관측 사이 증가량을 시간 비율로 나눈 <b>캘린더 일별 추정치</b>입니다. 20일의 완전한 추정치는 21일 각 시간대 관측이 끝난 뒤 확정됩니다.</div>
+<div class="notice"><b>날짜 기준:</b> 한국시간 00:00~24:00. 예를 들어 20일 수치는 20일 하루 전체를 뜻합니다. 다만 상품당 하루 1회 누적구매수를 관측하므로 관측 사이 증가량을 시간 비율로 나눈 <b>캘린더 일별 추정치</b>입니다. 20일의 완전한 추정치는 21일 각 시간대 관측이 끝난 뒤 확정됩니다. 판매속도에 따라 24시간/12시간/약 6시간 간격으로 자동 추가 관측하여 고판매 상품의 날짜 경계 오차를 줄입니다.</div>
 <div class="error" id="err"></div>
 
 <div class="filters">
@@ -107,11 +107,13 @@ dialog{width:min(1200px,96vw);max-height:92vh;border:0;border-radius:16px;paddin
           <th>판매가</th>
           <th>가격변경</th>
           <th>시간범위</th>
+          <th>관측횟수</th>
+          <th>최대간격</th>
           <th>신뢰도</th>
         </tr>
       </thead>
       <tbody id="productDailyBody">
-        <tr><td colspan="7" class="empty">상품을 선택하세요.</td></tr>
+        <tr><td colspan="9" class="empty">상품을 선택하세요.</td></tr>
       </tbody>
     </table>
   </div>
@@ -120,7 +122,7 @@ dialog{width:min(1200px,96vw);max-height:92vh;border:0;border-radius:16px;paddin
 
 <section class="panel">
 <div class="head"><div><div class="title">상품별 최종 확정 일매출</div><div class="small">상품명을 누르면 아래 상품별 일일 판매량 영역에서 날짜별 판매·매출·가격변화 확인</div></div><div class="small" id="productCount"></div></div>
-<div class="tablewrap"><table><thead><tr><th>#</th><th>브랜드</th><th>상품명</th><th>상품번호</th><th><button class="sortbtn active" id="sortSales" type="button" data-sort="estimated_sales">추정 일판매 <span class="arrow">▼</span></button></th><th><button class="sortbtn" id="sortGmv" type="button" data-sort="estimated_gmv">추정 GMV <span class="arrow">↕</span></button></th><th>판매가</th><th>가격변화</th><th>시간범위</th><th>신뢰도</th></tr></thead><tbody id="productBody"></tbody></table></div>
+<div class="tablewrap"><table><thead><tr><th>#</th><th>브랜드</th><th>상품명</th><th>상품번호</th><th>누적 구매수</th><th>기준값 수집</th><th>마지막 수집시각</th><th><button class="sortbtn active" id="sortSales" type="button" data-sort="estimated_sales">추정 일판매 <span class="arrow">▼</span></button></th><th><button class="sortbtn" id="sortGmv" type="button" data-sort="estimated_gmv">추정 GMV <span class="arrow">↕</span></button></th><th>판매가</th><th>가격변화</th><th>시간범위</th><th>신뢰도</th></tr></thead><tbody id="productBody"></tbody></table></div>
 </section>
 
 <div class="footer">추정판매량 = 연속된 purchaseTotal 관측값의 증가량을 실제 관측시간 간격에 균등 배분한 뒤 KST 00:00~24:00와 겹치는 시간만 합산합니다. 가격은 새 가격을 처음 관측하기 전까지 이전 관측가를 유지하는 방식(LOCF)으로 추정 GMV에 적용합니다. 따라서 실제 시간대별 주문 집중도, 쿠폰, 적립금, 취소·반품, 실정산매출과는 차이가 날 수 있습니다.</div>
@@ -131,6 +133,7 @@ dialog{width:min(1200px,96vw);max-height:92vh;border:0;border-radius:16px;paddin
 <script>
 const F={latest:'musinsa_calendar_latest_products.csv',brands:'musinsa_calendar_brand_daily.csv',summary:'musinsa_calendar_summary.csv',manifest:'data/calendar/calendar_manifest.json',catalog:'musinsa_catalog.csv',raw:'musinsa_daily_product_sales.csv',watchlist:'musinsa_watchlist.txt'};
 let products=[],brands=[],summary=[],manifest={},active=null;
+let latestRawDate='';
 let productSort={key:'estimated_sales',dir:'desc'};
 
 function updateProductSortHeaders(){
@@ -164,6 +167,13 @@ function priceWon(v){
  if(v==null)return'-';
  return Math.round(v).toLocaleString('ko-KR')+'원';
 }
+function checkedTime(v){
+ if(!v)return'-';
+ const s=String(v).trim();
+ const m=s.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})(?::\d{2})?/);
+ return m?`${m[1]} ${m[2]}`:s;
+}
+
 function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
 function latestDate(rows){return rows.map(r=>r.date).filter(Boolean).sort().at(-1)||''}
 async function txt(p,opt=false){try{const r=await fetch('./'+p+'?v='+Date.now(),{cache:'no-store'});if(!r.ok){if(opt)return'';throw new Error(p+' HTTP '+r.status)}return await r.text()}catch(e){if(opt)return'';throw e}}
@@ -171,7 +181,7 @@ async function jsn(p,opt=false){try{const r=await fetch('./'+p+'?v='+Date.now(),
 
 function filtered(){let x=products;const b=document.getElementById('brandFilter').value;if(b)x=x.filter(r=>r.brand_name===b);const q=document.getElementById('search').value.trim().toLowerCase();if(q)x=x.filter(r=>(r.product_name||'').toLowerCase().includes(q)||String(r.goods_no||'').includes(q));return x}
 function chart(el,rows,key){if(!rows.length){el.innerHTML='<div class="empty">데이터 없음</div>';return}const W=900,H=270,L=58,R=18,T=15,B=35,vals=rows.map(r=>n(r[key])||0),mx=Math.max(...vals.map(Math.abs),1),x=i=>L+(W-L-R)*(rows.length===1?.5:i/(rows.length-1)),y=v=>T+(H-T-B)*(1-Math.max(0,v)/mx);let s='';for(let k=0;k<=4;k++){const yy=T+(H-T-B)*k/4;s+=`<line x1="${L}" y1="${yy}" x2="${W-R}" y2="${yy}" stroke="#e5e7eb"/><text x="${L-6}" y="${yy+3}" text-anchor="end" font-size="9" fill="#9ca3af">${f(mx*(4-k)/4)}</text>`}s+=`<polyline fill="none" stroke="#111827" stroke-width="2.3" points="${rows.map((r,i)=>x(i)+','+y(n(r[key])||0)).join(' ')}"/>`;const tc=Math.min(6,rows.length);for(let k=0;k<tc;k++){const i=Math.round(k*(rows.length-1)/(tc-1||1));s+=`<text x="${x(i)}" y="${H-10}" text-anchor="middle" font-size="9" fill="#6b7280">${(rows[i].date||'').slice(5)}</text>`}el.innerHTML=`<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${s}</svg>`}
-function priceChart(el,rows){const v=rows.map(r=>n(r.display_price)).filter(x=>x!=null);if(!v.length){el.innerHTML='<div class="empty">가격 데이터 없음</div>';return}const W=900,H=210,L=65,R=18,T=15,B=32,mn=Math.min(...v),mx=Math.max(...v),span=Math.max(mx-mn,1),x=i=>L+(W-L-R)*(rows.length===1?.5:i/(rows.length-1)),y=z=>T+(H-T-B)*(1-(z-mn)/span);let pts=rows.map((r,i)=>n(r.display_price)!=null?`${x(i)},${y(n(r.display_price))}`:'').filter(Boolean).join(' ');el.innerHTML=`<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"><polyline fill="none" stroke="#111827" stroke-width="2.4" points="${pts}"/><text x="${L-7}" y="${T+4}" text-anchor="end" font-size="9" fill="#6b7280">${f(mx)}</text><text x="${L-7}" y="${H-B+4}" text-anchor="end" font-size="9" fill="#6b7280">${f(mn)}</text></svg>`}
+function priceChart(el,rows){const v=rows.map(r=>n(r.display_price)).filter(x=>x!=null);if(!v.length){el.innerHTML='<div class="empty">가격 데이터 없음</div>';return}const W=900,H=210,L=65,R=18,T=15,B=32,mn=Math.min(...v),mx=Math.max(...v),span=Math.max(mx-mn,1),x=i=>L+(W-L-R)*(rows.length===1?.5:i/(rows.length-1)),y=z=>T+(H-T-B)*(1-(z-mn)/span);let pts=rows.map((r,i)=>n(r.display_price)!=null?`${x(i)},${y(n(r.display_price))}`:'').filter(Boolean).join(' ');el.innerHTML=`<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"><polyline fill="none" stroke="#111827" stroke-width="2.4" points="${pts}"/><text x="${L-7}" y="${T+4}" text-anchor="end" font-size="9" fill="#6b7280">${priceWon(mx)}</text><text x="${L-7}" y="${H-B+4}" text-anchor="end" font-size="9" fill="#6b7280">${priceWon(mn)}</text></svg>`}
 
 function populate(){const bs=[...new Set(products.map(r=>r.brand_name).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ko'));for(const id of ['brandFilter','brandDaily']){const el=document.getElementById(id),old=el.value;el.innerHTML=`<option value="">${id==='brandFilter'?'전체 브랜드':'브랜드 선택'}</option>`+bs.map(b=>`<option value="${esc(b)}">${esc(b)}</option>`).join('');if(bs.includes(old))el.value=old}}
 function renderK(){const rows=filtered(),d=latestDate(products);document.getElementById('kDate').textContent=d||'-';document.getElementById('kSales').textContent=f(rows.reduce((a,r)=>a+(n(r.estimated_sales)||0),0),1);document.getElementById('kGmv').textContent=won(rows.reduce((a,r)=>a+(n(r.estimated_gmv)||0),0));const c=rows.filter(r=>n(r.calendar_complete)===1).length;document.getElementById('kCoverage').textContent=rows.length?f(c/rows.length*100,1)+'%':'-';document.getElementById('kPriceChanges').textContent=f(rows.filter(r=>n(r.price_change_detected)===1).length);document.getElementById('kProducts').textContent=f(rows.length);document.getElementById('kBrands').textContent=f(new Set(rows.map(r=>r.brand_name).filter(Boolean)).size)+'개 브랜드'}
@@ -189,7 +199,46 @@ function renderProducts(){
    return productSort.dir==='asc'?aa-bb:bb-aa;
  });
  updateProductSortHeaders();
- document.getElementById('productCount').textContent=f(rows.length)+'개 상품';document.getElementById('productBody').innerHTML=rows.slice(0,4000).map((r,i)=>{const ch=n(r.price_change_detected)===1?`${n(r.price_change_amount)>0?'+':''}${won(n(r.price_change_amount))}`:'-';return `<tr><td>${i+1}</td><td><button class="link" data-b2="${esc(r.brand_name)}">${esc(r.brand_name)}</button></td><td><button class="link" data-g="${esc(r.goods_no)}">${esc(r.product_name||'-')}</button></td><td>${esc(r.goods_no)}</td><td class="${(n(r.estimated_sales)||0)>0?'positive':''}">${f(n(r.estimated_sales),1)}</td><td>${won(n(r.estimated_gmv))}</td><td>${priceWon(n(r.display_price))}</td><td class="${n(r.price_change_amount)<0?'negative':n(r.price_change_amount)>0?'warn':''}">${ch}</td><td>${f(n(r.coverage_pct),1)}%</td><td><span class="badge ${esc(r.confidence)}">${esc(r.confidence||'-')}</span></td></tr>`}).join('');document.querySelectorAll('[data-g]').forEach(b=>b.addEventListener('click',()=>openProduct(b.dataset.g)));document.querySelectorAll('[data-b2]').forEach(b=>b.addEventListener('click',()=>showBrand(b.dataset.b2)))}
+
+ const todayCollected=rows.filter(r=>r.raw_collected_today==='1').length;
+ document.getElementById('productCount').textContent=
+   `${f(rows.length)}개 상품 · ${latestRawDate||'-'} 기준값 수집 ${f(todayCollected)}개`;
+
+ document.getElementById('productBody').innerHTML=rows.slice(0,4000).map((r,i)=>{
+   const ch=n(r.price_change_detected)===1
+     ? `${n(r.price_change_amount)>0?'+':''}${priceWon(n(r.price_change_amount))}`
+     : '-';
+
+   const collected=r.raw_collected==='1';
+   const collectedToday=r.raw_collected_today==='1';
+
+   const status=collectedToday
+     ? `<span class="badge high">오늘 수집</span>`
+     : collected
+       ? `<span class="badge medium">${esc(r.raw_date||'이전')} 수집</span>`
+       : `<span class="badge low">미수집</span>`;
+
+   return `<tr>
+     <td>${i+1}</td>
+     <td><button class="link" data-b2="${esc(r.brand_name)}">${esc(r.brand_name||'-')}</button></td>
+     <td><button class="link" data-g="${esc(r.goods_no)}">${esc(r.product_name||'-')}</button></td>
+     <td>${esc(r.goods_no)}</td>
+     <td>${collected?f(n(r.purchase_total)):'-'}</td>
+     <td>${status}</td>
+     <td>${checkedTime(r.last_checked_at)}</td>
+     <td class="${(n(r.estimated_sales)||0)>0?'positive':''}">${f(n(r.estimated_sales),1)}</td>
+     <td>${won(n(r.estimated_gmv))}</td>
+     <td>${priceWon(n(r.display_price))}</td>
+     <td class="${n(r.price_change_amount)<0?'negative':n(r.price_change_amount)>0?'warn':''}">${ch}</td>
+     <td>${f(n(r.coverage_pct),1)}%</td>
+     <td><span class="badge ${esc(r.confidence)}">${esc(r.confidence||'-')}</span></td>
+   </tr>`;
+ }).join('');
+
+ document.querySelectorAll('[data-g]').forEach(b=>b.addEventListener('click',()=>openProduct(b.dataset.g)));
+ document.querySelectorAll('[data-b2]').forEach(b=>b.addEventListener('click',()=>showBrand(b.dataset.b2)));
+}
+
 function showBrand(b){document.getElementById('brandDaily').value=b;renderBrandDaily();document.getElementById('brandSection').scrollIntoView({behavior:'smooth',block:'start'})}
 function renderBrandDaily(){const b=document.getElementById('brandDaily').value;if(!b){document.getElementById('brandChart').innerHTML='<div class="empty">브랜드를 선택하세요.</div>';document.getElementById('brandDailyBody').innerHTML='';return}const rows=brands.filter(r=>r.brand_name===b).sort((a,c)=>a.date.localeCompare(c.date));chart(document.getElementById('brandChart'),rows.slice(-90),'estimated_sales');document.getElementById('brandDailyBody').innerHTML=[...rows].reverse().slice(0,180).map(r=>`<tr><td>${r.date}</td><td>${f(n(r.estimated_sales),1)}</td><td>${won(n(r.estimated_gmv))}</td><td>${f(n(r.product_coverage_pct),1)}%</td><td>${f(n(r.price_change_products))}</td></tr>`).join('')}
 
@@ -210,13 +259,13 @@ async function renderSelectedProductDaily(){
  if(!active.history_bucket){
    salesEl.innerHTML='<div class="empty">아직 일별 데이터 없음</div>';
    gmvEl.innerHTML='<div class="empty">아직 일별 데이터 없음</div>';
-   body.innerHTML=`<tr><td colspan="7" class="empty">상품은 검색되었지만 아직 최종화된 캘린더 일별 기록이 없습니다. 다음 관측 후 Finalizer가 실행되면 날짜별 판매량이 표시됩니다.</td></tr>`;
+   body.innerHTML=`<tr><td colspan="9" class="empty">상품은 검색되었지만 아직 최종화된 캘린더 일별 기록이 없습니다. 다음 관측 후 Finalizer가 실행되면 날짜별 판매량이 표시됩니다.</td></tr>`;
    return;
  }
 
  salesEl.innerHTML='<div class="empty">불러오는 중...</div>';
  gmvEl.innerHTML='<div class="empty">불러오는 중...</div>';
- body.innerHTML='<tr><td colspan="7" class="empty">상품 이력을 불러오는 중...</td></tr>';
+ body.innerHTML='<tr><td colspan="9" class="empty">상품 이력을 불러오는 중...</td></tr>';
 
  try{
    const h=await historyFor(active,Number(document.getElementById('productDailyPeriod').value));
@@ -224,7 +273,7 @@ async function renderSelectedProductDaily(){
    if(!h.length){
      salesEl.innerHTML='<div class="empty">아직 일별 데이터 없음</div>';
      gmvEl.innerHTML='<div class="empty">아직 일별 데이터 없음</div>';
-     body.innerHTML='<tr><td colspan="7" class="empty">아직 최종화된 일별 기록이 없습니다.</td></tr>';
+     body.innerHTML='<tr><td colspan="9" class="empty">아직 최종화된 일별 기록이 없습니다.</td></tr>';
      return;
    }
 
@@ -250,7 +299,7 @@ async function renderSelectedProductDaily(){
  }catch(e){
    salesEl.innerHTML='<div class="empty">데이터 로드 실패</div>';
    gmvEl.innerHTML='<div class="empty">데이터 로드 실패</div>';
-   body.innerHTML=`<tr><td colspan="7" class="empty">${esc(e.message)}</td></tr>`;
+   body.innerHTML=`<tr><td colspan="9" class="empty">${esc(e.message)}</td></tr>`;
  }
 }
 
@@ -284,6 +333,8 @@ async function loadAll(){
   const raw=rw?csvParse(rw):[];
   const watch=(wl||'').split(/\r?\n/).map(x=>x.trim()).filter(x=>x && !x.startsWith('#'));
 
+  latestRawDate=latestDate(raw);
+
   const catMap=new Map(catalog.map(x=>[String(x.goods_no||''),x]));
   const rawMap=new Map(raw.map(x=>[String(x.goods_no||''),x]));
   const merged=new Map();
@@ -316,7 +367,12 @@ async function loadAll(){
       coverage_pct:old.coverage_pct||'0',
       calendar_complete:old.calendar_complete||'0',
       confidence:old.confidence||((rr.purchase_total!==''&&rr.purchase_total!=null)?'collected':'pending'),
-      history_bucket:old.history_bucket||''
+      history_bucket:old.history_bucket||'',
+      purchase_total:(rr.purchase_total!==''&&rr.purchase_total!=null)?rr.purchase_total:(old.purchase_total??''),
+      raw_date:rr.date||old.raw_date||'',
+      last_checked_at:rr.checked_at||old.last_checked_at||'',
+      raw_collected:(rr.purchase_total!==''&&rr.purchase_total!=null)?'1':(old.raw_collected||'0'),
+      raw_collected_today:(rr.purchase_total!==''&&rr.purchase_total!=null&&rr.date===latestRawDate)?'1':'0'
     });
   }
 
@@ -342,7 +398,12 @@ async function loadAll(){
       coverage_pct:old.coverage_pct||'0',
       calendar_complete:old.calendar_complete||'0',
       confidence:old.confidence||'catalog',
-      history_bucket:old.history_bucket||''
+      history_bucket:old.history_bucket||'',
+      purchase_total:old.purchase_total??rr.purchase_total??'',
+      raw_date:old.raw_date||rr.date||'',
+      last_checked_at:old.last_checked_at||rr.checked_at||'',
+      raw_collected:old.raw_collected||((rr.purchase_total!==''&&rr.purchase_total!=null)?'1':'0'),
+      raw_collected_today:old.raw_collected_today||((rr.purchase_total!==''&&rr.purchase_total!=null&&rr.date===latestRawDate)?'1':'0')
     });
   }
 
@@ -365,7 +426,12 @@ async function loadAll(){
       coverage_pct:'0',
       calendar_complete:'0',
       confidence:'queued',
-      history_bucket:''
+      history_bucket:'',
+      purchase_total:'',
+      raw_date:'',
+      last_checked_at:'',
+      raw_collected:'0',
+      raw_collected_today:'0'
     });
   }
 
@@ -375,14 +441,15 @@ async function loadAll(){
 
   const finalized=manifest.latest_finalized_date||latestDate(cal)||'-';
   const calCount=cal.length;
-  const rawCount=raw.length;
   const catalogCount=catalog.length;
+  const latestRawCount=raw.filter(r=>r.date===latestRawDate && r.purchase_total!=='' && r.purchase_total!=null).length;
 
   document.getElementById('updated').textContent=
     `최종 캘린더 날짜 ${finalized} · 검색 가능 ${f(products.length)}개 상품`+
-    ` · 현재수집 ${f(rawCount)}개 · catalog ${f(catalogCount)}개`+
+    ` · 판매통계 수집완료(${latestRawDate||'-'}) ${f(latestRawCount)} / ${f(products.length)}`+
+    ` · catalog ${f(catalogCount)}개`+
     (calCount?` · 캘린더 확정 ${f(calCount)}개`:' · 캘린더 계산 대기')+
-    ` · 최근 3일 자동 재계산(backfill) · UI v9.3`;
+    ` · 최근 3일 자동 재계산(backfill) · UI v9.6`;
  }catch(e){
   er.textContent='데이터 로드 실패: '+e.message;
   er.style.display='block';
