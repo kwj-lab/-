@@ -95,6 +95,11 @@ CALENDAR_BRAND_FILE = BASE_DIR / "musinsa_calendar_brand_daily.csv"
 CALENDAR_SUMMARY_FILE = BASE_DIR / "musinsa_calendar_summary.csv"
 CALENDAR_HISTORY_BUCKETS = 64
 
+# Adaptive high-frequency observations used only for calendar-day estimation.
+# Baseline daily snapshots remain unchanged; extra observations are archived here.
+OBSERVATION_DIR = BASE_DIR / "data" / "observations"
+ADAPTIVE_REPORT_DIR = BASE_DIR / "data" / "adaptive"
+
 SLOT_COUNT = 8
 DISCOVERY_WORKERS = int(os.environ.get("MUSINSA_DISCOVERY_WORKERS", "2"))
 SHARD_WORKERS = int(os.environ.get("MUSINSA_SHARD_WORKERS", "2"))
@@ -106,6 +111,14 @@ REQUEST_MAX_INTERVAL = float(os.environ.get("MUSINSA_REQUEST_MAX_INTERVAL", "3.0
 MAX_SEARCH_PAGES = int(os.environ.get("MUSINSA_MAX_SEARCH_PAGES", "300"))
 QUICK_SEARCH_MAX_PAGES = int(os.environ.get("MUSINSA_QUICK_SEARCH_MAX_PAGES", "40"))
 QUICK_KNOWN_STOP_PAGES = int(os.environ.get("MUSINSA_QUICK_KNOWN_STOP_PAGES", "3"))
+
+# Adaptive sampling thresholds (rolling 24h / 7d average sales).
+# 0~2/day: baseline only (~24h)
+# 3~20/day: one extra observation at ~12h
+# 21+/day: three extra observations at ~6h / ~12h / ~18h
+ADAPTIVE_MEDIUM_MIN = float(os.environ.get("MUSINSA_ADAPTIVE_MEDIUM_MIN", "3"))
+ADAPTIVE_HIGH_MIN = float(os.environ.get("MUSINSA_ADAPTIVE_HIGH_MIN", "21"))
+ADAPTIVE_MAX_PER_RUN = int(os.environ.get("MUSINSA_ADAPTIVE_MAX_PER_RUN", "15000"))
 
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -128,6 +141,9 @@ COMPACT_FIELDS = [
     "date", "slot", "checked_at", "goods_no", "brand_name", "product_name",
     "purchase_total", "page_view_total", "current_price", "normal_price",
     "sale_rate", "review_count", "rating", "availability",
+]
+ADAPTIVE_OBS_FIELDS = COMPACT_FIELDS + [
+    "sample_kind", "sampling_tier", "sampling_score", "base_slot", "clock_slot",
 ]
 LATEST_FIELDS = [
     "date", "slot", "checked_at", "brand_name", "goods_no", "product_name",
@@ -940,6 +956,195 @@ def collect_slot_shard(state_dir, slot, shard_index, shard_count, output):
     }, ensure_ascii=False))
     return 0
 
+
+
+def adaptive_sales_score(row):
+    """Stable sales-speed score used for sampling tier selection.
+
+    Prefer the latest same-slot ~24h delta, but keep the 7d average as a
+    stabilizer so a single quiet day does not immediately demote a fast seller.
+    Negative/reset deltas are treated as zero.
+    """
+    vals = []
+    for key in ("daily_sales", "sales_7d_avg_per_day"):
+        v = to_float(row.get(key))
+        if v is not None:
+            vals.append(max(0.0, v))
+    return max(vals) if vals else 0.0
+
+
+def adaptive_sampling_tier(row):
+    score = adaptive_sales_score(row)
+    if score >= ADAPTIVE_HIGH_MIN:
+        return "6h", score
+    if score >= ADAPTIVE_MEDIUM_MIN:
+        return "12h", score
+    return "24h", score
+
+
+def adaptive_due(base_slot, clock_slot, tier):
+    """Return True when an extra observation is due in this 3h clock block.
+
+    Main collection is the baseline observation at offset 0.
+    12h tier adds offset 4 slots.
+    6h tier adds offsets 2, 4 and 6 slots.
+    Adaptive workflow runs later than main/recovery, so actual gaps are roughly
+    7.25/6/6/4.75h around the four daily observations rather than exactly 6h.
+    """
+    offset = (int(clock_slot) - int(base_slot)) % SLOT_COUNT
+    if tier == "12h":
+        return offset == 4
+    if tier == "6h":
+        return offset in (2, 4, 6)
+    return False
+
+
+def _adaptive_run_token(clock_slot):
+    stamp = now_kst().strftime("%H%M%S")
+    run_id = re.sub(r"[^0-9A-Za-z_.-]+", "-", os.environ.get("GITHUB_RUN_ID", "local"))
+    return f"clock-{int(clock_slot)}-{stamp}-{run_id}"
+
+
+def save_adaptive_observations(raw_rows, meta_by_goods, clock_slot):
+    """Archive successful extra observations without overwriting daily baseline snapshots."""
+    grouped = {}
+    for r in raw_rows:
+        if to_int(r.get("purchase_total")) is None:
+            continue
+        checked = parse_kst_datetime(r.get("checked_at")) or now_kst()
+        d = checked.date().isoformat()
+        g = str(r.get("goods_no") or "")
+        meta = meta_by_goods.get(g, {})
+        row = compact_from_raw(r, checked.date(), meta.get("base_slot", 0))
+        row.update({
+            "sample_kind": "adaptive",
+            "sampling_tier": meta.get("tier", ""),
+            "sampling_score": round(float(meta.get("score") or 0.0), 2),
+            "base_slot": meta.get("base_slot", ""),
+            "clock_slot": int(clock_slot),
+        })
+        grouped.setdefault(d, []).append(row)
+
+    token = _adaptive_run_token(clock_slot)
+    paths = []
+    for date_text, rows in grouped.items():
+        folder = OBSERVATION_DIR / date_text
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / f"adaptive-{token}.csv.gz"
+        rows.sort(key=lambda x: int(x["goods_no"]) if str(x.get("goods_no", "")).isdigit() else 10**30)
+        write_csv(path, rows, ADAPTIVE_OBS_FIELDS)
+        paths.append(str(path.relative_to(BASE_DIR)))
+    return paths
+
+
+def collect_adaptive(clock_slot, max_products=None, dry_run=False):
+    """Collect extra observations only for products whose sales speed justifies it."""
+    clock_slot = int(clock_slot)
+    max_products = ADAPTIVE_MAX_PER_RUN if max_products in (None, 0) else int(max_products)
+
+    latest_rows = read_csv(LATEST_PRODUCT_FILE)
+    catalog_rows = read_csv(CATALOG_FILE)
+    catalog = {str(r.get("goods_no") or ""): r for r in catalog_rows if r.get("goods_no")}
+
+    selected = []
+    for row in latest_rows:
+        g = str(row.get("goods_no") or "").strip()
+        if not g:
+            continue
+        tier, score = adaptive_sampling_tier(row)
+        if tier == "24h":
+            continue
+        base_slot = to_int(row.get("slot"))
+        if base_slot is None or not (0 <= base_slot < SLOT_COUNT):
+            base_slot = effective_goods_slot(g, catalog.get(g))
+        if not adaptive_due(base_slot, clock_slot, tier):
+            continue
+        selected.append({
+            "goods_no": g,
+            "tier": tier,
+            "score": score,
+            "base_slot": base_slot,
+        })
+
+    # High tier first, then highest sales speed. Cap protects the source and Actions runtime.
+    selected.sort(key=lambda x: (0 if x["tier"] == "6h" else 1, -x["score"], int(x["goods_no"]) if x["goods_no"].isdigit() else 10**30))
+    total_due = len(selected)
+    if max_products > 0:
+        selected = selected[:max_products]
+
+    stats = {
+        "checked_at": now_kst().isoformat(timespec="seconds"),
+        "clock_slot": clock_slot,
+        "thresholds": {"medium_min": ADAPTIVE_MEDIUM_MIN, "high_min": ADAPTIVE_HIGH_MIN},
+        "due_before_cap": total_due,
+        "selected": len(selected),
+        "selected_6h": sum(1 for x in selected if x["tier"] == "6h"),
+        "selected_12h": sum(1 for x in selected if x["tier"] == "12h"),
+        "max_products": max_products,
+        "dry_run": bool(dry_run),
+    }
+
+    if dry_run or not selected:
+        print(json.dumps(stats, ensure_ascii=False))
+        return 0
+
+    meta_by_goods = {x["goods_no"]: x for x in selected}
+    deadline = time.monotonic() + max(300, COLLECT_BUDGET_SECONDS)
+    work = Queue()
+    for x in selected:
+        work.put(x["goods_no"])
+
+    rows = []
+    rows_lock = threading.Lock()
+
+    def worker():
+        while time.monotonic() < deadline:
+            try:
+                g = work.get_nowait()
+            except Empty:
+                return
+            try:
+                r = collect_one(g, catalog.get(g), 2)
+            except Exception as e:
+                r = synthetic_failed_row(g, catalog.get(g), str(e))
+            with rows_lock:
+                rows.append(r)
+            work.task_done()
+
+    with ThreadPoolExecutor(max_workers=max(1, SHARD_WORKERS)) as executor:
+        futures = [executor.submit(worker) for _ in range(max(1, SHARD_WORKERS))]
+        for fut in futures:
+            try:
+                fut.result()
+            except Exception as e:
+                print(f"[adaptive-worker-error] {e}", file=sys.stderr)
+
+    by_goods = {str(r.get("goods_no") or ""): r for r in rows}
+    success_rows = [r for r in by_goods.values() if to_int(r.get("purchase_total")) is not None]
+    failed_goods = [g for g in meta_by_goods if g not in by_goods or to_int(by_goods[g].get("purchase_total")) is None]
+    not_attempted = max(0, len(selected) - len(by_goods))
+
+    paths = save_adaptive_observations(success_rows, meta_by_goods, clock_slot)
+
+    report_date = now_kst().date().isoformat()
+    report_dir = ADAPTIVE_REPORT_DIR / report_date
+    report_dir.mkdir(parents=True, exist_ok=True)
+    token = _adaptive_run_token(clock_slot)
+    stats.update({
+        "success": len(success_rows),
+        "failed_or_unattempted": len(failed_goods),
+        "not_attempted_before_budget": not_attempted,
+        "observation_files": paths,
+        "adaptive_state": THROTTLE.state(),
+        "failed_goods_sample": failed_goods[:100],
+    })
+    (report_dir / f"run-{token}.json").write_text(
+        json.dumps(stats, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    print(json.dumps(stats, ensure_ascii=False))
+    return 0
+
+
 def load_snapshot_any_slot(date_value):
     """v6→v7 slot 재배치와 과거 기록 호환을 위해 날짜별 8개 slot을 goodsNo로 합칩니다."""
     out = {}
@@ -1570,6 +1775,27 @@ def load_calendar_observations(target_date, before_days=3, after_days=2):
                     copied = dict(row)
                     copied["_checked_dt"] = checked
                     bucket[key] = copied
+
+        # High-selling products may have extra 6h/12h observations archived separately.
+        obs_folder = OBSERVATION_DIR / d.isoformat()
+        if obs_folder.exists():
+            obs_paths = sorted(list(obs_folder.glob("*.csv.gz")) + list(obs_folder.glob("*.csv")))
+            for obs_path in obs_paths:
+                for row in read_csv(obs_path):
+                    g = str(row.get("goods_no") or "").strip()
+                    checked = parse_kst_datetime(row.get("checked_at"))
+                    if not g or checked is None:
+                        continue
+                    key = checked.isoformat()
+                    bucket = by_goods.setdefault(g, {})
+                    old = bucket.get(key)
+                    if old is None or (
+                        to_int(old.get("purchase_total")) is None
+                        and to_int(row.get("purchase_total")) is not None
+                    ):
+                        copied = dict(row)
+                        copied["_checked_dt"] = checked
+                        bucket[key] = copied
         d += timedelta(days=1)
 
     out = {}
@@ -1954,6 +2180,11 @@ def main():
     p.add_argument("--lookback-days", type=int, default=2)
     p.add_argument("--max-queues", type=int, default=8)
 
+    p = sub.add_parser("collect-adaptive")
+    p.add_argument("--clock-slot", type=int, required=True, choices=range(8))
+    p.add_argument("--max-products", type=int, default=0)
+    p.add_argument("--dry-run", action="store_true")
+
     p = sub.add_parser("finalize-calendar")
     p.add_argument("--lookback-days", type=int, default=3)
     p.add_argument("--date", default="")
@@ -1969,6 +2200,8 @@ def main():
         return aggregate_slot(args.state_dir, args.shard_dir)
     if args.cmd == "recover-pending":
         return recover_pending(args.lookback_days, args.max_queues)
+    if args.cmd == "collect-adaptive":
+        return collect_adaptive(args.clock_slot, args.max_products, args.dry_run)
     if args.cmd == "finalize-calendar":
         return finalize_calendar_recent(args.lookback_days, args.date or None)
     return 2
