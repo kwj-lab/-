@@ -1,0 +1,103 @@
+name: Musinsa Adaptive Sampling v9
+
+on:
+  schedule:
+    # KST 01:30,04:30,07:30,10:30,13:30,16:30,19:30,22:30
+    # Main slot(+0h)과 Recovery 후에 실행하여 같은 API를 동시에 두드리지 않습니다.
+    - cron: '30 1,4,7,10,13,16,19,22 * * *'
+  workflow_dispatch:
+    inputs:
+      clock_slot:
+        description: '수동 실행할 현재 3시간 블록 (auto 권장)'
+        required: true
+        type: choice
+        options: ['auto','0','1','2','3','4','5','6','7']
+        default: 'auto'
+      dry_run:
+        description: '대상 수만 계산하고 실제 조회는 하지 않음'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: musinsa-v9-distributed
+  cancel-in-progress: false
+
+env:
+  PYTHONUTF8: '1'
+  MUSINSA_SHARD_WORKERS: '4'
+  MUSINSA_COLLECT_BUDGET_SECONDS: '3600'
+  MUSINSA_REQUEST_MIN_INTERVAL: '0.15'
+  MUSINSA_REQUEST_MAX_INTERVAL: '3.0'
+  MUSINSA_ADAPTIVE_MEDIUM_MIN: '3'
+  MUSINSA_ADAPTIVE_HIGH_MIN: '21'
+  MUSINSA_ADAPTIVE_MAX_PER_RUN: '15000'
+
+jobs:
+  adaptive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Resolve KST clock slot
+        id: slot
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          from datetime import datetime, timezone, timedelta
+          manual = "${{ github.event_name }}" == "workflow_dispatch"
+          choice = "${{ inputs.clock_slot }}" if manual else "auto"
+          if manual and choice not in ("", "auto"):
+              slot = int(choice)
+          else:
+              now = datetime.now(timezone(timedelta(hours=9)))
+              slot = (now.hour // 3) % 8
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+              f.write(f"slot={slot}\n")
+          print("Adaptive KST clock slot:", slot)
+          PY
+
+      - name: Collect adaptive observations
+        shell: bash
+        run: |
+          EXTRA=""
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.dry_run }}" = "true" ]; then EXTRA="--dry-run"; fi
+          python musinsa_collector_v9.py collect-adaptive --clock-slot ${{ steps.slot.outputs.slot }} $EXTRA
+
+      - name: Commit adaptive observations
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run == true) }}
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ -e data/observations ]; then git add -- data/observations; fi
+          if [ -e data/adaptive ]; then git add -- data/adaptive; fi
+          if git diff --cached --quiet; then
+            echo "No adaptive observation changes."
+            exit 0
+          fi
+          git commit -m "chore(data): adaptive Musinsa observations [skip ci]"
+          git pull --rebase origin "$GITHUB_REF_NAME"
+          git push origin "HEAD:$GITHUB_REF_NAME"
+
+      - name: Upload adaptive report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v9-adaptive-${{ github.run_id }}
+          retention-days: 3
+          if-no-files-found: ignore
+          path: data/adaptive/**/*.json
