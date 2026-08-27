@@ -127,8 +127,10 @@ USER_AGENT = (
 )
 
 CATALOG_FIELDS = [
-    "goods_no", "brand_name", "product_name", "normal_price",
-    "current_price", "sale_rate", "review_count", "rating",
+    "goods_no", "brand_name", "product_name",
+    "previous_product_name", "product_name_changed_at",
+    "product_name_change_count", "product_name_history",
+    "normal_price", "current_price", "sale_rate", "review_count", "rating",
     "availability", "first_seen_at", "last_seen_at", "product_url",
 ]
 RAW_FIELDS = [
@@ -534,6 +536,66 @@ def _brand_matches(requested, candidate):
     return bool(a and b and (a & b))
 
 
+
+def _normalize_product_name(value):
+    """상품명 변경 비교용 정규화. 공백/유니코드 표기 흔들림만 무시합니다."""
+    s = unicodedata.normalize("NFKC", str(value or "")).strip()
+    s = re.sub(r"\s+", " ", s)
+    return s
+
+
+def _load_product_name_history(value):
+    if not value:
+        return []
+    try:
+        data = json.loads(str(value))
+        if isinstance(data, list):
+            out = []
+            for x in data:
+                if isinstance(x, dict):
+                    out.append({
+                        "detected_at": str(x.get("detected_at") or ""),
+                        "old": str(x.get("old") or ""),
+                        "new": str(x.get("new") or ""),
+                    })
+            return out[-50:]
+    except Exception:
+        pass
+    return []
+
+
+def _update_product_name_tracking(old, incoming_name, detected_at):
+    old_name = str((old or {}).get("product_name") or "").strip()
+    new_name = str(incoming_name or "").strip() or old_name
+
+    previous_name = str((old or {}).get("previous_product_name") or "")
+    changed_at = str((old or {}).get("product_name_changed_at") or "")
+    change_count = to_int((old or {}).get("product_name_change_count")) or 0
+    history = _load_product_name_history((old or {}).get("product_name_history"))
+
+    changed = bool(
+        old_name and new_name
+        and _normalize_product_name(old_name) != _normalize_product_name(new_name)
+    )
+
+    if changed:
+        previous_name = old_name
+        changed_at = str(detected_at)
+        change_count += 1
+        history.append({
+            "detected_at": str(detected_at),
+            "old": old_name,
+            "new": new_name,
+        })
+        history = history[-50:]
+
+    history_json = (
+        json.dumps(history, ensure_ascii=False, separators=(",", ":"))
+        if history else ""
+    )
+    return new_name, previous_name, changed_at, change_count, history_json, changed
+
+
 def search_brand_products(brand_name, known_goods=None, exhaustive=False):
     """
     무신사 검색결과에서 요청 브랜드의 상품을 수집합니다.
@@ -731,10 +793,23 @@ def discover_slot(state_dir, slot, force_full=False):
         for p in found.get(brand, []):
             g = str(p["goods_no"])
             old = catalog.get(g, {})
+            (
+                tracked_name,
+                previous_name,
+                name_changed_at,
+                name_change_count,
+                name_history_json,
+                name_changed,
+            ) = _update_product_name_tracking(old, p.get("product_name"), ts)
+
             row = {
                 "goods_no": g,
                 "brand_name": p.get("brand_name") or old.get("brand_name") or "",
-                "product_name": p.get("product_name") or old.get("product_name") or "",
+                "product_name": tracked_name,
+                "previous_product_name": previous_name,
+                "product_name_changed_at": name_changed_at,
+                "product_name_change_count": name_change_count,
+                "product_name_history": name_history_json,
                 "normal_price": p.get("normal_price") if p.get("normal_price") is not None else old.get("normal_price", ""),
                 "current_price": p.get("current_price") if p.get("current_price") is not None else old.get("current_price", ""),
                 "sale_rate": p.get("sale_rate") if p.get("sale_rate") is not None else old.get("sale_rate", ""),
@@ -745,6 +820,12 @@ def discover_slot(state_dir, slot, force_full=False):
                 "last_seen_at": ts,
                 "product_url": p.get("product_url") or old.get("product_url") or f"https://www.musinsa.com/products/{g}",
             }
+            if name_changed:
+                print(
+                    f"[product-name-change] goodsNo={g} "
+                    f"{old.get('product_name')!r} -> {tracked_name!r} at {ts}",
+                    file=sys.stderr,
+                )
             catalog[g] = row
             if g not in existing_goods:
                 new_rows.append({
