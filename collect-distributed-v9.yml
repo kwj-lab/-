@@ -1,0 +1,170 @@
+name: Distributed Musinsa Collection v9
+
+on:
+  schedule:
+    # KST 00:15,03:15,06:15,09:15,12:15,15:15,18:15,21:15
+    - cron: '15 0,3,6,9,12,15,18,21 * * *'
+  workflow_dispatch:
+    inputs:
+      slot:
+        description: '수동 실행할 slot'
+        required: true
+        type: choice
+        options: ['0','1','2','3','4','5','6','7']
+        default: '0'
+      full_discovery:
+        description: '이 slot 담당 브랜드 전체 상품 강제 재탐색'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: musinsa-v9-distributed
+  cancel-in-progress: false
+
+env:
+  PYTHONUTF8: '1'
+  MUSINSA_DISCOVERY_WORKERS: '2'
+  # 하나의 process 안에서 8 worker를 두고 adaptive gate가 8->4->2->1로 직접 조절합니다.
+  MUSINSA_SHARD_WORKERS: '8'
+  MUSINSA_INLINE_RETRY_MAX: '300'
+  MUSINSA_COLLECT_BUDGET_SECONDS: '4800'
+  MUSINSA_REQUEST_MIN_INTERVAL: '0.10'
+  MUSINSA_REQUEST_MAX_INTERVAL: '3.0'
+  MUSINSA_MAX_SEARCH_PAGES: '300'
+  MUSINSA_QUICK_SEARCH_MAX_PAGES: '40'
+  MUSINSA_QUICK_KNOWN_STOP_PAGES: '3'
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    outputs:
+      slot: ${{ steps.slot.outputs.slot }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Resolve KST collection slot
+        id: slot
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          from datetime import datetime, timezone, timedelta
+          if os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch":
+              slot = int("${{ inputs.slot }}")
+          else:
+              slot = (datetime.now(timezone(timedelta(hours=9))).hour // 3) % 8
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+              f.write(f"slot={slot}\n")
+          print("KST slot:", slot)
+          PY
+      - name: Discover and refresh prices
+        shell: bash
+        run: |
+          EXTRA=""
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.full_discovery }}" = "true" ]; then EXTRA="--full-discovery"; fi
+          python musinsa_collector_v9.py discover-slot --state-dir run_state --slot ${{ steps.slot.outputs.slot }} $EXTRA
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v9-discovery-state
+          retention-days: 1
+          path: |
+            run_state/musinsa_watchlist.txt
+            run_state/musinsa_catalog.csv
+            run_state/new_products_delta.csv
+            run_state/discovery_stats.json
+            run_state/snapshot_date.txt
+            run_state/slot.txt
+
+  collect:
+    needs: discover
+    runs-on: ubuntu-latest
+    timeout-minutes: 95
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: v9-discovery-state
+          path: run_state
+      - name: Collect entire slot with global adaptive concurrency
+        shell: bash
+        run: |
+          mkdir -p shard_output
+          python musinsa_collector_v9.py collect-slot-shard \
+            --state-dir run_state \
+            --slot ${{ needs.discover.outputs.slot }} \
+            --shard-index 0 \
+            --shard-count 1 \
+            --output shard_output/slot-primary.csv
+      - name: Upload partial/full primary result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v9-slot-${{ needs.discover.outputs.slot }}-primary
+          retention-days: 1
+          if-no-files-found: ignore
+          path: shard_output/slot-primary.csv
+
+  aggregate:
+    if: ${{ always() && needs.discover.result == 'success' }}
+    needs: [discover, collect]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: v9-discovery-state
+          path: run_state
+      - run: mkdir -p shard_results
+      - name: Download available primary result
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: v9-slot-${{ needs.discover.outputs.slot }}-primary
+          path: shard_results
+      - name: Aggregate and create recovery queue
+        run: python musinsa_collector_v9.py aggregate-slot --state-dir run_state --shard-dir shard_results
+      - name: Commit primary data and coverage
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A -- data
+          for p in musinsa_watchlist.txt musinsa_catalog.csv musinsa_daily_product_sales.csv musinsa_daily_brand_sales.csv musinsa_daily_summary.csv musinsa_new_products.csv; do
+            if [ -e "$p" ]; then git add -- "$p"; fi
+          done
+          if git diff --cached --quiet; then echo "No collected changes."; exit 0; fi
+          git commit -m "chore(data): Musinsa v9 slot ${{ needs.discover.outputs.slot }} [skip ci]"
+          git pull --rebase origin "$GITHUB_REF_NAME"
+          git push origin "HEAD:$GITHUB_REF_NAME"
+      - name: Backup artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v9-backup-slot-${{ needs.discover.outputs.slot }}-${{ github.run_id }}
+          retention-days: 7
+          if-no-files-found: ignore
+          path: |
+            musinsa_daily_product_sales.csv
+            musinsa_daily_brand_sales.csv
+            musinsa_daily_summary.csv
+            data/coverage/*.json
+            data/recovery/**/*.csv
+            data/latest_slots/*.csv.gz

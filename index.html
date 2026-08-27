@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>무신사 캘린더 일별 판매 대시보드</title>
+<style>
+:root{--bg:#f5f6f8;--panel:#fff;--text:#111827;--muted:#6b7280;--line:#e5e7eb;--soft:#f9fafb;--good:#047857;--bad:#b91c1c;--warn:#b45309}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:Arial,"Malgun Gothic","맑은 고딕",sans-serif}
+.wrap{max-width:1720px;margin:auto;padding:20px}header{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;margin-bottom:14px}
+h1{margin:0;font-size:25px}.sub{font-size:12px;color:var(--muted);margin-top:6px;line-height:1.5}.actions,.filters{display:flex;gap:8px;flex-wrap:wrap}
+button,select,input{border:1px solid var(--line);background:#fff;border-radius:9px;padding:9px 11px;font-size:13px}button{cursor:pointer}
+.notice{background:#fffbeb;border:1px solid #fde68a;color:#92400e;padding:11px 13px;border-radius:11px;font-size:12px;line-height:1.55;margin-bottom:12px}
+.error{display:none;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;padding:11px 13px;border-radius:10px;margin-bottom:12px}
+.filters{margin-bottom:12px}.filters input{min-width:260px}
+.kpis{display:grid;grid-template-columns:repeat(6,minmax(140px,1fr));gap:10px;margin-bottom:12px}.card,.panel{background:var(--panel);border:1px solid var(--line);border-radius:13px}
+.card{padding:14px}.label{font-size:11px;color:var(--muted);margin-bottom:7px}.value{font-size:21px;font-weight:700}.small{font-size:11px;color:var(--muted);margin-top:5px}
+.grid2{display:grid;grid-template-columns:1.2fr .8fr;gap:12px}.panel{overflow:hidden;margin-bottom:12px}.head{padding:13px 15px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}.title{font-weight:700}.body{padding:13px 15px}
+.tablewrap{overflow:auto;max-height:590px}table{width:100%;border-collapse:collapse;font-size:12px}th,td{padding:9px;border-bottom:1px solid var(--line);white-space:nowrap;text-align:right}th{position:sticky;top:0;background:var(--soft);z-index:1;color:#4b5563}th:first-child,td:first-child,th:nth-child(2),td:nth-child(2),th:nth-child(3),td:nth-child(3){text-align:left}
+.link{border:0;background:none;padding:0;text-decoration:underline;text-underline-offset:2px;cursor:pointer;color:var(--text);font:inherit}.positive{color:var(--good);font-weight:700}.negative{color:var(--bad);font-weight:700}.muted{color:var(--muted)}.warn{color:var(--warn);font-weight:700}
+.badge{display:inline-block;border-radius:999px;padding:3px 7px;background:#f3f4f6;font-size:10px}.badge.high{color:var(--good)}.badge.low{color:var(--bad)}.badge.medium{color:var(--warn)}
+.chart{height:285px}.chart.smallchart{height:215px}svg{display:block;width:100%;height:100%}.empty{padding:35px;text-align:center;color:var(--muted)}
+.brandlayout{display:grid;grid-template-columns:1.15fr .85fr;gap:12px}
+dialog{width:min(1200px,96vw);max-height:92vh;border:0;border-radius:16px;padding:0;box-shadow:0 20px 70px rgba(0,0,0,.28)}dialog::backdrop{background:rgba(17,24,39,.55)}
+.modalhead{padding:16px 19px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:12px}.modaltitle{font-size:18px;font-weight:700}.modalbody{padding:15px 19px;overflow:auto;max-height:calc(92vh - 75px)}
+.detailkpis{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:11px}.detailgrid{display:grid;grid-template-columns:1fr 1fr;gap:11px}.box{border:1px solid var(--line);border-radius:11px;overflow:hidden}.box h3{font-size:13px;margin:0;padding:10px 12px;border-bottom:1px solid var(--line)}.inside{padding:10px 12px}
+.footer{font-size:11px;color:var(--muted);line-height:1.55;padding:8px 1px 25px}
+@media(max-width:1050px){.kpis{grid-template-columns:repeat(3,1fr)}.grid2,.brandlayout,.detailgrid{grid-template-columns:1fr}.detailkpis{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:650px){.wrap{padding:10px}header{display:block}.actions{margin-top:9px}.kpis{grid-template-columns:repeat(2,1fr)}.detailkpis{grid-template-columns:repeat(2,1fr)}dialog{width:98vw}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+<div><h1>무신사 캘린더 일별 판매 대시보드</h1><div class="sub" id="updated">데이터 불러오는 중...</div></div>
+<div class="actions"><button id="reload">새로고침</button><button id="productCsv">상품 CSV</button><button id="brandCsv">브랜드 CSV</button></div>
+</header>
+<div class="notice"><b>날짜 기준:</b> 한국시간 00:00~24:00. 예를 들어 20일 수치는 20일 하루 전체를 뜻합니다. 다만 상품당 하루 1회 누적구매수를 관측하므로 관측 사이 증가량을 시간 비율로 나눈 <b>캘린더 일별 추정치</b>입니다. 20일의 완전한 추정치는 21일 각 시간대 관측이 끝난 뒤 확정됩니다.</div>
+<div class="error" id="err"></div>
+
+<div class="filters">
+<select id="brandFilter"><option value="">전체 브랜드</option></select>
+<input id="search" placeholder="상품명 / 상품번호 검색">
+</div>
+
+<div class="kpis">
+<div class="card"><div class="label">최종 확정 날짜</div><div class="value" id="kDate">-</div><div class="small">KST 캘린더 기준</div></div>
+<div class="card"><div class="label">일별 추정 판매량</div><div class="value" id="kSales">-</div><div class="small">선택 브랜드 합계</div></div>
+<div class="card"><div class="label">일별 추정 GMV</div><div class="value" id="kGmv">-</div><div class="small">관측 표시가 기준</div></div>
+<div class="card"><div class="label">상품 완성도</div><div class="value" id="kCoverage">-</div><div class="small">99% 시간범위 이상 확보</div></div>
+<div class="card"><div class="label">가격 변경 상품</div><div class="value" id="kPriceChanges">-</div><div class="small">해당 날짜 변경 감지</div></div>
+<div class="card"><div class="label">추적 상품</div><div class="value" id="kProducts">-</div><div class="small" id="kBrands">-</div></div>
+</div>
+
+<div class="grid2">
+<section class="panel">
+<div class="head"><div><div class="title">전체 일별 추정 매출 추이</div><div class="small">최종화된 캘린더 날짜 기준</div></div></div>
+<div class="body"><div class="chart" id="overallChart"></div></div>
+</section>
+<section class="panel">
+<div class="head"><div><div class="title">브랜드 최신 일판매 순위</div><div class="small">브랜드명을 누르면 날짜별 추이</div></div></div>
+<div class="tablewrap"><table><thead><tr><th>#</th><th>브랜드</th><th>상품수</th><th>완성도</th><th>추정판매</th><th>추정GMV</th></tr></thead><tbody id="brandRank"></tbody></table></div>
+</section>
+</div>
+
+<section class="panel" id="brandSection">
+<div class="head"><div><div class="title">브랜드별 일일 판매량</div><div class="small">20일 · 21일 · 22일 식의 캘린더 날짜별 추정치</div></div><select id="brandDaily"><option value="">브랜드 선택</option></select></div>
+<div class="body brandlayout"><div class="chart" id="brandChart"></div><div class="tablewrap" style="max-height:310px"><table><thead><tr><th>날짜</th><th>추정판매</th><th>추정GMV</th><th>상품완성도</th><th>가격변경</th></tr></thead><tbody id="brandDailyBody"></tbody></table></div></div>
+</section>
+
+<section class="panel">
+<div class="head"><div><div class="title">상품별 최종 확정 일매출</div><div class="small">상품명을 누르면 30/90/180/365일 일별 판매·매출·가격변화 확인</div></div><div class="small" id="productCount"></div></div>
+<div class="tablewrap"><table><thead><tr><th>#</th><th>브랜드</th><th>상품명</th><th>상품번호</th><th>추정 일판매</th><th>추정 GMV</th><th>판매가</th><th>가격변화</th><th>시간범위</th><th>신뢰도</th></tr></thead><tbody id="productBody"></tbody></table></div>
+</section>
+
+<div class="footer">추정판매량 = 연속된 purchaseTotal 관측값의 증가량을 실제 관측시간 간격에 균등 배분한 뒤 KST 00:00~24:00와 겹치는 시간만 합산합니다. 가격은 새 가격을 처음 관측하기 전까지 이전 관측가를 유지하는 방식(LOCF)으로 추정 GMV에 적용합니다. 따라서 실제 시간대별 주문 집중도, 쿠폰, 적립금, 취소·반품, 실정산매출과는 차이가 날 수 있습니다.</div>
+</div>
+
+<dialog id="dlg">
+<div class="modalhead"><div><div class="modaltitle" id="dTitle">상품 상세</div><div class="small" id="dSub"></div></div><div class="actions"><select id="period"><option value="30">30일</option><option value="90">90일</option><option value="180">180일</option><option value="365">365일</option></select><button id="close">×</button></div></div>
+<div class="modalbody" id="dBody"><div class="empty">불러오는 중...</div></div>
+</dialog>
+
+<script>
+const F={latest:'musinsa_calendar_latest_products.csv',brands:'musinsa_calendar_brand_daily.csv',summary:'musinsa_calendar_summary.csv',manifest:'data/calendar/calendar_manifest.json'};
+let products=[],brands=[],summary=[],manifest={},active=null;
+
+function csvParse(t){t=t.replace(/^\uFEFF/,'');const rs=[];let r=[],c='',q=false;for(let i=0;i<t.length;i++){const x=t[i],n=t[i+1];if(x==='"'){if(q&&n==='"'){c+='"';i++}else q=!q}else if(x===','&&!q){r.push(c);c=''}else if((x==='\n'||x==='\r')&&!q){if(x==='\r'&&n==='\n')i++;r.push(c);c='';if(r.some(v=>v!==''))rs.push(r);r=[]}else c+=x}if(c!==''||r.length){r.push(c);rs.push(r)}if(!rs.length)return[];const h=rs.shift();return rs.map(a=>Object.fromEntries(h.map((k,i)=>[k,a[i]??''])));}
+function n(v){const x=Number(String(v??'').replace(/,/g,''));return Number.isFinite(x)?x:null}
+function f(v,d=0){if(v==null)return'-';return Number(v).toLocaleString('ko-KR',{minimumFractionDigits:d,maximumFractionDigits:d})}
+function won(v){if(v==null)return'-';const a=Math.abs(v);if(a>=1e8)return(v/1e8).toLocaleString('ko-KR',{maximumFractionDigits:2})+'억';if(a>=1e4)return(v/1e4).toLocaleString('ko-KR',{maximumFractionDigits:1})+'만';return Math.round(v).toLocaleString('ko-KR')+'원'}
+function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
+function latestDate(rows){return rows.map(r=>r.date).filter(Boolean).sort().at(-1)||''}
+async function txt(p,opt=false){try{const r=await fetch('./'+p+'?v='+Date.now(),{cache:'no-store'});if(!r.ok){if(opt)return'';throw new Error(p+' HTTP '+r.status)}return await r.text()}catch(e){if(opt)return'';throw e}}
+async function jsn(p,opt=false){try{const r=await fetch('./'+p+'?v='+Date.now(),{cache:'no-store'});if(!r.ok){if(opt)return null;throw new Error(p+' HTTP '+r.status)}return await r.json()}catch(e){if(opt)return null;throw e}}
+
+function filtered(){let x=products;const b=document.getElementById('brandFilter').value;if(b)x=x.filter(r=>r.brand_name===b);const q=document.getElementById('search').value.trim().toLowerCase();if(q)x=x.filter(r=>(r.product_name||'').toLowerCase().includes(q)||String(r.goods_no||'').includes(q));return x}
+function chart(el,rows,key){if(!rows.length){el.innerHTML='<div class="empty">데이터 없음</div>';return}const W=900,H=270,L=58,R=18,T=15,B=35,vals=rows.map(r=>n(r[key])||0),mx=Math.max(...vals.map(Math.abs),1),x=i=>L+(W-L-R)*(rows.length===1?.5:i/(rows.length-1)),y=v=>T+(H-T-B)*(1-Math.max(0,v)/mx);let s='';for(let k=0;k<=4;k++){const yy=T+(H-T-B)*k/4;s+=`<line x1="${L}" y1="${yy}" x2="${W-R}" y2="${yy}" stroke="#e5e7eb"/><text x="${L-6}" y="${yy+3}" text-anchor="end" font-size="9" fill="#9ca3af">${f(mx*(4-k)/4)}</text>`}s+=`<polyline fill="none" stroke="#111827" stroke-width="2.3" points="${rows.map((r,i)=>x(i)+','+y(n(r[key])||0)).join(' ')}"/>`;const tc=Math.min(6,rows.length);for(let k=0;k<tc;k++){const i=Math.round(k*(rows.length-1)/(tc-1||1));s+=`<text x="${x(i)}" y="${H-10}" text-anchor="middle" font-size="9" fill="#6b7280">${(rows[i].date||'').slice(5)}</text>`}el.innerHTML=`<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${s}</svg>`}
+function priceChart(el,rows){const v=rows.map(r=>n(r.display_price)).filter(x=>x!=null);if(!v.length){el.innerHTML='<div class="empty">가격 데이터 없음</div>';return}const W=900,H=210,L=65,R=18,T=15,B=32,mn=Math.min(...v),mx=Math.max(...v),span=Math.max(mx-mn,1),x=i=>L+(W-L-R)*(rows.length===1?.5:i/(rows.length-1)),y=z=>T+(H-T-B)*(1-(z-mn)/span);let pts=rows.map((r,i)=>n(r.display_price)!=null?`${x(i)},${y(n(r.display_price))}`:'').filter(Boolean).join(' ');el.innerHTML=`<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"><polyline fill="none" stroke="#111827" stroke-width="2.4" points="${pts}"/><text x="${L-7}" y="${T+4}" text-anchor="end" font-size="9" fill="#6b7280">${f(mx)}</text><text x="${L-7}" y="${H-B+4}" text-anchor="end" font-size="9" fill="#6b7280">${f(mn)}</text></svg>`}
+
+function populate(){const bs=[...new Set(products.map(r=>r.brand_name).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ko'));for(const id of ['brandFilter','brandDaily']){const el=document.getElementById(id),old=el.value;el.innerHTML=`<option value="">${id==='brandFilter'?'전체 브랜드':'브랜드 선택'}</option>`+bs.map(b=>`<option value="${esc(b)}">${esc(b)}</option>`).join('');if(bs.includes(old))el.value=old}}
+function renderK(){const rows=filtered(),d=latestDate(products);document.getElementById('kDate').textContent=d||'-';document.getElementById('kSales').textContent=f(rows.reduce((a,r)=>a+(n(r.estimated_sales)||0),0),1);document.getElementById('kGmv').textContent=won(rows.reduce((a,r)=>a+(n(r.estimated_gmv)||0),0));const c=rows.filter(r=>n(r.calendar_complete)===1).length;document.getElementById('kCoverage').textContent=rows.length?f(c/rows.length*100,1)+'%':'-';document.getElementById('kPriceChanges').textContent=f(rows.filter(r=>n(r.price_change_detected)===1).length);document.getElementById('kProducts').textContent=f(rows.length);document.getElementById('kBrands').textContent=f(new Set(rows.map(r=>r.brand_name).filter(Boolean)).size)+'개 브랜드'}
+function renderOverall(){const rows=[...summary].sort((a,b)=>a.date.localeCompare(b.date)).slice(-45);chart(document.getElementById('overallChart'),rows,'estimated_gmv')}
+function renderBrandRank(){const d=latestDate(brands),rows=brands.filter(r=>r.date===d).sort((a,b)=>(n(b.estimated_sales)||0)-(n(a.estimated_sales)||0)).slice(0,100);document.getElementById('brandRank').innerHTML=rows.map((r,i)=>`<tr><td>${i+1}</td><td><button class="link" data-brand="${esc(r.brand_name)}">${esc(r.brand_name)}</button></td><td>${f(n(r.product_count))}</td><td>${f(n(r.product_coverage_pct),1)}%</td><td class="positive">${f(n(r.estimated_sales),1)}</td><td>${won(n(r.estimated_gmv))}</td></tr>`).join('');document.querySelectorAll('[data-brand]').forEach(b=>b.addEventListener('click',()=>showBrand(b.dataset.brand)))}
+function renderProducts(){const rows=filtered().sort((a,b)=>(n(b.estimated_sales)||0)-(n(a.estimated_sales)||0));document.getElementById('productCount').textContent=f(rows.length)+'개 상품';document.getElementById('productBody').innerHTML=rows.slice(0,4000).map((r,i)=>{const ch=n(r.price_change_detected)===1?`${n(r.price_change_amount)>0?'+':''}${won(n(r.price_change_amount))}`:'-';return `<tr><td>${i+1}</td><td><button class="link" data-b2="${esc(r.brand_name)}">${esc(r.brand_name)}</button></td><td><button class="link" data-g="${esc(r.goods_no)}">${esc(r.product_name||'-')}</button></td><td>${esc(r.goods_no)}</td><td class="${(n(r.estimated_sales)||0)>0?'positive':''}">${f(n(r.estimated_sales),1)}</td><td>${won(n(r.estimated_gmv))}</td><td>${won(n(r.display_price))}</td><td class="${n(r.price_change_amount)<0?'negative':n(r.price_change_amount)>0?'warn':''}">${ch}</td><td>${f(n(r.coverage_pct),1)}%</td><td><span class="badge ${esc(r.confidence)}">${esc(r.confidence||'-')}</span></td></tr>`}).join('');document.querySelectorAll('[data-g]').forEach(b=>b.addEventListener('click',()=>openProduct(b.dataset.g)));document.querySelectorAll('[data-b2]').forEach(b=>b.addEventListener('click',()=>showBrand(b.dataset.b2)))}
+function showBrand(b){document.getElementById('brandDaily').value=b;renderBrandDaily();document.getElementById('brandSection').scrollIntoView({behavior:'smooth',block:'start'})}
+function renderBrandDaily(){const b=document.getElementById('brandDaily').value;if(!b){document.getElementById('brandChart').innerHTML='<div class="empty">브랜드를 선택하세요.</div>';document.getElementById('brandDailyBody').innerHTML='';return}const rows=brands.filter(r=>r.brand_name===b).sort((a,c)=>a.date.localeCompare(c.date));chart(document.getElementById('brandChart'),rows.slice(-90),'estimated_sales');document.getElementById('brandDailyBody').innerHTML=[...rows].reverse().slice(0,180).map(r=>`<tr><td>${r.date}</td><td>${f(n(r.estimated_sales),1)}</td><td>${won(n(r.estimated_gmv))}</td><td>${f(n(r.product_coverage_pct),1)}%</td><td>${f(n(r.price_change_products))}</td></tr>`).join('')}
+
+function monthList(start,end){const out=[];let [y,m]=start.slice(0,7).split('-').map(Number),[ey,em]=end.slice(0,7).split('-').map(Number);while(y<ey||(y===ey&&m<=em)){out.push(`${y}-${String(m).padStart(2,'0')}`);m++;if(m===13){m=1;y++}}return out}
+function addDays(s,d){const x=new Date(s+'T00:00:00Z');x.setUTCDate(x.getUTCDate()+d);return x.toISOString().slice(0,10)}
+async function historyFor(p,days){const end=manifest.latest_finalized_date||latestDate(products),start=addDays(end,-days+1),months=monthList(start,end),bucket=String(p.history_bucket).padStart(2,'0'),rows=[];for(const m of months){const t=await txt(`data/calendar/history/${m}/bucket-${bucket}.csv`,true);if(t)rows.push(...csvParse(t).filter(r=>String(r.goods_no)===String(p.goods_no)&&r.date>=start&&r.date<=end))}rows.sort((a,b)=>a.date.localeCompare(b.date));return rows}
+function detailHtml(p,h){const last=h.at(-1)||{},chg=h.filter(r=>n(r.price_change_detected)===1),avgCov=h.length?h.reduce((a,r)=>a+(n(r.coverage_pct)||0),0)/h.length:0;return `<div class="detailkpis"><div class="card"><div class="label">최근 추정판매</div><div class="value">${f(n(last.estimated_sales),1)}</div></div><div class="card"><div class="label">최근 추정GMV</div><div class="value">${won(n(last.estimated_gmv))}</div></div><div class="card"><div class="label">현재 관측가</div><div class="value">${won(n(last.display_price))}</div></div><div class="card"><div class="label">기간 평균 시간범위</div><div class="value">${f(avgCov,1)}%</div></div><div class="card"><div class="label">가격변경 횟수</div><div class="value">${f(chg.length)}</div></div></div><div class="detailgrid"><div class="box"><h3>캘린더 일별 판매량</h3><div class="inside"><div class="chart smallchart" id="salesC"></div></div></div><div class="box"><h3>캘린더 일별 추정 GMV</h3><div class="inside"><div class="chart smallchart" id="gmvC"></div></div></div></div><div class="box" style="margin-top:11px"><h3>판매가 변화</h3><div class="inside"><div class="chart smallchart" id="priceC"></div></div></div><div class="detailgrid" style="margin-top:11px"><div class="box"><h3>가격 변경 감지일</h3><div class="tablewrap" style="max-height:300px"><table><thead><tr><th>날짜</th><th>이전가</th><th>변경가</th><th>변화</th></tr></thead><tbody>${chg.length?[...chg].reverse().map(r=>`<tr><td>${r.date}</td><td>${won(n(r.previous_display_price))}</td><td>${won(n(r.display_price))}</td><td>${n(r.price_change_amount)>0?'+':''}${won(n(r.price_change_amount))} (${f(n(r.price_change_pct),1)}%)</td></tr>`).join(''):'<tr><td colspan="4" class="empty">가격 변경 없음</td></tr>'}</tbody></table></div></div><div class="box"><h3>일별 상세</h3><div class="tablewrap" style="max-height:300px"><table><thead><tr><th>날짜</th><th>추정판매</th><th>추정GMV</th><th>판매가</th><th>시간범위</th><th>신뢰도</th></tr></thead><tbody>${[...h].reverse().map(r=>`<tr><td>${r.date}</td><td>${f(n(r.estimated_sales),1)}</td><td>${won(n(r.estimated_gmv))}</td><td>${won(n(r.display_price))}</td><td>${f(n(r.coverage_pct),1)}%</td><td>${esc(r.confidence)}</td></tr>`).join('')}</tbody></table></div></div></div>`}
+async function openProduct(g){active=products.find(r=>String(r.goods_no)===String(g));if(!active)return;document.getElementById('dTitle').textContent=active.product_name||g;document.getElementById('dSub').textContent=`${active.brand_name||'-'} · 상품번호 ${g} · 캘린더 일별 추정`;document.getElementById('dBody').innerHTML='<div class="empty">상품 일별 이력을 불러오는 중...</div>';document.getElementById('dlg').showModal();await refreshDetail()}
+async function refreshDetail(){if(!active)return;try{const h=await historyFor(active,Number(document.getElementById('period').value));document.getElementById('dBody').innerHTML=h.length?detailHtml(active,h):'<div class="empty">아직 최종화된 일별 기록이 없습니다.</div>';if(h.length){chart(document.getElementById('salesC'),h,'estimated_sales');chart(document.getElementById('gmvC'),h,'estimated_gmv');priceChart(document.getElementById('priceC'),h)}}catch(e){document.getElementById('dBody').innerHTML=`<div class="error" style="display:block">${esc(e.message)}</div>`}}
+
+function renderAll(){renderK();renderOverall();renderBrandRank();renderProducts();renderBrandDaily()}
+async function loadAll(){const er=document.getElementById('err');er.style.display='none';try{const [p,b,s,m]=await Promise.all([txt(F.latest),txt(F.brands),txt(F.summary),jsn(F.manifest,true)]);products=csvParse(p);brands=csvParse(b);summary=csvParse(s);manifest=m||{};populate();renderAll();document.getElementById('updated').textContent=`최종 캘린더 날짜 ${manifest.latest_finalized_date||latestDate(products)||'-'} · ${f(products.length)}개 상품 · 최근 3일 자동 재계산(backfill)`}catch(e){er.textContent='데이터 로드 실패: '+e.message;er.style.display='block'}}
+
+document.getElementById('reload').addEventListener('click',loadAll);
+document.getElementById('productCsv').addEventListener('click',()=>window.open('./'+F.latest,'_blank'));
+document.getElementById('brandCsv').addEventListener('click',()=>window.open('./'+F.brands,'_blank'));
+document.getElementById('brandFilter').addEventListener('change',()=>{renderK();renderProducts()});
+document.getElementById('search').addEventListener('input',renderProducts);
+document.getElementById('brandDaily').addEventListener('change',renderBrandDaily);
+document.getElementById('period').addEventListener('change',refreshDetail);
+document.getElementById('close').addEventListener('click',()=>document.getElementById('dlg').close());
+document.getElementById('dlg').addEventListener('click',e=>{if(e.target===document.getElementById('dlg'))e.target.close()});
+loadAll();
+</script>
+</body>
+</html>

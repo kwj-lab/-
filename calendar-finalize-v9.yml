@@ -1,0 +1,95 @@
+name: Musinsa Calendar Daily Finalizer v9
+
+on:
+  schedule:
+    # 14:30 UTC = KST 23:30
+    # 오늘 날짜를 억지로 확정하지 않고, 어제까지의 KST 00:00~24:00 추정치를 만듭니다.
+    - cron: '30 14 * * *'
+  workflow_dispatch:
+    inputs:
+      lookback_days:
+        description: '최근 며칠을 다시 계산할지 (복구 데이터 backfill 포함)'
+        required: false
+        default: '3'
+      date:
+        description: '특정 날짜 YYYY-MM-DD만 다시 계산 (비우면 lookback 사용)'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+concurrency:
+  group: musinsa-v9-distributed
+  cancel-in-progress: false
+
+env:
+  PYTHONUTF8: '1'
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Build KST calendar-day estimates
+        shell: bash
+        run: |
+          DAYS="3"
+          TARGET=""
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            if [ -n "${{ inputs.lookback_days }}" ]; then DAYS="${{ inputs.lookback_days }}"; fi
+            if [ -n "${{ inputs.date }}" ]; then TARGET="${{ inputs.date }}"; fi
+          fi
+
+          if [ -n "$TARGET" ]; then
+            python musinsa_collector_v9.py finalize-calendar --date "$TARGET"
+          else
+            python musinsa_collector_v9.py finalize-calendar --lookback-days "$DAYS"
+          fi
+
+      - name: Commit calendar analytics
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          for p in \
+            musinsa_calendar_latest_products.csv \
+            musinsa_calendar_brand_daily.csv \
+            musinsa_calendar_summary.csv \
+            data/calendar; do
+            if [ -e "$p" ]; then git add -- "$p"; fi
+          done
+
+          if git diff --cached --quiet; then
+            echo "No calendar analytics changes."
+            exit 0
+          fi
+
+          git commit -m "chore(data): KST calendar daily estimates v9 [skip ci]"
+          git pull --rebase origin "$GITHUB_REF_NAME"
+          git push origin "HEAD:$GITHUB_REF_NAME"
+
+      - name: Calendar analytics backup
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v9-calendar-${{ github.run_id }}
+          retention-days: 7
+          if-no-files-found: ignore
+          path: |
+            musinsa_calendar_latest_products.csv
+            musinsa_calendar_brand_daily.csv
+            musinsa_calendar_summary.csv
+            data/calendar/calendar_manifest.json

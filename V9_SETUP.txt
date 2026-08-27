@@ -1,0 +1,130 @@
+무신사 v9 - KST 캘린더 일별 판매/매출
+======================================
+
+목표
+----
+09:15 -> 다음날 09:15 같은 '24시간 구간' 자체가 아니라
+20일 / 21일 / 22일처럼 한국시간 00:00~24:00 기준으로
+상품별/브랜드별 일판매량과 추정매출을 보는 버전입니다.
+
+계산 방식
+---------
+상품의 purchaseTotal은 하루 한 번 고정 시간대에 관측합니다.
+
+예:
+20일 09:15 = 1,000
+21일 09:15 = 1,100
+
+증가 100개를 관측구간 24시간에 균등하게 배분하고,
+20일 09:15~24:00에 해당하는 부분과
+21일 00:00~09:15에 해당하는 부분으로 나눕니다.
+
+다음 관측구간까지 합치면 21일 00:00~24:00의 추정 판매량을 만들 수 있습니다.
+
+따라서:
+20일 전체 캘린더 일매출은 21일 각 slot 관측이 끝난 뒤 최종화됩니다.
+매일 23:30 KST Calendar Finalizer가 어제까지의 날짜를 계산합니다.
+
+중요:
+이것은 실제 시간대별 주문 로그가 아니라 누적 purchaseTotal 관측값을 이용한 추정치입니다.
+
+추정 GMV의 가격 처리
+--------------------
+새 가격을 처음 관측하기 전에는 이전 관측가가 유지됐다고 계산합니다.
+즉, 실제 가격 변경시각을 임의로 과거로 소급하지 않습니다.
+
+가격이 21일 09:15에 39,000원,
+22일 09:15에 29,900원으로 처음 관측됐다면
+22일 09:15를 '가격 변경 감지 시점'으로 취급합니다.
+
+자동 실행
+---------
+메인 수집:
+00:15 / 03:15 / 06:15 / 09:15 / 12:15 / 15:15 / 18:15 / 21:15 KST
+
+실패 복구:
+01:00 / 04:00 / 07:00 / 10:00 / 13:00 / 16:00 / 19:00 / 22:00 KST
+
+캘린더 일별 최종화:
+23:30 KST
+
+Calendar Finalizer는 최근 3일을 매일 다시 계산합니다.
+늦게 성공한 Recovery 데이터가 있으면 과거 날짜도 자동 backfill 됩니다.
+
+GitHub 적용
+-----------
+1. Repository 최상위:
+   musinsa_collector_v9.py 업로드
+
+2. .github/workflows:
+   collect-distributed-v9.yml
+   recover-distributed-v9.yml
+   calendar-finalize-v9.yml
+   세 파일 업로드
+
+3. 기존 자동수집 workflow:
+   collect-distributed-v8.yml
+   recover-distributed-v8.yml
+   그리고 더 옛날 v6/v7/collect-daily workflow가 남아 있으면 삭제/비활성화
+   (중복 수집 방지)
+
+4. 기존 index.html을 새 index.html로 교체
+
+5. 기존 데이터는 삭제하지 않음:
+   musinsa_brands.txt
+   musinsa_watchlist.txt
+   musinsa_catalog.csv
+   data/slots
+   data/recovery
+   data/coverage
+   등은 그대로 유지
+
+새로 생성되는 핵심 데이터
+------------------------
+musinsa_calendar_latest_products.csv
+  가장 최근 최종화 날짜의 상품별 캘린더 일판매량/추정GMV
+
+musinsa_calendar_brand_daily.csv
+  브랜드별 20일/21일/22일 날짜별 추정 판매량/GMV
+
+musinsa_calendar_summary.csv
+  전체 브랜드 일별 합계
+
+data/calendar/calendar_manifest.json
+  최종화 날짜 및 상품상세 history 정보
+
+data/calendar/history/YYYY-MM/bucket-XX.csv
+  상품 클릭 시 30/90/180/365일 이력을 빠르게 불러오기 위한 월별 bucket
+
+대시보드
+--------
+메인:
+- 최종 확정 날짜
+- 일별 추정 판매량
+- 일별 추정 GMV
+- 상품 데이터 완성도
+- 가격 변경 상품 수
+- 브랜드별 일판매량
+- 상품별 최종 확정 일매출
+
+상품명 클릭:
+- 30/90/180/365일
+- 날짜별 추정판매량
+- 날짜별 추정GMV
+- 판매가 변화
+- 가격 변경 감지일
+- 데이터 coverage
+- confidence
+
+정확도 표시
+-----------
+coverage_pct:
+해당 상품의 00:00~24:00 중 실제 관측구간으로 커버된 시간 비율
+
+calendar_complete=1:
+99% 이상 시간범위가 확보된 상품
+
+confidence:
+high / medium / low
+
+브랜드 일판매량에는 브랜드 전체 상품의 완성도도 같이 표시됩니다.

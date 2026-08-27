@@ -1,0 +1,75 @@
+name: Musinsa Recovery v9
+
+on:
+  schedule:
+    # 각 main slot 시작 45분 뒤: KST 01:00,04:00,07:00,10:00,13:00,16:00,19:00,22:00
+    - cron: '0 1,4,7,10,13,16,19,22 * * *'
+  workflow_dispatch:
+    inputs:
+      lookback_days:
+        description: '미수집 큐를 다시 볼 최근 일수'
+        required: false
+        default: '2'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: musinsa-v9-distributed
+  cancel-in-progress: false
+
+env:
+  PYTHONUTF8: '1'
+  MUSINSA_RECOVERY_WORKERS: '2'
+  # Recovery는 primary보다 훨씬 느리게 시작하고 429 시 더 느려집니다.
+  MUSINSA_REQUEST_MIN_INTERVAL: '0.40'
+  MUSINSA_REQUEST_MAX_INTERVAL: '5.0'
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 110
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Recover pending goods only
+        shell: bash
+        run: |
+          DAYS="2"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.lookback_days }}" ]; then
+            DAYS="${{ inputs.lookback_days }}"
+          fi
+          python musinsa_collector_v9.py recover-pending --lookback-days "$DAYS" --max-queues 8
+      - name: Commit recovered data
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A -- data
+          for p in musinsa_daily_product_sales.csv musinsa_daily_brand_sales.csv musinsa_daily_summary.csv; do
+            if [ -e "$p" ]; then git add -- "$p"; fi
+          done
+          if git diff --cached --quiet; then
+            echo "No recovery changes."
+            exit 0
+          fi
+          git commit -m "chore(data): Musinsa v9 recovery [skip ci]"
+          git pull --rebase origin "$GITHUB_REF_NAME"
+          git push origin "HEAD:$GITHUB_REF_NAME"
+      - name: Recovery backup
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v9-recovery-${{ github.run_id }}
+          retention-days: 7
+          if-no-files-found: ignore
+          path: |
+            data/coverage/*.json
+            data/recovery/**/*.csv
+            musinsa_daily_product_sales.csv
