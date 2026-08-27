@@ -1,2 +1,0 @@
-# Runtime dependency: Python standard library only.
-# PyInstaller is installed only by GitHub Actions for Windows EXE builds.
