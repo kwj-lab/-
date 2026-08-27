@@ -1,0 +1,43 @@
+name: GitHub Schedule Diagnostic
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnostic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Show schedule diagnostics
+        shell: bash
+        run: |
+          echo "======================================"
+          echo "GitHub Schedule Diagnostic"
+          echo "======================================"
+          echo "event_name=${{ github.event_name }}"
+          echo "repository=${{ github.repository }}"
+          echo "ref=${{ github.ref }}"
+          echo "sha=${{ github.sha }}"
+          echo "workflow=${{ github.workflow }}"
+          echo "run_id=${{ github.run_id }}"
+          echo "run_attempt=${{ github.run_attempt }}"
+          echo "UTC now=$(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+          echo "KST now=$(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M:%S KST')"
+          echo "======================================"
+
+      - name: Scheduled trigger confirmation
+        if: ${{ github.event_name == 'schedule' }}
+        run: |
+          echo "SCHEDULE_TRIGGER_OK=true"
+          echo "This run was created by GitHub's schedule event."
+
+      - name: Manual trigger confirmation
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          echo "MANUAL_TRIGGER_OK=true"
+          echo "This run was started manually."
