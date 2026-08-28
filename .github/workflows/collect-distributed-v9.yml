@@ -2,12 +2,8 @@ name: Distributed Musinsa Collection v9
 
 on:
   schedule:
-    # Primary: KST 00:15,03:15,06:15,09:15,12:15,15:15,18:15,21:15
+    # KST 00:15,03:15,06:15,09:15,12:15,15:15,18:15,21:15
     - cron: '15 0,3,6,9,12,15,18,21 * * *'
-      timezone: 'Asia/Seoul'
-    # Backup: 30 minutes later. Gate checks coverage and skips if already collected.
-    - cron: '45 0,3,6,9,12,15,18,21 * * *'
-      timezone: 'Asia/Seoul'
   workflow_dispatch:
     inputs:
       slot:
@@ -43,95 +39,11 @@ env:
   MUSINSA_QUICK_KNOWN_STOP_PAGES: '3'
 
 jobs:
-  gate:
-    runs-on: ubuntu-latest
-    outputs:
-      run: ${{ steps.gate.outputs.run }}
-      slot: ${{ steps.gate.outputs.slot }}
-      reason: ${{ steps.gate.outputs.reason }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
-
-      - name: Resolve manual slot or oldest missing due slot
-        id: gate
-        shell: bash
-        run: |
-          python - <<'PY'
-          import json
-          import os
-          from datetime import datetime, timezone, timedelta
-          from pathlib import Path
-
-          out = Path(os.environ["GITHUB_OUTPUT"])
-          event = os.environ.get("GITHUB_EVENT_NAME", "")
-
-          def emit(run, slot="", reason=""):
-              with out.open("a", encoding="utf-8") as f:
-                  f.write(f"run={'true' if run else 'false'}\n")
-                  f.write(f"slot={slot}\n")
-                  f.write(f"reason={reason}\n")
-              print("run:", run, "slot:", slot, "reason:", reason)
-
-          # Manual execution always runs the selected slot.
-          if event == "workflow_dispatch":
-              slot = int("${{ inputs.slot }}")
-              emit(True, slot, f"manual slot {slot}")
-              raise SystemExit(0)
-
-          kst = timezone(timedelta(hours=9))
-          now = datetime.now(kst)
-          today = now.date().isoformat()
-          minutes = now.hour * 60 + now.minute
-
-          # Intended collection times:
-          # 00:15, 03:15, 06:15, 09:15, 12:15, 15:15, 18:15, 21:15
-          # Find all slots that should already have run today.
-          if minutes < 15:
-              emit(False, "", "before first KST collection window")
-              raise SystemExit(0)
-
-          max_due_slot = min(7, (minutes - 15) // 180)
-          due_slots = list(range(max_due_slot + 1))
-
-          coverage_path = Path("data") / "coverage" / f"{today}.json"
-          collected = set()
-          if coverage_path.exists():
-              try:
-                  payload = json.loads(coverage_path.read_text(encoding="utf-8"))
-                  slots = payload.get("slots") or {}
-                  collected = {int(k) for k in slots.keys() if str(k).isdigit()}
-              except Exception as e:
-                  print("coverage parse warning:", e)
-
-          missing = [s for s in due_slots if s not in collected]
-
-          if not missing:
-              emit(
-                  False,
-                  "",
-                  f"all due slots already collected for {today}: {due_slots}"
-              )
-              raise SystemExit(0)
-
-          # Oldest missing slot first. This automatically catches up if an earlier
-          # scheduled event was delayed/dropped.
-          slot = missing[0]
-          emit(
-              True,
-              slot,
-              f"catch-up {today}: due={due_slots}, collected={sorted(collected)}, missing={missing}"
-          )
-          PY
-
   discover:
-    needs: gate
-    if: ${{ needs.gate.outputs.run == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 75
     outputs:
-      slot: ${{ needs.gate.outputs.slot }}
+      slot: ${{ steps.slot.outputs.slot }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -139,19 +51,27 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Show schedule decision
+      - name: Resolve KST collection slot
+        id: slot
         shell: bash
         run: |
-          echo "Selected slot: ${{ needs.gate.outputs.slot }}"
-          echo "Reason: ${{ needs.gate.outputs.reason }}"
-          echo "Trigger: ${{ github.event_name }}"
-
+          python - <<'PY'
+          import os
+          from datetime import datetime, timezone, timedelta
+          if os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch":
+              slot = int("${{ inputs.slot }}")
+          else:
+              slot = (datetime.now(timezone(timedelta(hours=9))).hour // 3) % 8
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+              f.write(f"slot={slot}\n")
+          print("KST slot:", slot)
+          PY
       - name: Discover and refresh prices
         shell: bash
         run: |
           EXTRA=""
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.full_discovery }}" = "true" ]; then EXTRA="--full-discovery"; fi
-          python musinsa_collector_v9.py discover-slot --state-dir run_state --slot ${{ needs.gate.outputs.slot }} $EXTRA
+          python musinsa_collector_v9.py discover-slot --state-dir run_state --slot ${{ steps.slot.outputs.slot }} $EXTRA
       - uses: actions/upload-artifact@v4
         with:
           name: v9-discovery-state
@@ -221,13 +141,19 @@ jobs:
           path: shard_results
       - name: Aggregate and create recovery queue
         run: python musinsa_collector_v9.py aggregate-slot --state-dir run_state --shard-dir shard_results
+
+      - name: Recalculate recent calendar-day estimates immediately
+        shell: bash
+        run: |
+          python musinsa_collector_v9.py finalize-calendar --lookback-days 3
+
       - name: Commit primary data and coverage
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A -- data
-          for p in musinsa_watchlist.txt musinsa_catalog.csv musinsa_daily_product_sales.csv musinsa_daily_brand_sales.csv musinsa_daily_summary.csv musinsa_new_products.csv; do
+          for p in             musinsa_watchlist.txt             musinsa_catalog.csv             musinsa_daily_product_sales.csv             musinsa_daily_brand_sales.csv             musinsa_daily_summary.csv             musinsa_new_products.csv             musinsa_calendar_latest_products.csv             musinsa_calendar_brand_daily.csv             musinsa_calendar_summary.csv             data/calendar; do
             if [ -e "$p" ]; then git add -- "$p"; fi
           done
           if git diff --cached --quiet; then echo "No collected changes."; exit 0; fi
