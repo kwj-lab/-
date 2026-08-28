@@ -193,7 +193,13 @@ function setProductSort(key){
 
 
 function csvParse(t){t=t.replace(/^\uFEFF/,'');const rs=[];let r=[],c='',q=false;for(let i=0;i<t.length;i++){const x=t[i],n=t[i+1];if(x==='"'){if(q&&n==='"'){c+='"';i++}else q=!q}else if(x===','&&!q){r.push(c);c=''}else if((x==='\n'||x==='\r')&&!q){if(x==='\r'&&n==='\n')i++;r.push(c);c='';if(r.some(v=>v!==''))rs.push(r);r=[]}else c+=x}if(c!==''||r.length){r.push(c);rs.push(r)}if(!rs.length)return[];const h=rs.shift();return rs.map(a=>Object.fromEntries(h.map((k,i)=>[k,a[i]??''])));}
-function n(v){const x=Number(String(v??'').replace(/,/g,''));return Number.isFinite(x)?x:null}
+function n(v){
+ if(v==null)return null;
+ const s=String(v).replace(/,/g,'').trim();
+ if(s==='')return null;
+ const x=Number(s);
+ return Number.isFinite(x)?x:null;
+}
 function f(v,d=0){if(v==null)return'-';return Number(v).toLocaleString('ko-KR',{minimumFractionDigits:d,maximumFractionDigits:d})}
 function won(v){if(v==null)return'-';const a=Math.abs(v);if(a>=1e8)return(v/1e8).toLocaleString('ko-KR',{maximumFractionDigits:2})+'억';if(a>=1e4)return(v/1e4).toLocaleString('ko-KR',{maximumFractionDigits:1})+'만';return Math.round(v).toLocaleString('ko-KR')+'원'}
 function priceWon(v){
@@ -329,8 +335,8 @@ function renderProducts(){
      <td>${collected?f(n(r.purchase_total)):'-'}</td>
      <td>${status}</td>
      <td>${checkedTime(r.last_checked_at)}</td>
-     <td class="${(n(r.estimated_sales)||0)>0?'positive':''}">${f(n(r.estimated_sales),1)}</td>
-     <td>${won(n(r.estimated_gmv))}</td>
+     <td class="${(n(r.estimated_sales)||0)>0?'positive':''}">${n(r.estimated_sales)==null?'-':f(n(r.estimated_sales),1)}</td>
+     <td>${n(r.estimated_gmv)==null?'-':won(n(r.estimated_gmv))}</td>
      <td>${priceWon(n(r.display_price))}</td>
      <td class="${n(r.price_change_amount)<0?'negative':n(r.price_change_amount)>0?'warn':''}">${ch}</td>
      <td>${f(n(r.coverage_pct),1)}%</td>
@@ -568,7 +574,7 @@ async function loadAll(){
     ` · 판매통계 수집완료(${latestRawDate||'-'}) ${f(latestRawCount)} / ${f(products.length)}`+
     ` · catalog ${f(catalogCount)}개`+
     (calCount?` · 캘린더 확정 ${f(calCount)}개`:' · 캘린더 계산 대기')+
-    ` · 최근 3일 자동 재계산(backfill) · UI v9.9`;
+    ` · 최근 3일 자동 재계산(backfill) · UI v9.10`;
  }catch(e){
   er.textContent='데이터 로드 실패: '+e.message;
   er.style.display='block';
