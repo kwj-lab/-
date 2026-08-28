@@ -1459,21 +1459,44 @@ def metric_delta(cur, baseline, field):
         return None
 
     delta = cv - bv
-
-    # purchaseTotal/pageView/review 등 누적 카운터가 감소한 경우는
-    # 실제 '음수 판매'가 아니라 카운터 reset/수집 기준 변경/일시적 API 이상으로 본다.
-    # 따라서 일판매/기간판매/증가량 계산에서는 해당 interval을 유효값으로 쓰지 않는다.
     if delta < 0:
         return None
-
     return delta
+
+
+def guarded_purchase_delta(cur, baseline, older_baselines=()):
+    """
+    purchaseTotal 복구 스파이크 방지용 delta.
+
+    예:
+      어제 API 이상값 = 0
+      7일 전 정상값 = 1000
+      오늘 정상 복구값 = 1005
+
+    단순 계산 0 -> 1005 = +1005 로 잡지 않고,
+    최근 정상 historical floor 1000을 사용해 +5로 계산합니다.
+    """
+    cv = to_int((cur or {}).get("purchase_total"))
+    bv = to_int((baseline or {}).get("purchase_total"))
+    if cv is None or bv is None:
+        return None
+
+    reference = bv
+    for row in older_baselines or ():
+        ov = to_int((row or {}).get("purchase_total"))
+        if ov is not None:
+            reference = max(reference, ov)
+
+    if cv < reference:
+        return None
+    return cv - reference
 
 
 def build_latest_row(raw, prev, b7, b30, today, slot):
     price = to_int(raw.get("current_price"))
-    daily_sales = metric_delta(raw, prev, "purchase_total")
-    sales7 = metric_delta(raw, b7, "purchase_total")
-    sales30 = metric_delta(raw, b30, "purchase_total")
+    daily_sales = guarded_purchase_delta(raw, prev, (b7, b30))
+    sales7 = guarded_purchase_delta(raw, b7, (b30,))
+    sales30 = guarded_purchase_delta(raw, b30)
     views = metric_delta(raw, prev, "page_view_total")
     reviews = metric_delta(raw, prev, "review_count")
 
@@ -2235,14 +2258,98 @@ def interval_gmv_contribution(prev_row, cur_row, overlap_start, overlap_end, del
     return rate * sec * price, sec
 
 
+
+def sanitize_purchase_observations(observations):
+    """
+    purchaseTotal의 일시적인 하락/복구로 생기는 가짜 판매 스파이크를 제거합니다.
+
+    예:
+      1000 -> 0 -> 1005
+
+    기존 계산:
+      1000 -> 0    = 음수라 제외
+      0 -> 1005    = +1005 판매로 오인
+
+    수정 계산:
+      중간 0을 이상 관측으로 제거
+      1000 -> 1005 = +5
+
+    분석 구간 끝까지 이전 정상값으로 복구되지 않고 낮은 값이 2회 이상
+    이어지는 경우에는 영구 reset/rebase 가능성이 있으므로 새 counter segment를
+    시작합니다. 서로 다른 segment 사이의 delta는 계산하지 않습니다.
+    """
+    rows = [
+        r for r in sorted(observations, key=lambda r: r["_checked_dt"])
+        if to_int(r.get("purchase_total")) is not None
+    ]
+
+    if len(rows) < 2:
+        out = []
+        for r in rows:
+            x = dict(r)
+            x["_counter_segment"] = 0
+            out.append(x)
+        return out, False
+
+    clean = []
+    segment = 0
+    anomaly = False
+
+    first = dict(rows[0])
+    first["_counter_segment"] = segment
+    clean.append(first)
+    last_value = to_int(first.get("purchase_total"))
+
+    i = 1
+    while i < len(rows):
+        row = rows[i]
+        value = to_int(row.get("purchase_total"))
+
+        if value >= last_value:
+            x = dict(row)
+            x["_counter_segment"] = segment
+            clean.append(x)
+            last_value = value
+            i += 1
+            continue
+
+        anomaly = True
+
+        recovery_idx = None
+        for j in range(i + 1, len(rows)):
+            future = to_int(rows[j].get("purchase_total"))
+            if future is not None and future >= last_value:
+                recovery_idx = j
+                break
+
+        if recovery_idx is not None:
+            i = recovery_idx
+            continue
+
+        remaining = rows[i:]
+        if len(remaining) >= 2:
+            segment += 1
+            x = dict(row)
+            x["_counter_segment"] = segment
+            clean.append(x)
+            last_value = value
+            i += 1
+            continue
+
+        i += 1
+
+    return clean, anomaly
+
 def estimate_calendar_product(target_date, goods_no, observations, catalog_row=None):
     day_start = datetime(
         target_date.year, target_date.month, target_date.day, 0, 0, 0, tzinfo=KST
     )
     day_end = day_start + timedelta(days=1)
 
-    # target에 영향을 줄 수 있는 관측만 남기되 경계 이전/이후 관측은 반드시 유지
-    observations = sorted(observations, key=lambda r: r["_checked_dt"])
+    # 가격/메타데이터는 원본 관측을 유지하되,
+    # purchaseTotal 판매량 계산은 이상 하락/복구를 정제한 관측만 사용합니다.
+    original_observations = sorted(observations, key=lambda r: r["_checked_dt"])
+    observations, counter_anomaly = sanitize_purchase_observations(original_observations)
     if len(observations) < 2:
         return None
 
@@ -2252,13 +2359,18 @@ def estimate_calendar_product(target_date, goods_no, observations, catalog_row=N
     coverage_seconds = 0.0
     contributing = 0
     max_interval_hours = 0.0
-    negative_delta = False
+    negative_delta = bool(counter_anomaly)
 
     for i in range(1, len(observations)):
         a = observations[i - 1]
         b = observations[i]
         t0, t1 = a["_checked_dt"], b["_checked_dt"]
         if t1 <= t0:
+            continue
+
+        # counter reset/rebase 경계는 서로 연결하지 않습니다.
+        if a.get("_counter_segment") != b.get("_counter_segment"):
+            negative_delta = True
             continue
 
         overlap = overlap_seconds(t0, t1, day_start, day_end)
@@ -2301,12 +2413,12 @@ def estimate_calendar_product(target_date, goods_no, observations, catalog_row=N
     if coverage_seconds <= 0:
         return None
 
-    start_price = price_at_or_before(observations, day_start)
-    end_price = price_at_or_before(observations, day_end - timedelta(microseconds=1))
+    start_price = price_at_or_before(original_observations, day_start)
+    end_price = price_at_or_before(original_observations, day_end - timedelta(microseconds=1))
     if end_price is None:
         # 당일 마지막 관측가 fallback
         in_day_prices = [
-            to_int(r.get("current_price")) for r in observations
+            to_int(r.get("current_price")) for r in original_observations
             if day_start <= r["_checked_dt"] < day_end and to_int(r.get("current_price")) is not None
         ]
         if in_day_prices:
@@ -2335,7 +2447,7 @@ def estimate_calendar_product(target_date, goods_no, observations, catalog_row=N
         confidence = "low"
 
     meta = dict(catalog_row or {})
-    sample = observations[-1] if observations else {}
+    sample = original_observations[-1] if original_observations else {}
     brand = (
         str(sample.get("brand_name") or "").strip()
         or str(meta.get("brand_name") or "").strip()
