@@ -1261,7 +1261,16 @@ def metric_delta(cur, baseline, field):
     bv = to_int(baseline.get(field)) if baseline else None
     if cv is None or bv is None:
         return None
-    return cv - bv
+
+    delta = cv - bv
+
+    # purchaseTotal/pageView/review 등 누적 카운터가 감소한 경우는
+    # 실제 '음수 판매'가 아니라 카운터 reset/수집 기준 변경/일시적 API 이상으로 본다.
+    # 따라서 일판매/기간판매/증가량 계산에서는 해당 interval을 유효값으로 쓰지 않는다.
+    if delta < 0:
+        return None
+
+    return delta
 
 
 def build_latest_row(raw, prev, b7, b30, today, slot):
@@ -1961,7 +1970,10 @@ def estimate_calendar_product(target_date, goods_no, observations, catalog_row=N
 
         delta = p1 - p0
         if delta < 0:
+            # 누적 purchaseTotal 감소 interval은 판매 취소로 해석하지 않는다.
+            # 데이터 품질 이상 interval로 표시하고 판매/GMV/coverage 계산에서 제외한다.
             negative_delta = True
+            continue
 
         duration = (t1 - t0).total_seconds()
         if duration <= 0:
