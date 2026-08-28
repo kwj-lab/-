@@ -1724,6 +1724,80 @@ def recover_pending(lookback_days=2, max_queues=8):
     return 0
 
 
+
+def archive_existing_primary_snapshot(snapshot_path, slot):
+    """
+    같은 날짜/slot을 다시 수집할 때 기존 canonical snapshot이 사라지지 않도록
+    data/observations/YYYY-MM-DD/ 아래에 이전 관측값을 불변 archive로 보존합니다.
+
+    data/slots/.../YYYY-MM-DD.csv.gz 는 '해당 날짜/slot의 최신 snapshot cache'로 유지하고,
+    Calendar Finalizer는 canonical + observations를 함께 읽으므로 모든 재수집 관측값을 사용합니다.
+    """
+    snapshot_path = Path(snapshot_path)
+    if not snapshot_path.exists():
+        legacy = snapshot_path.with_suffix("") if snapshot_path.suffix == ".gz" else snapshot_path
+        if not legacy.exists():
+            return None
+        snapshot_path = legacy
+
+    rows = read_csv(snapshot_path)
+    if not rows:
+        return None
+
+    # 실제 checked_at 날짜 기준으로 나누어 저장합니다.
+    grouped = {}
+    for row in rows:
+        checked = parse_kst_datetime(row.get("checked_at"))
+        if checked is None:
+            # 기존 canonical 파일명 날짜 fallback
+            try:
+                dtext = snapshot_path.name.split(".csv")[0]
+                checked_date = datetime.strptime(dtext, "%Y-%m-%d").date()
+            except Exception:
+                checked_date = now_kst().date()
+        else:
+            checked_date = checked.date()
+
+        copied = dict(row)
+        copied.update({
+            "sample_kind": "primary_rerun_archive",
+            "sampling_tier": "baseline",
+            "sampling_score": "",
+            "base_slot": int(slot),
+            "clock_slot": int((checked.hour * 60 + checked.minute) // 180) % SLOT_COUNT if checked else int(slot),
+        })
+        grouped.setdefault(checked_date.isoformat(), []).append(copied)
+
+    run_id = re.sub(r"[^0-9A-Za-z_.-]+", "-", os.environ.get("GITHUB_RUN_ID", "local"))
+    stamp = now_kst().strftime("%H%M%S")
+    saved = []
+
+    for date_text, out_rows in grouped.items():
+        folder = OBSERVATION_DIR / date_text
+        folder.mkdir(parents=True, exist_ok=True)
+
+        # 이전 canonical의 checked_at 범위를 파일명에 넣어서 사람이 봐도 구분 가능하게 합니다.
+        checked_vals = []
+        for r in out_rows:
+            dt = parse_kst_datetime(r.get("checked_at"))
+            if dt is not None:
+                checked_vals.append(dt)
+        if checked_vals:
+            first_stamp = min(checked_vals).strftime("%H%M%S")
+            last_stamp = max(checked_vals).strftime("%H%M%S")
+        else:
+            first_stamp = last_stamp = stamp
+
+        out_path = folder / (
+            f"primary-rerun-slot-{int(slot)}-"
+            f"{first_stamp}-{last_stamp}-archived-{stamp}-{run_id}.csv.gz"
+        )
+        write_csv(out_path, out_rows, ADAPTIVE_OBS_FIELDS)
+        saved.append(str(out_path.relative_to(BASE_DIR)))
+
+    return saved
+
+
 def aggregate_slot(state_dir, shard_dir):
     state_dir, shard_dir = Path(state_dir), Path(shard_dir)
     today = datetime.strptime(
@@ -1763,7 +1837,13 @@ def aggregate_slot(state_dir, shard_dir):
         latest.append(build_latest_row(r, prev.get(g), d7.get(g), d30.get(g), today, slot))
         compact.append(compact_from_raw(r, today, slot))
 
-    write_csv(SLOT_DIR / f"slot-{slot}" / f"{today.isoformat()}.csv.gz", compact, COMPACT_FIELDS)
+    canonical_snapshot = SLOT_DIR / f"slot-{slot}" / f"{today.isoformat()}.csv.gz"
+
+    # 같은 날짜/slot 재실행이면 기존 snapshot을 먼저 observation archive에 보존합니다.
+    archived_observations = archive_existing_primary_snapshot(canonical_snapshot, slot)
+
+    # canonical 경로는 최신 cache로 갱신합니다. 과거 관측은 위 archive에 남아 있습니다.
+    write_csv(canonical_snapshot, compact, COMPACT_FIELDS)
     write_csv(LATEST_SLOT_DIR / f"slot-{slot}.csv.gz", latest, LATEST_FIELDS)
     write_history_manifest()
 
@@ -1788,6 +1868,7 @@ def aggregate_slot(state_dir, shard_dir):
         "coverage_pct": coverage.get("slots", {}).get(str(slot), {}).get("coverage_pct"),
         "today_latest_products": len([r for r in all_latest if str(r.get("date") or "") == today.isoformat()]),
         "recovery_queue": str(recovery_queue_path(today, slot)),
+        "archived_previous_observations": archived_observations or [],
     }, ensure_ascii=False))
     return 0
 
