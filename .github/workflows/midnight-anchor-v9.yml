@@ -1,0 +1,104 @@
+name: Musinsa Midnight Anchor v9
+
+on:
+  schedule:
+    # 00:40 KST = 15:40 UTC (previous UTC day)
+    # GitHub schedule is only fallback; Cloudflare watchdog is primary.
+    - cron: '40 15 * * *'
+  workflow_dispatch:
+    inputs:
+      max_products:
+        description: '최대 수집 상품수 (0 = 환경변수 기본값)'
+        required: false
+        default: '0'
+      dry_run:
+        description: '대상만 계산하고 실제 조회하지 않음'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: musinsa-v9-distributed
+  cancel-in-progress: false
+
+env:
+  PYTHONUTF8: '1'
+  MUSINSA_SHARD_WORKERS: '4'
+  MUSINSA_COLLECT_BUDGET_SECONDS: '3600'
+  MUSINSA_REQUEST_MIN_INTERVAL: '0.15'
+  MUSINSA_REQUEST_MAX_INTERVAL: '3.0'
+  MUSINSA_MIDNIGHT_ANCHOR_MIN: '3'
+  MUSINSA_MIDNIGHT_ANCHOR_MAX_PER_RUN: '15000'
+
+jobs:
+  anchor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Collect midnight anchor observations
+        shell: bash
+        run: |
+          EXTRA=""
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.dry_run }}" = "true" ]; then
+            EXTRA="$EXTRA --dry-run"
+          fi
+          MAX="${{ inputs.max_products }}"
+          if [ -n "$MAX" ] && [ "$MAX" != "0" ]; then
+            EXTRA="$EXTRA --max-products $MAX"
+          fi
+          python musinsa_collector_v9.py collect-midnight-anchor $EXTRA
+
+      - name: Recalculate calendar estimates immediately
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run == true) }}
+        shell: bash
+        run: |
+          python musinsa_collector_v9.py finalize-calendar --lookback-days 2
+
+      - name: Commit anchor observations and refreshed calendar
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run == true) }}
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          for p in \
+            data/observations \
+            data/anchor \
+            data/calendar \
+            musinsa_calendar_latest_products.csv \
+            musinsa_calendar_brand_daily.csv \
+            musinsa_calendar_summary.csv; do
+            if [ -e "$p" ]; then git add -- "$p"; fi
+          done
+
+          if git diff --cached --quiet; then
+            echo "No midnight-anchor changes."
+            exit 0
+          fi
+
+          git commit -m "chore(data): midnight Musinsa anchor [skip ci]"
+          git pull --rebase origin "$GITHUB_REF_NAME"
+          git push origin "HEAD:$GITHUB_REF_NAME"
+
+      - name: Upload anchor report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v9-midnight-anchor-${{ github.run_id }}
+          retention-days: 3
+          if-no-files-found: ignore
+          path: data/anchor/**/*.json
