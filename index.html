@@ -96,7 +96,7 @@ dialog{width:min(1200px,96vw);max-height:92vh;border:0;border-radius:16px;paddin
 </section>
 <section class="panel">
 <div class="head"><div><div class="title">브랜드 최신 일판매 순위</div><div class="small">브랜드명을 누르면 날짜별 추이</div></div></div>
-<div class="tablewrap"><table><thead><tr><th>#</th><th>브랜드</th><th>상품수</th><th>완성도</th><th>추정판매</th><th>추정GMV</th></tr></thead><tbody id="brandRank"></tbody></table></div>
+<div class="tablewrap"><table><thead><tr><th>#</th><th>브랜드</th><th>상품수</th><th>완성도</th><th><button class="sortbtn" id="brandSortSales">추정판매 <span id="brandSortSalesIcon">▼</span></button></th><th><button class="sortbtn" id="brandSortGmv">추정GMV <span id="brandSortGmvIcon"></span></button></th></tr></thead><tbody id="brandRank"></tbody></table></div>
 </section>
 </div>
 
@@ -354,7 +354,43 @@ function renderK(){const rows=filtered(),d=latestDate(products);document.getElem
     ? f(new Set(rows.map(r=>r.brand_name).filter(Boolean)).size)+'개 브랜드'
     : `발견 ${f(discoveredBrands.length||new Set(rows.map(r=>r.brand_name).filter(Boolean)).size)} / 등록 ${registeredBrands.length?f(registeredBrands.length):'-'}`}
 function renderOverall(){const rows=[...summary].sort((a,b)=>a.date.localeCompare(b.date)).slice(-45);chart(document.getElementById('overallChart'),rows,'estimated_gmv')}
-function renderBrandRank(){const d=latestDate(brands),rows=brands.filter(r=>r.date===d).sort((a,b)=>Math.max(0,n(b.estimated_sales)||0)-Math.max(0,n(a.estimated_sales)||0)).slice(0,100);document.getElementById('brandRank').innerHTML=rows.map((r,i)=>`<tr><td>${i+1}</td><td><button class="link" data-brand="${esc(r.brand_name)}">${esc(r.brand_name)}</button></td><td>${f(n(r.product_count))}</td><td>${f(n(r.product_coverage_pct),1)}%</td><td class="positive">${f(Math.max(0,n(r.estimated_sales)||0),1)}</td><td>${wonExact(Math.max(0,n(r.estimated_gmv)||0))}</td></tr>`).join('');document.querySelectorAll('[data-brand]').forEach(b=>b.addEventListener('click',()=>showBrand(b.dataset.brand)))}
+let brandRankSort={key:'estimated_sales',dir:'desc'};
+function setBrandRankSort(key){
+  if(brandRankSort.key===key){
+    brandRankSort.dir=brandRankSort.dir==='desc'?'asc':'desc';
+  }else{
+    brandRankSort.key=key;
+    brandRankSort.dir='desc';
+  }
+  updateBrandSortIcons();
+  renderBrandRank();
+}
+function updateBrandSortIcons(){
+  const s=document.getElementById('brandSortSalesIcon');
+  const g=document.getElementById('brandSortGmvIcon');
+  if(s)s.textContent=brandRankSort.key==='estimated_sales'?(brandRankSort.dir==='desc'?'▼':'▲'):'';
+  if(g)g.textContent=brandRankSort.key==='estimated_gmv'?(brandRankSort.dir==='desc'?'▼':'▲'):'';
+}
+function renderBrandRank(){
+  const d=latestDate(brands);
+  const rows=brands.filter(r=>r.date===d).sort((a,b)=>{
+    const av=Math.max(0,n(a[brandRankSort.key])||0);
+    const bv=Math.max(0,n(b[brandRankSort.key])||0);
+    return brandRankSort.dir==='desc' ? bv-av : av-bv;
+  }).slice(0,100);
+
+  document.getElementById('brandRank').innerHTML=rows.map((r,i)=>`<tr>
+    <td>${i+1}</td>
+    <td><button class="link" data-brand="${esc(r.brand_name)}">${esc(r.brand_name)}</button></td>
+    <td>${f(n(r.product_count))}</td>
+    <td>${f(n(r.product_coverage_pct),1)}%</td>
+    <td class="positive">${f(Math.max(0,n(r.estimated_sales)||0),1)}</td>
+    <td>${wonExact(Math.max(0,n(r.estimated_gmv)||0))}</td>
+  </tr>`).join('');
+
+  document.querySelectorAll('[data-brand]').forEach(b=>b.addEventListener('click',()=>showBrand(b.dataset.brand)));
+  updateBrandSortIcons();
+}
 function renderProducts(){
  const rows=filtered().sort((a,b)=>{
    const av=sortValue(a,productSort.key);
@@ -651,7 +687,7 @@ async function loadAll(){
     ` · 판매통계 수집완료(${latestRawDate||'-'}) ${f(latestRawCount)} / ${f(products.length)}`+
     ` · catalog ${f(catalogCount)}개`+
     (calCount?` · 캘린더 확정 ${f(calCount)}개`:' · 캘린더 계산 대기')+
-    ` · 최근 3일 자동 재계산(backfill) · UI v9.14`;
+    ` · 최근 3일 자동 재계산(backfill) · UI v9.15`;
  }catch(e){
   er.textContent='데이터 로드 실패: '+e.message;
   er.style.display='block';
@@ -668,6 +704,8 @@ document.getElementById('brandDaily').addEventListener('change',renderBrandDaily
 document.getElementById('productDailyPeriod').addEventListener('change',renderSelectedProductDaily);
 document.getElementById('sortSales').addEventListener('click',()=>setProductSort('sales_display'));
 document.getElementById('sortGmv').addEventListener('click',()=>setProductSort('gmv_display'));
+document.getElementById('brandSortSales')?.addEventListener('click',()=>setBrandRankSort('estimated_sales'));
+document.getElementById('brandSortGmv')?.addEventListener('click',()=>setBrandRankSort('estimated_gmv'));
 document.getElementById('sortPurchase').addEventListener('click',()=>setProductSort('purchase_total'));
 loadAll();
 </script>
