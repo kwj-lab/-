@@ -1,0 +1,165 @@
+name: Diagnose Musinsa Daily Sales Delta
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Compare yesterday snapshot, today snapshot, and latest CSV
+        shell: bash
+        run: |
+          python - <<'PY'
+          import csv, gzip
+          from pathlib import Path
+          from datetime import datetime, timezone, timedelta
+
+          KST = timezone(timedelta(hours=9))
+          today = datetime.now(KST).date()
+          yesterday = today - timedelta(days=1)
+
+          def read_csv(path):
+              path = Path(path)
+              if not path.exists():
+                  return []
+              opener = gzip.open if path.suffix == ".gz" else open
+              with opener(path, "rt", encoding="utf-8-sig", newline="") as f:
+                  return list(csv.DictReader(f))
+
+          def to_int(v):
+              try:
+                  if v is None or str(v).strip() == "":
+                      return None
+                  return int(float(str(v).replace(",", "")))
+              except:
+                  return None
+
+          def load_day(d):
+              out = {}
+              source = {}
+              for slot in range(8):
+                  p = Path(f"data/slots/slot-{slot}/{d.isoformat()}.csv.gz")
+                  if not p.exists():
+                      p = Path(f"data/slots/slot-{slot}/{d.isoformat()}.csv")
+                  rows = read_csv(p)
+                  print(f"{d} slot-{slot}: {len(rows):,} rows {'OK' if p.exists() else 'MISSING'}")
+                  for r in rows:
+                      g = str(r.get("goods_no") or "").strip()
+                      if g:
+                          out[g] = r
+                          source[g] = slot
+              return out, source
+
+          print("=" * 80)
+          print("KST TODAY:", today)
+          print("KST YESTERDAY:", yesterday)
+          print("=" * 80)
+
+          prev, prev_slot = load_day(yesterday)
+          cur, cur_slot = load_day(today)
+
+          common = sorted(set(prev) & set(cur))
+          positive = []
+          zero = []
+          negative = []
+          missing_value = []
+
+          for g in common:
+              a = to_int(prev[g].get("purchase_total"))
+              b = to_int(cur[g].get("purchase_total"))
+              if a is None or b is None:
+                  missing_value.append((g,a,b))
+                  continue
+              d = b - a
+              row = (g, a, b, d, prev_slot.get(g), cur_slot.get(g))
+              if d > 0:
+                  positive.append(row)
+              elif d == 0:
+                  zero.append(row)
+              else:
+                  negative.append(row)
+
+          print("\n=== SNAPSHOT DELTA SUMMARY ===")
+          print("yesterday goods:", f"{len(prev):,}")
+          print("today goods:", f"{len(cur):,}")
+          print("common goods:", f"{len(common):,}")
+          print("positive delta:", f"{len(positive):,}")
+          print("zero delta:", f"{len(zero):,}")
+          print("negative delta:", f"{len(negative):,}")
+          print("missing purchase_total:", f"{len(missing_value):,}")
+          print("SUM POSITIVE SALES:", f"{sum(x[3] for x in positive):,}")
+
+          print("\n=== TOP 30 POSITIVE DELTAS ===")
+          for x in sorted(positive, key=lambda z:z[3], reverse=True)[:30]:
+              print(f"goods={x[0]} prev={x[1]} cur={x[2]} delta=+{x[3]} slots={x[4]}->{x[5]}")
+
+          target = "7024843"
+          print("\n=== KNOWN TEST GOODS 7024843 ===")
+          if target in prev or target in cur:
+              a = to_int(prev.get(target,{}).get("purchase_total"))
+              b = to_int(cur.get(target,{}).get("purchase_total"))
+              print("yesterday:", a, "slot", prev_slot.get(target))
+              print("today:", b, "slot", cur_slot.get(target))
+              print("delta:", None if a is None or b is None else b-a)
+          else:
+              print("not present in yesterday/today snapshots")
+
+          latest_rows = read_csv("musinsa_daily_product_sales.csv")
+          latest = {
+              str(r.get("goods_no") or "").strip(): r
+              for r in latest_rows
+              if str(r.get("date") or "") == today.isoformat()
+          }
+
+          mismatches = []
+          actual_positive = 0
+          actual_zero = 0
+          actual_blank = 0
+
+          for g,a,b,d,ps,cs in positive + zero + negative:
+              r = latest.get(g)
+              if not r:
+                  mismatches.append((g,d,None,"MISSING_ROOT_ROW"))
+                  continue
+              actual = to_int(r.get("daily_sales"))
+              if actual is None:
+                  actual_blank += 1
+              elif actual > 0:
+                  actual_positive += 1
+              elif actual == 0:
+                  actual_zero += 1
+              if actual != d:
+                  mismatches.append((g,d,actual,"VALUE_MISMATCH"))
+
+          print("\n=== ROOT musinsa_daily_product_sales.csv ===")
+          print("today rows in root CSV:", f"{len(latest):,}")
+          print("root daily_sales positive:", f"{actual_positive:,}")
+          print("root daily_sales zero:", f"{actual_zero:,}")
+          print("root daily_sales blank:", f"{actual_blank:,}")
+          print("snapshot-vs-root mismatches:", f"{len(mismatches):,}")
+
+          print("\n=== FIRST 30 MISMATCHES ===")
+          for x in mismatches[:30]:
+              print(f"goods={x[0]} expected_delta={x[1]} root_daily_sales={x[2]} reason={x[3]}")
+
+          print("\n=== DIAGNOSIS ===")
+          if positive:
+              if mismatches:
+                  print("RESULT: snapshots contain real sales increases, but root CSV does not match -> AGGREGATE/LATEST FILE BUG.")
+              else:
+                  print("RESULT: snapshots and root daily_sales are correct -> DASHBOARD/CALENDAR DISPLAY PATH BUG.")
+          else:
+              print("RESULT: yesterday/today snapshots themselves show no positive purchaseTotal changes -> COLLECTION/STAT REFRESH BUG (not dashboard).")
+          PY
