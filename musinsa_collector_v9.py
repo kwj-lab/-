@@ -1652,18 +1652,43 @@ def update_coverage(date_value, slot, expected, success, failed_rows, stage):
     success = int(success or 0)
     failed = max(0, expected - success)
     pct = round((success / expected * 100.0), 4) if expected else 100.0
-    payload["slots"][str(slot)] = {
-        "slot": int(slot),
-        "expected": expected,
-        "success": success,
-        "failed": failed,
-        "coverage_pct": pct,
-        "status": "complete" if failed == 0 else "partial",
-        "stage": stage,
-        "first_collected_at": prev.get("first_collected_at") or now_kst().isoformat(timespec="seconds"),
-        "last_updated_at": now_kst().isoformat(timespec="seconds"),
-        "failed_goods_sample": [str(r.get("goods_no") or "") for r in failed_rows[:20]],
-    }
+  
+coverage_now = now_kst().isoformat(timespec="seconds")
+
+payload["slots"][str(slot)] = {
+    "slot": int(slot),
+    "expected": expected,
+    "success": success,
+    "failed": failed,
+    "coverage_pct": pct,
+    "status": "complete" if failed == 0 else "partial",
+    "stage": stage,
+
+    "first_collected_at": (
+        prev.get("first_collected_at")
+        or coverage_now
+    ),
+
+    # 정규 primary 수집 시각과 recovery 수집 시각을 따로 저장
+    "last_primary_at": (
+        coverage_now
+        if stage == "primary"
+        else prev.get("last_primary_at")
+    ),
+
+    "last_recovery_at": (
+        coverage_now
+        if stage == "recovery"
+        else prev.get("last_recovery_at")
+    ),
+
+    "last_updated_at": coverage_now,
+
+    "failed_goods_sample": [
+        str(r.get("goods_no") or "")
+        for r in failed_rows[:20]
+    ],
+}
     slots = payload["slots"]
     total_expected = sum(int((v or {}).get("expected") or 0) for v in slots.values())
     total_success = sum(int((v or {}).get("success") or 0) for v in slots.values())
