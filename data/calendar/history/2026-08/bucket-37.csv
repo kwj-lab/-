@@ -1,7 +1,7 @@
 ﻿date,brand_name,goods_no,product_name,estimated_sales,estimated_gmv,estimated_avg_price,display_price,previous_display_price,price_change_detected,price_change_amount,price_change_pct,coverage_pct,calendar_complete,confidence,max_interval_hours,observation_count,contributing_intervals,history_bucket,product_url
 2026-08-27,꼼파뇨,604389,롱슬리브 헤비 오버핏 무지 긴팔티 블랙,0.0,0,22400,22400,,0,,,26.48,0,low,20.15,4,1,37,https://www.musinsa.com/products/604389
 2026-08-27,트립르센스,645861,3 PIN BUTTON SILVER,0.0,0,12000,12000,,0,,,38.29,0,low,21.52,2,1,37,https://www.musinsa.com/products/645861
-2026-08-27,후러브스아트,946853,[여름원단추가] 유니섹스 세미 와이드 밴딩 슬랙스 그레이,3.42,101426,29700,29700,,0,,,38.28,0,low,21.52,3,1,37,https://www.musinsa.com/products/946853
+2026-08-27,후러브스아트,946853,[여름원단추가] 유니섹스 세미 와이드 밴딩 슬랙스 그레이,3.42,101426,29700,29700,,0,,,38.28,0,low,21.52,4,1,37,https://www.musinsa.com/products/946853
 2026-08-27,제로,1053413,Solid Box Shirts [Cream],0.0,0,35000,35000,,0,,,32.96,0,low,20.84,3,1,37,https://www.musinsa.com/products/1053413
 2026-08-27,카네이테이,1061861,TIGER FLAT POUCH L (OLIVE DRAB) / UPCYCLED,0.0,0,58500,58500,,0,,,45.01,0,low,20.7,2,1,37,https://www.musinsa.com/products/1061861
 2026-08-27,모즈모즈,1354981,오버핏 특양면 반팔티셔츠_블루,0.0,0,35900,35900,,0,,,32.96,0,low,20.84,3,1,37,https://www.musinsa.com/products/1354981
@@ -684,7 +684,7 @@
 2026-08-27,파르티멘토 우먼,5366821,PWC 멀티웨이 랩스커트 레이어드 탑_블랙,0.0,0,31070,31070,,0,,,25.78,0,low,20.16,4,1,37,https://www.musinsa.com/products/5366821
 2026-08-27,디미트리블랙,5367973,2WAY VTG 워시드 PU 후드 집업_블랙,0.0,0,54900,54900,,0,,,39.53,0,low,21.08,2,1,37,https://www.musinsa.com/products/5367973
 2026-08-27,본투윈,5368741,09 APPLIQUE RUGBY JERSEY T-SHIRTS [BLUE],0.0,0,62300,62300,,0,,,44.5,0,low,20.7,2,1,37,https://www.musinsa.com/products/5368741
-2026-08-27,제이엘브,5369253,와플 루즈핏 롱슬리브,2.51,108380,43200,43200,,0,,,37.58,0,low,21.57,3,1,37,https://www.musinsa.com/products/5369253
+2026-08-27,제이엘브,5369253,와플 루즈핏 롱슬리브,2.51,108380,43200,43200,,0,,,37.58,0,low,21.57,4,1,37,https://www.musinsa.com/products/5369253
 2026-08-27,카네이테이,5371045,IVY MULTI-STRIPE LONG SLEEVES (CREAM),0.0,0,63200,63200,,0,,,44.49,0,low,20.7,2,1,37,https://www.musinsa.com/products/5371045
 2026-08-27,파르티멘토 우먼,5371109,레더 버클 스트랩 레이스업 부츠_브라운,0.0,0,338860,338860,,0,,,25.77,0,low,20.16,4,1,37,https://www.musinsa.com/products/5371109
 2026-08-27,브라운야드,5372389,"헨리넥 롱 슬리브, 아이보리",0.0,0,68000,68000,,0,,,37.57,0,low,21.57,2,1,37,https://www.musinsa.com/products/5372389
@@ -1004,7 +1004,7 @@
 2026-08-27,아메스 월드와이드,6104869,WRINKLED CHECK SHORT SLEEVE SHIRTS PINK,0.0,0,63200,63200,,0,,,25.46,0,low,20.15,4,1,37,https://www.musinsa.com/products/6104869
 2026-08-27,키르시,6108069,키르시 멜로우 하트 미니백 [레드],0.0,0,31200,31200,,0,,,39.14,0,low,21.1,2,1,37,https://www.musinsa.com/products/6108069
 2026-08-27,탄산마그네슘,6109093,송이송이X탄산 로고 드레이프 비니 (차콜),0.37,12574,34200,34200,,0,,,31.93,0,low,20.84,3,1,37,https://www.musinsa.com/products/6109093
-2026-08-27,비바라비다,6109669,Youthful 반팔 티셔츠,6.66,172509,25900,25900,,0,,,44.19,0,low,20.7,3,1,37,https://www.musinsa.com/products/6109669
+2026-08-27,비바라비다,6109669,Youthful 반팔 티셔츠,6.66,172509,25900,25900,,0,,,44.19,0,low,20.7,4,1,37,https://www.musinsa.com/products/6109669
 2026-08-27,마인드브릿지 우먼,6109925,[W]스트라이프 오버핏 셔츠 - 2color,0.0,0,41900,41900,,0,,,31.93,0,low,20.84,3,1,37,https://www.musinsa.com/products/6109925
 2026-08-27,소버먼트,6110629,에센셜 와플 핑거홀 후드 -블랙-,0.0,0,46000,46000,,0,,,37.33,0,low,21.59,2,1,37,https://www.musinsa.com/products/6110629
 2026-08-27,노티카,6111909,클래식 로고 폴로 티셔츠(4colors) NPO4976,1.1,42458,38500,38500,,0,,,31.93,0,low,20.84,4,1,37,https://www.musinsa.com/products/6111909
@@ -1103,7 +1103,7 @@
 2026-08-27,다이브인,6316261,CORAL PENDANT NECKLACE,0.0,0,36000,36000,,0,,,39.06,0,low,21.11,2,1,37,https://www.musinsa.com/products/6316261
 2026-08-27,인사일런스,6318181,스쿱넥 포켓 숏슬리브 MELANGE CHARCOAL,0.0,0,44100,44100,,0,,,39.05,0,low,21.11,2,1,37,https://www.musinsa.com/products/6318181
 2026-08-27,르바,6318245,Fresh Cotton V-Neck Knit - Classic Navy,0.32,20897,64980,64980,,0,,,27.07,0,low,20.2,3,1,37,https://www.musinsa.com/products/6318245
-2026-08-27,본투윈,6318373,W SYMBOL B HALTER NECK BRA TOP [BLACK],1.53,90469,59000,59000,,0,,,44.08,0,low,20.7,3,1,37,https://www.musinsa.com/products/6318373
+2026-08-27,본투윈,6318373,W SYMBOL B HALTER NECK BRA TOP [BLACK],1.53,90469,59000,59000,,0,,,44.08,0,low,20.7,4,1,37,https://www.musinsa.com/products/6318373
 2026-08-27,효지,6326053,26 SS 워셔블 코튼 투웨이 라운드 니트 집업 가디건 (5컬러),0.73,29232,39900,39900,,0,,,31.81,0,low,20.84,3,1,37,https://www.musinsa.com/products/6326053
 2026-08-27,플리즈노팔로우,6331557,Leni Lace Sleeveless Top (Black),0.0,0,66300,66300,,0,,,44.07,0,low,20.7,2,1,37,https://www.musinsa.com/products/6331557
 2026-08-27,글로니,6331813,G FINE BUTTON HOODIE (BLACK),0.0,0,87480,87480,,0,,,41.12,0,low,19.62,2,1,37,https://www.musinsa.com/products/6331813

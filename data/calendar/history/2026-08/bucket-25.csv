@@ -1,7 +1,7 @@
 ﻿date,brand_name,goods_no,product_name,estimated_sales,estimated_gmv,estimated_avg_price,display_price,previous_display_price,price_change_detected,price_change_amount,price_change_pct,coverage_pct,calendar_complete,confidence,max_interval_hours,observation_count,contributing_intervals,history_bucket,product_url
 2026-08-27,러브이즈트루,355481,(BASIC)GLOBE TEE(S),0.0,0,14500,14500,,0,,,38.29,0,low,21.52,2,1,25,https://www.musinsa.com/products/355481
 2026-08-27,꼼파뇨,394585,Longsleeve 무지 긴팔티 화이트,0.0,0,28000,28000,,0,,,26.48,0,low,20.15,4,1,25,https://www.musinsa.com/products/394585
-2026-08-27,유니폼브릿지,396185,selvedge denim pants deep indigo,1.57,136542,87200,87200,,0,,,45.02,0,low,20.7,3,1,25,https://www.musinsa.com/products/396185
+2026-08-27,유니폼브릿지,396185,selvedge denim pants deep indigo,1.57,136542,87200,87200,,0,,,45.02,0,low,20.7,4,1,25,https://www.musinsa.com/products/396185
 2026-08-27,커스텀어클락,655833,[코튼100] 소프트 베이직 터틀넥 니트 5 COLOR COOSKT006,0.0,0,47200,47200,,0,,,40.41,0,low,21.04,2,1,25,https://www.musinsa.com/products/655833
 2026-08-27,프리즘웍스,842009,OG HAWORTH ONE TUCK PANTS _ BEIGE,0.0,0,58000,58000,,0,,,41.93,0,low,19.59,2,1,25,https://www.musinsa.com/products/842009
 2026-08-27,제멋,890521,유스 와이드 카고팬츠 4종 블랙 YHLP2159,0.0,0,39800,39800,,0,,,41.93,0,low,19.59,2,1,25,https://www.musinsa.com/products/890521
@@ -23,7 +23,7 @@
 2026-08-27,메인부스,1874841,University Skirt(NAVY),0.0,0,8700,8700,,0,,,28.05,0,low,20.2,3,1,25,https://www.musinsa.com/products/1874841
 2026-08-27,제멋,1911513,핀스 오버핏 카라 반팔티 네이비 YHST2354,0.0,0,28900,28900,,0,,,41.91,0,low,19.59,2,1,25,https://www.musinsa.com/products/1911513
 2026-08-27,트립르센스,1962777,엘이 로고 볼캡_WHITE,0.0,0,26250,26250,,0,,,38.27,0,low,21.52,2,1,25,https://www.musinsa.com/products/1962777
-2026-08-27,트립르센스,1962905,스테디 썸머 플리츠 오버 셔츠_11COLOR,1.28,75777,59200,59200,,0,,,38.27,0,low,21.52,3,1,25,https://www.musinsa.com/products/1962905
+2026-08-27,트립르센스,1962905,스테디 썸머 플리츠 오버 셔츠_11COLOR,1.28,75777,59200,59200,,0,,,38.27,0,low,21.52,4,1,25,https://www.musinsa.com/products/1962905
 2026-08-27,트립르센스,2015449,유니섹스 라운드토 레더 스트랩 샌들_BLACK,0.0,0,54500,54500,,0,,,38.27,0,low,21.52,2,1,25,https://www.musinsa.com/products/2015449
 2026-08-27,노이어,2128345,울 실크 루즈핏 럭스 셔츠 (블랙),0.51,48099,93700,93700,,0,,,41.9,0,low,19.59,2,1,25,https://www.musinsa.com/products/2128345
 2026-08-27,인사일런스,2151129,에센셜 다운 자켓 DIM GREY,0.0,0,159000,159000,,0,,,40.39,0,low,21.04,2,1,25,https://www.musinsa.com/products/2151129
@@ -36,7 +36,7 @@
 2026-08-27,꼼파뇨,2279193,벌룬 와이드 코듀로이 팬츠 네이비,0.0,0,46000,46000,,0,,,26.46,0,low,20.15,4,1,25,https://www.musinsa.com/products/2279193
 2026-08-27,커버낫,2318489,윈드브레이커 쇼츠 블랙,0.46,13359,29000,29000,,0,,,40.39,0,low,21.04,2,1,25,https://www.musinsa.com/products/2318489
 2026-08-27,쿠어,2353177,린넨 오버사이즈 벨티드 자켓 (다크네이비),0.0,0,234000,234000,,0,,,32.94,0,low,20.84,3,1,25,https://www.musinsa.com/products/2353177
-2026-08-27,어반디타입,2353497,러닝클럽 트랙 자켓_2color,1.71,102183,59900,59900,,0,,,38.25,0,low,21.52,3,1,25,https://www.musinsa.com/products/2353497
+2026-08-27,어반디타입,2353497,러닝클럽 트랙 자켓_2color,1.71,102183,59900,59900,,0,,,38.25,0,low,21.52,4,1,25,https://www.musinsa.com/products/2353497
 2026-08-27,미나브,2408345,원턱 카운터 데님팬츠 [블루],0.0,0,76300,76300,,0,,,43.74,0,low,21.5,2,1,25,https://www.musinsa.com/products/2408345
 2026-08-27,프렌다,2461849,PCF SHORTS LIGHT BLUE,0.0,0,24500,24500,,0,,,43.74,0,low,21.5,2,1,25,https://www.musinsa.com/products/2461849
 2026-08-27,모즈모즈,2476249,컬러칩 미니쭈리 오버핏 자수 맨투맨 블루,0.0,0,18800,18800,,0,,,32.93,0,low,20.84,3,1,25,https://www.musinsa.com/products/2476249
@@ -921,7 +921,7 @@
 2026-08-27,데꼬로소,6000345,트윌 코튼 세미 와이드 팬츠 [화이트],0.83,59367,71400,71400,,0,,,37.39,0,low,21.58,2,1,25,https://www.musinsa.com/products/6000345
 2026-08-27,굿라이프웍스,6002073,워싱 포켓 파라슈트 카고팬츠 베이지,0.0,0,45640,45640,,0,,,32.0,0,low,20.84,3,1,25,https://www.musinsa.com/products/6002073
 2026-08-27,배드블러드,6002329,Big B Logo Crewneck Sweater - Sand,0.0,0,78480,78480,,0,,,41.22,0,low,19.61,2,1,25,https://www.musinsa.com/products/6002329
-2026-08-27,길라아카이브,6002457,TWICE GIRL OVER SIZE HOODED_WHITE,2.08,138903,66830,66830,,0,,,37.38,0,low,21.58,3,1,25,https://www.musinsa.com/products/6002457
+2026-08-27,길라아카이브,6002457,TWICE GIRL OVER SIZE HOODED_WHITE,2.08,138903,66830,66830,,0,,,37.38,0,low,21.58,4,1,25,https://www.musinsa.com/products/6002457
 2026-08-27,파르티멘토,6005209,와플 풀오버 후디 차콜,0.0,0,58950,58950,,0,,,39.21,0,low,21.1,2,1,25,https://www.musinsa.com/products/6005209
 2026-08-27,무센트,6005849,시그니처 백 라운드 원형 로고 긴팔 티 (2컬러),0.0,0,29900,29900,,0,,,39.21,0,low,21.1,2,1,25,https://www.musinsa.com/products/6005849
 2026-08-27,더바이닐하우스,6008793,DYED SWEAT PANTS BEIGE,0.0,0,104300,104300,,0,,,39.21,0,low,21.1,2,1,25,https://www.musinsa.com/products/6008793
@@ -1070,7 +1070,7 @@
 2026-08-27,배드블러드,6341401,Viper V2 Long Sleeve Shirt - Black,0.0,0,98690,98690,,0,,,41.1,0,low,19.62,2,1,25,https://www.musinsa.com/products/6341401
 2026-08-27,트리밍버드,6341913,Cross-Neck String Bodysuit [ Black ],0.0,0,89000,89000,,0,,,41.1,0,low,19.62,2,1,25,https://www.musinsa.com/products/6341913
 2026-08-27,유니온블루,6344537,CLIMBING PANTS [VINTAGE OLIVE],0.0,0,150100,150100,,0,,,44.07,0,low,20.7,2,1,25,https://www.musinsa.com/products/6344537
-2026-08-27,링서울,6355993,pintuck frill blouse-charcoal,20.68,1273222,61560,61560,,0,,,37.22,0,low,21.6,5,1,25,https://www.musinsa.com/products/6355993
+2026-08-27,링서울,6355993,pintuck frill blouse-charcoal,20.68,1273222,61560,61560,,0,,,37.22,0,low,21.6,6,1,25,https://www.musinsa.com/products/6355993
 2026-08-27,락피쉬웨더웨어,6356569,[× AAKAM] HAYDEN BOOTS - BLACK,0.0,0,83300,83300,,0,,,27.05,0,low,20.2,3,1,25,https://www.musinsa.com/products/6356569
 2026-08-27,프리즘웍스,6362713,VENTI COLLAR SHIRT _ GRAY,0.0,0,62300,62300,,0,,,41.09,0,low,19.62,2,1,25,https://www.musinsa.com/products/6362713
 2026-08-27,시야쥬,6367513,SIA8040 컴포터블 다이마루 롱 원피스_Olive,0.0,0,55300,55300,,0,,,39.03,0,low,21.11,2,1,25,https://www.musinsa.com/products/6367513
@@ -1217,7 +1217,7 @@
 2026-08-27,엘무드,7033881,라미 스트라이프 셔츠 아이보리,0.0,0,134100,134100,,0,,,38.9,0,low,21.11,2,1,25,https://www.musinsa.com/products/7033881
 2026-08-27,드로우핏,7034713,코듀로이 크롭 해링턴 자켓 [BLACK],0.0,0,145600,145600,,0,,,26.93,0,low,20.21,3,1,25,https://www.musinsa.com/products/7034713
 2026-08-27,어반디타입,7038617,올드 피렌체 스웻셔츠_다크 퍼플,0.0,0,59000,59000,,0,,,37.11,0,low,21.6,2,1,25,https://www.musinsa.com/products/7038617
-2026-08-27,드로우핏,7048665,[오정규X드로우핏] 애프터 세미 스트레이트 데님 팬츠 [3color],9.6,506654,52800,52800,,0,,,26.93,0,low,20.21,6,1,25,https://www.musinsa.com/products/7048665
+2026-08-27,드로우핏,7048665,[오정규X드로우핏] 애프터 세미 스트레이트 데님 팬츠 [3color],9.6,506654,52800,52800,,0,,,26.93,0,low,20.21,7,1,25,https://www.musinsa.com/products/7048665
 2026-08-27,프리즘웍스,7054617,MADRAS PATCHWORK RELAXED SHIRT _ BEIGE,0.0,0,128000,128000,,0,,,40.95,0,low,19.62,2,1,25,https://www.musinsa.com/products/7054617
 2026-08-27,아메스 월드와이드,7057881,CLASSIC STRAIGHT DENIM PANTS BLACK,0.0,0,63200,63200,,0,,,25.21,0,low,20.16,4,1,25,https://www.musinsa.com/products/7057881
 2026-08-27,파르티멘토,7058521,블러 체크 숏 카라 셔츠 블랙,0.0,0,52110,52110,,0,,,38.89,0,low,21.11,2,1,25,https://www.musinsa.com/products/7058521
