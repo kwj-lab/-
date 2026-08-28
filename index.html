@@ -71,7 +71,7 @@ dialog{width:min(1200px,96vw);max-height:92vh;border:0;border-radius:16px;paddin
 <div><h1>무신사 캘린더 일별 판매 대시보드</h1><div class="sub" id="updated">데이터 불러오는 중...</div></div>
 <div class="actions"><button id="reload">새로고침</button><button id="catalogCsv">전체상품 CSV</button><button id="dailyCsv">일별판매 CSV</button><button id="brandCsv">브랜드 CSV</button></div>
 </header>
-<div class="notice"><b>날짜 기준:</b> 한국시간 00:00~24:00. 예를 들어 20일 수치는 20일 하루 전체를 뜻합니다. 누적구매수 관측 사이 증가량을 시간 비율로 나눈 <b>캘린더 일별 추정치</b>이며, 판매속도에 따라 약 24시간/9시간/3시간 간격으로 추가 관측합니다. 일판매 3개 이상 상품에는 자정 앵커 관측을 추가해 날짜 경계 오차를 줄입니다.</div>
+<div class="notice"><b>날짜 기준:</b> 한국시간 00:00~24:00. 예를 들어 20일 수치는 20일 하루 전체를 뜻합니다. 누적구매수 관측 사이 증가량을 시간 비율로 나눈 <b>일일 추정치</b>이며, 판매속도에 따라 약 24시간/9시간/3시간 간격으로 추가 관측합니다. 일판매 3개 이상 상품에는 자정 앵커 관측을 추가해 날짜 경계 오차를 줄입니다.</div>
 <div class="error" id="err"></div>
 
 <div class="filters">
@@ -118,9 +118,9 @@ dialog{width:min(1200px,96vw);max-height:92vh;border:0;border-radius:16px;paddin
 </div>
 
 <div class="kpis">
-<div class="card"><div class="label">최종 확정 날짜</div><div class="value" id="kDate">-</div><div class="small">KST 캘린더 기준</div></div>
-<div class="card"><div class="label">캘린더 추정 판매량</div><div class="value" id="kSales">-</div><div class="small">KST 00:00~24:00 · 선택 브랜드 합계</div></div>
-<div class="card"><div class="label">캘린더 추정 GMV</div><div class="value" id="kGmv">-</div><div class="small">KST 00:00~24:00 · 캘린더 기준</div></div>
+<div class="card"><div class="label">최종 확정 날짜</div><div class="value" id="kDate">-</div><div class="small">KST 일일 기준</div></div>
+<div class="card"><div class="label">일일 추정 판매량</div><div class="value" id="kSales">-</div><div class="small">KST 00:00~24:00 · 선택 브랜드 합계</div></div>
+<div class="card"><div class="label">일일 추정 GMV</div><div class="value" id="kGmv">-</div><div class="small">KST 00:00~24:00 · 일일 기준</div></div>
 <div class="card"><div class="label">상품 완성도</div><div class="value" id="kCoverage">-</div><div class="small">99% 시간범위 이상 확보</div></div>
 <div class="card"><div class="label">가격 변경 상품</div><div class="value" id="kPriceChanges">-</div><div class="small">해당 날짜 변경 감지</div></div>
 <div class="card"><div class="label">추적 상품</div><div class="value" id="kProducts">-</div><div class="small" id="kBrands">-</div></div>
@@ -133,7 +133,7 @@ dialog{width:min(1200px,96vw);max-height:92vh;border:0;border-radius:16px;paddin
 </section>
 <section class="panel">
 <div class="head"><div><div class="title">브랜드 최신 일판매 순위</div><div class="small">브랜드명을 누르면 날짜별 추이</div></div></div>
-<div class="tablewrap"><table><thead><tr><th>#</th><th>브랜드</th><th>상품수</th><th>완성도</th><th><button class="sortbtn" id="brandSortSales">캘린더 추정판매 <span id="brandSortSalesIcon">▼</span></button></th><th><button class="sortbtn" id="brandSortGmv">캘린더 추정GMV <span id="brandSortGmvIcon"></span></button></th></tr></thead><tbody id="brandRank"></tbody></table></div>
+<div class="tablewrap"><table><thead><tr><th>#</th><th>브랜드</th><th>상품수</th><th>완성도</th><th><button class="sortbtn" id="brandSortSales">일일 추정판매 <span id="brandSortSalesIcon">▼</span></button></th><th><button class="sortbtn" id="brandSortGmv">일일 추정GMV <span id="brandSortGmvIcon"></span></button></th></tr></thead><tbody id="brandRank"></tbody></table></div>
 </section>
 </div>
 
@@ -194,8 +194,8 @@ dialog{width:min(1200px,96vw);max-height:92vh;border:0;border-radius:16px;paddin
 </section>
 
 <section class="panel">
-<div class="head"><div><div class="title">상품별 최종 확정 일매출</div><div class="small">캘린더 추정치는 KST 00:00~24:00 기준이며, 24h 구매증가는 같은 상품의 약 24시간 누적구매수 차이입니다.</div></div><div class="small" id="productCount"></div></div>
-<div class="tablewrap"><table><thead><tr><th>#</th><th>브랜드</th><th>상품명</th><th>상품명 변경</th><th>상품번호</th><th><button class="sortbtn" id="sortPurchase" type="button" data-sort="purchase_total">누적 구매수 <span class="arrow">↕</span></button></th><th>기준값 수집</th><th>마지막 수집시각</th><th><button class="sortbtn active" id="sortSales" type="button" data-sort="estimated_sales">캘린더 추정판매 <span class="arrow">▼</span></button></th><th><button class="sortbtn" id="sortRollingSales" type="button" data-sort="raw_daily_sales">24h 구매증가 <span class="arrow">↕</span></button></th><th><button class="sortbtn" id="sortGmv" type="button" data-sort="estimated_gmv">캘린더 추정GMV <span class="arrow">↕</span></button></th><th><button class="sortbtn" id="sortRollingGmv" type="button" data-sort="raw_daily_estimated_gmv">24h 추정GMV <span class="arrow">↕</span></button></th><th>판매가</th><th>가격변화</th><th>시간범위</th><th>신뢰도</th></tr></thead><tbody id="productBody"></tbody></table></div>
+<div class="head"><div><div class="title">상품별 최종 확정 일매출</div><div class="small">일일 추정치는 KST 00:00~24:00 기준이며, 24h 구매증가는 같은 상품의 약 24시간 누적구매수 차이입니다.</div></div><div class="small" id="productCount"></div></div>
+<div class="tablewrap"><table><thead><tr><th>#</th><th>브랜드</th><th>상품명</th><th>상품명 변경</th><th>상품번호</th><th><button class="sortbtn" id="sortPurchase" type="button" data-sort="purchase_total">누적 구매수 <span class="arrow">↕</span></button></th><th>기준값 수집</th><th>마지막 수집시각</th><th><button class="sortbtn active" id="sortSales" type="button" data-sort="estimated_sales">일일 추정판매 <span class="arrow">▼</span></button></th><th><button class="sortbtn" id="sortRollingSales" type="button" data-sort="raw_daily_sales">24h 구매증가 <span class="arrow">↕</span></button></th><th><button class="sortbtn" id="sortGmv" type="button" data-sort="estimated_gmv">일일 추정GMV <span class="arrow">↕</span></button></th><th><button class="sortbtn" id="sortRollingGmv" type="button" data-sort="raw_daily_estimated_gmv">24h 추정GMV <span class="arrow">↕</span></button></th><th>판매가</th><th>가격변화</th><th>시간범위</th><th>신뢰도</th></tr></thead><tbody id="productBody"></tbody></table></div>
 </section>
 
 <div class="footer">추정판매량 = 연속된 purchaseTotal 관측값의 증가량을 실제 관측시간 간격에 균등 배분한 뒤 KST 00:00~24:00와 겹치는 시간만 합산합니다. 가격은 새 가격을 처음 관측하기 전까지 이전 관측가를 유지하는 방식(LOCF)으로 추정 GMV에 적용합니다. 따라서 실제 시간대별 주문 집중도, 쿠폰, 적립금, 취소·반품, 실정산매출과는 차이가 날 수 있습니다.</div>
@@ -817,7 +817,7 @@ async function loadAll(){
     ` · 판매통계 수집완료(${latestRawDate||'-'}) ${f(latestRawCount)} / ${f(products.length)}`+
     ` · catalog ${f(catalogCount)}개`+
     (calCount?` · 캘린더 확정 ${f(calCount)}개`:' · 캘린더 계산 대기')+
-    ` · 최근 3일 자동 재계산(backfill) · UI v9.17`;
+    ` · 최근 3일 자동 재계산(backfill) · UI v9.18`;
  }catch(e){
   er.textContent='데이터 로드 실패: '+e.message;
   er.style.display='block';
