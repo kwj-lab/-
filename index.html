@@ -208,6 +208,19 @@ function effectiveSales(r){
  const cal=n(r.estimated_sales);
  const raw=n(r.raw_daily_sales);
  const complete=n(r.calendar_complete)===1;
+ const calDate=String(r.date||'');
+ const rawDate=String(r.raw_date||'');
+
+ // 최신 raw 관측일이 캘린더 날짜보다 새로우면 raw 증가량을 우선 표시
+ if(raw!=null && rawDate && (!calDate || rawDate>calDate)){
+   return {value:raw,source:'rolling24h'};
+ }
+
+ // 같은 날짜라도 캘린더가 아직 완성되지 않았으면 raw를 우선
+ if(raw!=null && rawDate===calDate && !complete){
+   return {value:raw,source:'rolling24h'};
+ }
+
  if(complete && cal!=null)return {value:cal,source:'calendar'};
  if(raw!=null)return {value:raw,source:'rolling24h'};
  if(cal!=null)return {value:cal,source:'calendar_partial'};
@@ -217,6 +230,17 @@ function effectiveGmv(r){
  const cal=n(r.estimated_gmv);
  const raw=n(r.raw_daily_estimated_gmv);
  const complete=n(r.calendar_complete)===1;
+ const calDate=String(r.date||'');
+ const rawDate=String(r.raw_date||'');
+
+ if(raw!=null && rawDate && (!calDate || rawDate>calDate)){
+   return {value:raw,source:'rolling24h'};
+ }
+
+ if(raw!=null && rawDate===calDate && !complete){
+   return {value:raw,source:'rolling24h'};
+ }
+
  if(complete && cal!=null)return {value:cal,source:'calendar'};
  if(raw!=null)return {value:raw,source:'rolling24h'};
  if(cal!=null)return {value:cal,source:'calendar_partial'};
@@ -617,7 +641,7 @@ async function loadAll(){
     ` · 판매통계 수집완료(${latestRawDate||'-'}) ${f(latestRawCount)} / ${f(products.length)}`+
     ` · catalog ${f(catalogCount)}개`+
     (calCount?` · 캘린더 확정 ${f(calCount)}개`:' · 캘린더 계산 대기')+
-    ` · 최근 3일 자동 재계산(backfill) · UI v9.11`;
+    ` · 최근 3일 자동 재계산(backfill) · UI v9.12`;
  }catch(e){
   er.textContent='데이터 로드 실패: '+e.message;
   er.style.display='block';
