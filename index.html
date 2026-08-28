@@ -38,6 +38,18 @@ dialog{width:min(1200px,96vw);max-height:92vh;border:0;border-radius:16px;paddin
 .brandstatus summary{cursor:pointer;padding:10px 14px;font-size:12px;font-weight:700}
 .missingbrands{padding:0 14px 13px;display:flex;gap:6px;flex-wrap:wrap}
 .missingbrand{display:inline-block;padding:5px 8px;border:1px solid var(--line);border-radius:999px;background:var(--soft);font-size:11px}
+.auditgrid{padding:0 14px 13px}
+.audittable{width:100%;border-collapse:collapse;font-size:11px}
+.audittable th,.audittable td{position:static;padding:7px 8px;text-align:left;white-space:normal;vertical-align:top}
+.audittable th{background:var(--soft);color:#4b5563}
+.auditcount{font-weight:700;color:var(--warn)}
+.auditcount.bad{color:var(--bad)}
+.auditcount.good{color:var(--good)}
+.datastatus{background:var(--panel);border:1px solid var(--line);border-radius:13px;margin-bottom:12px;overflow:hidden}
+.datastatusline{padding:11px 14px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;font-size:12px}
+.datastatus details{border-top:1px solid var(--line)}
+.datastatus summary{cursor:pointer;padding:10px 14px;font-size:12px;font-weight:700}
+
 .namechange{display:inline-block;border-radius:999px;padding:3px 7px;background:#fff7ed;color:var(--warn);font-size:10px;font-weight:700}
 .namehistory{margin:0;padding-left:18px;font-size:11px;line-height:1.65}
 .namehistory li{margin:4px 0}
@@ -59,7 +71,7 @@ dialog{width:min(1200px,96vw);max-height:92vh;border:0;border-radius:16px;paddin
 <div><h1>무신사 캘린더 일별 판매 대시보드</h1><div class="sub" id="updated">데이터 불러오는 중...</div></div>
 <div class="actions"><button id="reload">새로고침</button><button id="catalogCsv">전체상품 CSV</button><button id="dailyCsv">일별판매 CSV</button><button id="brandCsv">브랜드 CSV</button></div>
 </header>
-<div class="notice"><b>날짜 기준:</b> 한국시간 00:00~24:00. 예를 들어 20일 수치는 20일 하루 전체를 뜻합니다. 다만 상품당 하루 1회 누적구매수를 관측하므로 관측 사이 증가량을 시간 비율로 나눈 <b>캘린더 일별 추정치</b>입니다. 20일의 완전한 추정치는 21일 각 시간대 관측이 끝난 뒤 확정됩니다. 판매속도에 따라 24시간/12시간/약 6시간 간격으로 자동 추가 관측하여 고판매 상품의 날짜 경계 오차를 줄입니다.</div>
+<div class="notice"><b>날짜 기준:</b> 한국시간 00:00~24:00. 예를 들어 20일 수치는 20일 하루 전체를 뜻합니다. 누적구매수 관측 사이 증가량을 시간 비율로 나눈 <b>캘린더 일별 추정치</b>이며, 판매속도에 따라 약 24시간/9시간/3시간 간격으로 추가 관측합니다. 일판매 3개 이상 상품에는 자정 앵커 관측을 추가해 날짜 경계 오차를 줄입니다.</div>
 <div class="error" id="err"></div>
 
 <div class="filters">
@@ -70,13 +82,38 @@ dialog{width:min(1200px,96vw);max-height:92vh;border:0;border-radius:16px;paddin
 <div class="brandstatus" id="brandStatus">
   <div class="brandstatusline">
     <span class="brandmetric">등록 브랜드 <b id="registeredBrandCount">-</b></span>
-    <span class="brandmetric">발견 브랜드 <b id="discoveredBrandCount">-</b></span>
+    <span class="brandmetric">매칭 성공 <b id="matchedBrandCount">-</b></span>
+    <span class="brandmetric">catalog 고유 브랜드 <b id="discoveredBrandCount">-</b></span>
     <span class="brandmetric missing">미발견 브랜드 <b id="missingBrandCount">-</b></span>
     <span class="muted" id="brandStatusNote">브랜드 목록 확인 중...</span>
   </div>
+  <details id="aliasBrandDetails">
+    <summary id="aliasBrandSummary">중복/별칭으로 합쳐진 브랜드 보기</summary>
+    <div class="auditgrid" id="aliasBrandList"></div>
+  </details>
   <details id="missingBrandDetails">
     <summary>미발견 브랜드 목록 보기</summary>
     <div class="missingbrands" id="missingBrandList"></div>
+  </details>
+</div>
+
+<div class="datastatus" id="dataStatus">
+  <div class="datastatusline">
+    <span class="brandmetric">검색 가능 상품 <b id="diagSearchCount">-</b></span>
+    <span class="brandmetric">catalog 등록 <b id="diagCatalogCount">-</b></span>
+    <span class="brandmetric">catalog 미등록 <b class="auditcount bad" id="diagMissingCatalogCount">-</b></span>
+    <span class="brandmetric">오늘 수집완료 <b class="auditcount good" id="diagCollectedTodayCount">-</b></span>
+    <span class="brandmetric">오늘 미수집 <b class="auditcount bad" id="diagUncollectedTodayCount">-</b></span>
+  </div>
+
+  <details id="missingCatalogDetails">
+    <summary id="missingCatalogSummary">catalog 미등록 상품 보기</summary>
+    <div class="auditgrid" id="missingCatalogList"></div>
+  </details>
+
+  <details id="uncollectedTodayDetails">
+    <summary id="uncollectedTodaySummary">오늘 미수집 상품 보기</summary>
+    <div class="auditgrid" id="uncollectedTodayList"></div>
   </details>
 </div>
 
@@ -169,7 +206,8 @@ dialog{width:min(1200px,96vw);max-height:92vh;border:0;border-radius:16px;paddin
 <script>
 const F={latest:'musinsa_calendar_latest_products.csv',brands:'musinsa_calendar_brand_daily.csv',summary:'musinsa_calendar_summary.csv',manifest:'data/calendar/calendar_manifest.json',catalog:'musinsa_catalog.csv',raw:'musinsa_daily_product_sales.csv',watchlist:'musinsa_watchlist.txt',registeredBrands:'musinsa_brands.txt'};
 let products=[],brands=[],summary=[],manifest={},active=null;
-let registeredBrands=[],discoveredBrands=[],missingBrands=[];
+let registeredBrands=[],discoveredBrands=[],missingBrands=[],aliasBrandGroups=[];
+let missingCatalogProducts=[],uncollectedTodayProducts=[];
 let latestRawDate='';
 let productSort={key:'sales_display',dir:'desc'};
 
@@ -316,28 +354,113 @@ function brandsMatch(a,b){
 function renderBrandStatus(){
  discoveredBrands=[...new Set(products.map(r=>String(r.brand_name||'').trim()).filter(Boolean))]
    .sort((a,b)=>a.localeCompare(b,'ko'));
+
+ const matchedRegistered=registeredBrands.filter(r=>discoveredBrands.some(d=>brandsMatch(r,d)));
  missingBrands=registeredBrands.filter(r=>!discoveredBrands.some(d=>brandsMatch(r,d)));
 
+ aliasBrandGroups=discoveredBrands.map(d=>{
+   const regs=registeredBrands.filter(r=>brandsMatch(r,d));
+   return {catalogBrand:d,registered:regs};
+ }).filter(x=>x.registered.length>1);
+
  document.getElementById('registeredBrandCount').textContent=f(registeredBrands.length);
+ document.getElementById('matchedBrandCount').textContent=f(matchedRegistered.length);
  document.getElementById('discoveredBrandCount').textContent=f(discoveredBrands.length);
  document.getElementById('missingBrandCount').textContent=f(missingBrands.length);
 
  const note=document.getElementById('brandStatusNote');
  const list=document.getElementById('missingBrandList');
  const details=document.getElementById('missingBrandDetails');
+ const aliasList=document.getElementById('aliasBrandList');
+ const aliasDetails=document.getElementById('aliasBrandDetails');
+ const aliasSummary=document.getElementById('aliasBrandSummary');
 
  if(!registeredBrands.length){
    note.textContent='musinsa_brands.txt를 읽지 못했거나 등록 브랜드가 없습니다.';
    list.innerHTML='<span class="muted">등록 브랜드 목록 없음</span>';
+   aliasList.innerHTML='<span class="muted">브랜드 비교 데이터 없음</span>';
    details.open=false;
+   aliasDetails.open=false;
    return;
  }
- note.textContent='등록 목록 ↔ catalog 브랜드명 정규화 비교';
+
+ const mergedRegisteredCount=aliasBrandGroups.reduce((a,x)=>a+(x.registered.length-1),0);
+ note.textContent=`등록 ${registeredBrands.length}개 중 ${matchedRegistered.length}개 매칭 · catalog 고유 ${discoveredBrands.length}개 · 별칭/중복 합쳐짐 ${mergedRegisteredCount}개`;
+
+ aliasSummary.textContent=`중복/별칭으로 합쳐진 브랜드 ${mergedRegisteredCount}건 보기`;
+ if(aliasBrandGroups.length){
+   aliasList.innerHTML=`<table class="audittable">
+     <thead><tr><th>catalog 브랜드</th><th>등록 목록에서 같이 매칭된 이름</th></tr></thead>
+     <tbody>${aliasBrandGroups.map(x=>`<tr>
+       <td><b>${esc(x.catalogBrand)}</b></td>
+       <td>${x.registered.map(v=>`<span class="missingbrand">${esc(v)}</span>`).join(' ')}</td>
+     </tr>`).join('')}</tbody>
+   </table>`;
+ }else{
+   aliasList.innerHTML='<span class="muted">중복/별칭으로 합쳐진 브랜드가 없습니다.</span>';
+   aliasDetails.open=false;
+ }
+
  if(!missingBrands.length){
    list.innerHTML='<span class="positive">모든 등록 브랜드가 catalog에서 발견됐습니다.</span>';
    details.open=false;
  }else{
    list.innerHTML=missingBrands.map(b=>`<span class="missingbrand">${esc(b)}</span>`).join('');
+ }
+}
+
+function renderDataDiagnostics(catalogMap){
+ const catalogSet=new Set([...catalogMap.keys()]);
+ missingCatalogProducts=products.filter(r=>!catalogSet.has(String(r.goods_no||'')));
+ uncollectedTodayProducts=products.filter(r=>r.raw_collected_today!=='1');
+
+ const collectedToday=products.length-uncollectedTodayProducts.length;
+
+ document.getElementById('diagSearchCount').textContent=f(products.length);
+ document.getElementById('diagCatalogCount').textContent=f(catalogSet.size);
+ document.getElementById('diagMissingCatalogCount').textContent=f(missingCatalogProducts.length);
+ document.getElementById('diagCollectedTodayCount').textContent=f(collectedToday);
+ document.getElementById('diagUncollectedTodayCount').textContent=f(uncollectedTodayProducts.length);
+
+ const mcSummary=document.getElementById('missingCatalogSummary');
+ const mcList=document.getElementById('missingCatalogList');
+ mcSummary.textContent=`catalog 미등록 상품 ${missingCatalogProducts.length}개 보기`;
+
+ if(missingCatalogProducts.length){
+   mcList.innerHTML=`<table class="audittable">
+     <thead><tr><th>상품번호</th><th>브랜드</th><th>상품명</th><th>현재 상태</th><th>마지막 수집</th></tr></thead>
+     <tbody>${missingCatalogProducts.map(r=>`<tr>
+       <td>${esc(r.goods_no||'-')}</td>
+       <td>${esc(r.brand_name||'-')}</td>
+       <td>${esc(r.product_name||'-')}</td>
+       <td>${esc(r.confidence||'-')}</td>
+       <td>${esc(checkedTime(r.last_checked_at||''))}</td>
+     </tr>`).join('')}</tbody>
+   </table>`;
+ }else{
+   mcList.innerHTML='<span class="positive">검색 가능 상품이 모두 catalog에 등록되어 있습니다.</span>';
+   document.getElementById('missingCatalogDetails').open=false;
+ }
+
+ const ucSummary=document.getElementById('uncollectedTodaySummary');
+ const ucList=document.getElementById('uncollectedTodayList');
+ ucSummary.textContent=`오늘 미수집 상품 ${uncollectedTodayProducts.length}개 보기`;
+
+ if(uncollectedTodayProducts.length){
+   ucList.innerHTML=`<div class="small" style="margin:0 0 8px">오늘(${esc(latestRawDate||'-')}) purchaseTotal 정상 관측이 아직 없는 상품입니다. 신규 편입·timeout·실패·recovery 대기 등이 포함될 수 있습니다.</div>
+   <table class="audittable">
+     <thead><tr><th>상품번호</th><th>브랜드</th><th>상품명</th><th>상태</th><th>마지막 수집</th></tr></thead>
+     <tbody>${uncollectedTodayProducts.map(r=>`<tr>
+       <td>${esc(r.goods_no||'-')}</td>
+       <td>${esc(r.brand_name||'-')}</td>
+       <td>${esc(r.product_name||'-')}</td>
+       <td>${esc(r.confidence||'-')}</td>
+       <td>${esc(checkedTime(r.last_checked_at||''))}</td>
+     </tr>`).join('')}</tbody>
+   </table>`;
+ }else{
+   ucList.innerHTML='<span class="positive">오늘 모든 추적 상품의 판매통계 관측이 완료됐습니다.</span>';
+   document.getElementById('uncollectedTodayDetails').open=false;
  }
 }
 
@@ -352,7 +475,7 @@ function populate(){const bs=[...new Set(products.map(r=>r.brand_name).filter(Bo
 function renderK(){const rows=filtered(),d=latestDate(products);document.getElementById('kDate').textContent=d||'-';document.getElementById('kSales').textContent=f(rows.reduce((a,r)=>a+(effectiveSales(r).value||0),0),1);document.getElementById('kGmv').textContent=wonExact(rows.reduce((a,r)=>a+(effectiveGmv(r).value||0),0));const c=rows.filter(r=>n(r.calendar_complete)===1).length;document.getElementById('kCoverage').textContent=rows.length?f(c/rows.length*100,1)+'%':'-';document.getElementById('kPriceChanges').textContent=f(rows.filter(r=>n(r.price_change_detected)===1).length);document.getElementById('kProducts').textContent=f(rows.length);document.getElementById('kBrands').textContent=
   document.getElementById('brandFilter').value
     ? f(new Set(rows.map(r=>r.brand_name).filter(Boolean)).size)+'개 브랜드'
-    : `발견 ${f(discoveredBrands.length||new Set(rows.map(r=>r.brand_name).filter(Boolean)).size)} / 등록 ${registeredBrands.length?f(registeredBrands.length):'-'}`}
+    : `catalog 고유 ${f(discoveredBrands.length||new Set(rows.map(r=>r.brand_name).filter(Boolean)).size)} / 등록 ${registeredBrands.length?f(registeredBrands.length):'-'}`}
 function renderOverall(){const rows=[...summary].sort((a,b)=>a.date.localeCompare(b.date)).slice(-45);chart(document.getElementById('overallChart'),rows,'estimated_gmv')}
 let brandRankSort={key:'estimated_sales',dir:'desc'};
 function setBrandRankSort(key){
@@ -676,6 +799,7 @@ async function loadAll(){
   populate();
   renderAll();
   renderBrandStatus();
+  renderDataDiagnostics(catMap);
 
   const finalized=manifest.latest_finalized_date||latestDate(cal)||'-';
   const calCount=cal.length;
@@ -687,7 +811,7 @@ async function loadAll(){
     ` · 판매통계 수집완료(${latestRawDate||'-'}) ${f(latestRawCount)} / ${f(products.length)}`+
     ` · catalog ${f(catalogCount)}개`+
     (calCount?` · 캘린더 확정 ${f(calCount)}개`:' · 캘린더 계산 대기')+
-    ` · 최근 3일 자동 재계산(backfill) · UI v9.15`;
+    ` · 최근 3일 자동 재계산(backfill) · UI v9.16`;
  }catch(e){
   er.textContent='데이터 로드 실패: '+e.message;
   er.style.display='block';
