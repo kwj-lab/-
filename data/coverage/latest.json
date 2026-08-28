@@ -89,24 +89,26 @@
     },
     "7": {
       "slot": 7,
-      "expected": 11408,
-      "success": 11408,
+      "expected": 11426,
+      "success": 11426,
       "failed": 0,
       "coverage_pct": 100.0,
       "status": "complete",
       "stage": "primary",
       "first_collected_at": "2026-08-28T14:07:10+09:00",
-      "last_updated_at": "2026-08-28T14:07:10+09:00",
+      "last_primary_at": "2026-08-28T21:42:04+09:00",
+      "last_recovery_at": null,
+      "last_updated_at": "2026-08-28T21:42:04+09:00",
       "failed_goods_sample": []
     }
   },
   "overall": {
     "slots_collected": 8,
     "complete_slots": 8,
-    "expected": 88098,
-    "success": 88098,
+    "expected": 88116,
+    "success": 88116,
     "failed": 0,
     "coverage_pct": 100.0
   },
-  "updated_at": "2026-08-28T18:41:00+09:00"
+  "updated_at": "2026-08-28T21:42:04+09:00"
 }
