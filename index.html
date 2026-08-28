@@ -119,8 +119,8 @@ dialog{width:min(1200px,96vw);max-height:92vh;border:0;border-radius:16px;paddin
 
 <div class="kpis">
 <div class="card"><div class="label">최종 확정 날짜</div><div class="value" id="kDate">-</div><div class="small">KST 캘린더 기준</div></div>
-<div class="card"><div class="label">일별 추정 판매량</div><div class="value" id="kSales">-</div><div class="small">선택 브랜드 합계</div></div>
-<div class="card"><div class="label">일별 추정 GMV</div><div class="value" id="kGmv">-</div><div class="small">관측 표시가 기준</div></div>
+<div class="card"><div class="label">캘린더 추정 판매량</div><div class="value" id="kSales">-</div><div class="small">KST 00:00~24:00 · 선택 브랜드 합계</div></div>
+<div class="card"><div class="label">캘린더 추정 GMV</div><div class="value" id="kGmv">-</div><div class="small">KST 00:00~24:00 · 캘린더 기준</div></div>
 <div class="card"><div class="label">상품 완성도</div><div class="value" id="kCoverage">-</div><div class="small">99% 시간범위 이상 확보</div></div>
 <div class="card"><div class="label">가격 변경 상품</div><div class="value" id="kPriceChanges">-</div><div class="small">해당 날짜 변경 감지</div></div>
 <div class="card"><div class="label">추적 상품</div><div class="value" id="kProducts">-</div><div class="small" id="kBrands">-</div></div>
@@ -133,7 +133,7 @@ dialog{width:min(1200px,96vw);max-height:92vh;border:0;border-radius:16px;paddin
 </section>
 <section class="panel">
 <div class="head"><div><div class="title">브랜드 최신 일판매 순위</div><div class="small">브랜드명을 누르면 날짜별 추이</div></div></div>
-<div class="tablewrap"><table><thead><tr><th>#</th><th>브랜드</th><th>상품수</th><th>완성도</th><th><button class="sortbtn" id="brandSortSales">추정판매 <span id="brandSortSalesIcon">▼</span></button></th><th><button class="sortbtn" id="brandSortGmv">추정GMV <span id="brandSortGmvIcon"></span></button></th></tr></thead><tbody id="brandRank"></tbody></table></div>
+<div class="tablewrap"><table><thead><tr><th>#</th><th>브랜드</th><th>상품수</th><th>완성도</th><th><button class="sortbtn" id="brandSortSales">캘린더 추정판매 <span id="brandSortSalesIcon">▼</span></button></th><th><button class="sortbtn" id="brandSortGmv">캘린더 추정GMV <span id="brandSortGmvIcon"></span></button></th></tr></thead><tbody id="brandRank"></tbody></table></div>
 </section>
 </div>
 
@@ -194,8 +194,8 @@ dialog{width:min(1200px,96vw);max-height:92vh;border:0;border-radius:16px;paddin
 </section>
 
 <section class="panel">
-<div class="head"><div><div class="title">상품별 최종 확정 일매출</div><div class="small">상품명을 누르면 아래 상품별 일일 판매량 영역에서 날짜별 판매·매출·가격변화 확인</div></div><div class="small" id="productCount"></div></div>
-<div class="tablewrap"><table><thead><tr><th>#</th><th>브랜드</th><th>상품명</th><th>상품명 변경</th><th>상품번호</th><th><button class="sortbtn" id="sortPurchase" type="button" data-sort="purchase_total">누적 구매수 <span class="arrow">↕</span></button></th><th>기준값 수집</th><th>마지막 수집시각</th><th><button class="sortbtn active" id="sortSales" type="button" data-sort="sales_display">추정 일판매 <span class="arrow">▼</span></button></th><th><button class="sortbtn" id="sortGmv" type="button" data-sort="gmv_display">추정 GMV <span class="arrow">↕</span></button></th><th>판매가</th><th>가격변화</th><th>시간범위</th><th>신뢰도</th></tr></thead><tbody id="productBody"></tbody></table></div>
+<div class="head"><div><div class="title">상품별 최종 확정 일매출</div><div class="small">캘린더 추정치는 KST 00:00~24:00 기준이며, 24h 구매증가는 같은 상품의 약 24시간 누적구매수 차이입니다.</div></div><div class="small" id="productCount"></div></div>
+<div class="tablewrap"><table><thead><tr><th>#</th><th>브랜드</th><th>상품명</th><th>상품명 변경</th><th>상품번호</th><th><button class="sortbtn" id="sortPurchase" type="button" data-sort="purchase_total">누적 구매수 <span class="arrow">↕</span></button></th><th>기준값 수집</th><th>마지막 수집시각</th><th><button class="sortbtn active" id="sortSales" type="button" data-sort="estimated_sales">캘린더 추정판매 <span class="arrow">▼</span></button></th><th><button class="sortbtn" id="sortRollingSales" type="button" data-sort="raw_daily_sales">24h 구매증가 <span class="arrow">↕</span></button></th><th><button class="sortbtn" id="sortGmv" type="button" data-sort="estimated_gmv">캘린더 추정GMV <span class="arrow">↕</span></button></th><th><button class="sortbtn" id="sortRollingGmv" type="button" data-sort="raw_daily_estimated_gmv">24h 추정GMV <span class="arrow">↕</span></button></th><th>판매가</th><th>가격변화</th><th>시간범위</th><th>신뢰도</th></tr></thead><tbody id="productBody"></tbody></table></div>
 </section>
 
 <div class="footer">추정판매량 = 연속된 purchaseTotal 관측값의 증가량을 실제 관측시간 간격에 균등 배분한 뒤 KST 00:00~24:00와 겹치는 시간만 합산합니다. 가격은 새 가격을 처음 관측하기 전까지 이전 관측가를 유지하는 방식(LOCF)으로 추정 GMV에 적용합니다. 따라서 실제 시간대별 주문 집중도, 쿠폰, 적립금, 취소·반품, 실정산매출과는 차이가 날 수 있습니다.</div>
@@ -209,7 +209,7 @@ let products=[],brands=[],summary=[],manifest={},active=null;
 let registeredBrands=[],discoveredBrands=[],missingBrands=[],aliasBrandGroups=[];
 let missingCatalogProducts=[],uncollectedTodayProducts=[];
 let latestRawDate='';
-let productSort={key:'sales_display',dir:'desc'};
+let productSort={key:'estimated_sales',dir:'desc'};
 
 function updateProductSortHeaders(){
  const buttons=document.querySelectorAll('.sortbtn[data-sort]');
@@ -289,9 +289,12 @@ function effectiveGmv(r){
  return {value:null,source:'none'};
 }
 function sortValue(r,key){
- if(key==='sales_display')return effectiveSales(r).value;
- if(key==='gmv_display')return effectiveGmv(r).value;
- return n(r[key]);
+ const v=n(r[key]);
+ if(v==null)return null;
+ if(key==='estimated_sales' || key==='estimated_gmv' || key==='raw_daily_sales' || key==='raw_daily_estimated_gmv'){
+   return Math.max(0,v);
+ }
+ return v;
 }
 
 function f(v,d=0){if(v==null)return'-';return Number(v).toLocaleString('ko-KR',{minimumFractionDigits:d,maximumFractionDigits:d})}
@@ -472,7 +475,7 @@ function chart(el,rows,key){if(!rows.length){el.innerHTML='<div class="empty">�
 function priceChart(el,rows){const v=rows.map(r=>n(r.display_price)).filter(x=>x!=null);if(!v.length){el.innerHTML='<div class="empty">가격 데이터 없음</div>';return}const W=900,H=210,L=65,R=18,T=15,B=32,mn=Math.min(...v),mx=Math.max(...v),span=Math.max(mx-mn,1),x=i=>L+(W-L-R)*(rows.length===1?.5:i/(rows.length-1)),y=z=>T+(H-T-B)*(1-(z-mn)/span);let pts=rows.map((r,i)=>n(r.display_price)!=null?`${x(i)},${y(n(r.display_price))}`:'').filter(Boolean).join(' ');el.innerHTML=`<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"><polyline fill="none" stroke="#111827" stroke-width="2.4" points="${pts}"/><text x="${L-7}" y="${T+4}" text-anchor="end" font-size="9" fill="#6b7280">${priceWon(mx)}</text><text x="${L-7}" y="${H-B+4}" text-anchor="end" font-size="9" fill="#6b7280">${priceWon(mn)}</text></svg>`}
 
 function populate(){const bs=[...new Set(products.map(r=>r.brand_name).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ko'));for(const id of ['brandFilter','brandDaily']){const el=document.getElementById(id),old=el.value;el.innerHTML=`<option value="">${id==='brandFilter'?'전체 브랜드':'브랜드 선택'}</option>`+bs.map(b=>`<option value="${esc(b)}">${esc(b)}</option>`).join('');if(bs.includes(old))el.value=old}}
-function renderK(){const rows=filtered(),d=latestDate(products);document.getElementById('kDate').textContent=d||'-';document.getElementById('kSales').textContent=f(rows.reduce((a,r)=>a+(effectiveSales(r).value||0),0),1);document.getElementById('kGmv').textContent=wonExact(rows.reduce((a,r)=>a+(effectiveGmv(r).value||0),0));const c=rows.filter(r=>n(r.calendar_complete)===1).length;document.getElementById('kCoverage').textContent=rows.length?f(c/rows.length*100,1)+'%':'-';document.getElementById('kPriceChanges').textContent=f(rows.filter(r=>n(r.price_change_detected)===1).length);document.getElementById('kProducts').textContent=f(rows.length);document.getElementById('kBrands').textContent=
+function renderK(){const rows=filtered(),d=latestDate(products);document.getElementById('kDate').textContent=d||'-';document.getElementById('kSales').textContent=f(rows.reduce((a,r)=>a+Math.max(0,n(r.estimated_sales)||0),0),1);document.getElementById('kGmv').textContent=wonExact(rows.reduce((a,r)=>a+Math.max(0,n(r.estimated_gmv)||0),0));const c=rows.filter(r=>n(r.calendar_complete)===1).length;document.getElementById('kCoverage').textContent=rows.length?f(c/rows.length*100,1)+'%':'-';document.getElementById('kPriceChanges').textContent=f(rows.filter(r=>n(r.price_change_detected)===1).length);document.getElementById('kProducts').textContent=f(rows.length);document.getElementById('kBrands').textContent=
   document.getElementById('brandFilter').value
     ? f(new Set(rows.map(r=>r.brand_name).filter(Boolean)).size)+'개 브랜드'
     : `catalog 고유 ${f(discoveredBrands.length||new Set(rows.map(r=>r.brand_name).filter(Boolean)).size)} / 등록 ${registeredBrands.length?f(registeredBrands.length):'-'}`}
@@ -538,15 +541,16 @@ function renderProducts(){
 
    const collected=r.raw_collected==='1';
    const collectedToday=r.raw_collected_today==='1';
-   const sales=effectiveSales(r);
-   const gmv=effectiveGmv(r);
-   const salesTag=sales.source==='calendar'
-     ? '<span class="salesource final">캘린더</span>'
-     : sales.source==='rolling24h'
-       ? '<span class="salesource provisional">24h 임시</span>'
-       : sales.source==='calendar_partial'
-         ? '<span class="salesource provisional">부분계산</span>'
-         : '';
+
+   const calendarSales=n(r.estimated_sales);
+   const rollingSales=n(r.raw_daily_sales);
+   const calendarGmv=n(r.estimated_gmv);
+   const rollingGmv=n(r.raw_daily_estimated_gmv);
+
+   const calendarSalesValue=calendarSales==null?null:Math.max(0,calendarSales);
+   const rollingSalesValue=rollingSales==null?null:Math.max(0,rollingSales);
+   const calendarGmvValue=calendarGmv==null?null:Math.max(0,calendarGmv);
+   const rollingGmvValue=rollingGmv==null?null:Math.max(0,rollingGmv);
 
    const status=collectedToday
      ? `<span class="badge high">오늘 수집</span>`
@@ -565,8 +569,10 @@ function renderProducts(){
      <td>${collected?f(n(r.purchase_total)):'-'}</td>
      <td>${status}</td>
      <td>${checkedTime(r.last_checked_at)}</td>
-     <td class="${(sales.value||0)>0?'positive':''}">${sales.value==null?'-':f(sales.value,1)}${salesTag}</td>
-     <td>${gmv.value==null?'-':wonExact(gmv.value)}</td>
+     <td class="${(calendarSalesValue||0)>0?'positive':''}">${calendarSalesValue==null?'-':f(calendarSalesValue,1)}</td>
+     <td class="${(rollingSalesValue||0)>0?'positive':''}">${rollingSalesValue==null?'-':f(rollingSalesValue,0)}</td>
+     <td>${calendarGmvValue==null?'-':wonExact(calendarGmvValue)}</td>
+     <td>${rollingGmvValue==null?'-':wonExact(rollingGmvValue)}</td>
      <td>${priceWon(n(r.display_price))}</td>
      <td class="${n(r.price_change_amount)<0?'negative':n(r.price_change_amount)>0?'warn':''}">${ch}</td>
      <td>${f(n(r.coverage_pct),1)}%</td>
@@ -811,7 +817,7 @@ async function loadAll(){
     ` · 판매통계 수집완료(${latestRawDate||'-'}) ${f(latestRawCount)} / ${f(products.length)}`+
     ` · catalog ${f(catalogCount)}개`+
     (calCount?` · 캘린더 확정 ${f(calCount)}개`:' · 캘린더 계산 대기')+
-    ` · 최근 3일 자동 재계산(backfill) · UI v9.16`;
+    ` · 최근 3일 자동 재계산(backfill) · UI v9.17`;
  }catch(e){
   er.textContent='데이터 로드 실패: '+e.message;
   er.style.display='block';
@@ -826,8 +832,10 @@ document.getElementById('brandFilter').addEventListener('change',()=>{renderK();
 document.getElementById('search').addEventListener('input',renderProducts);
 document.getElementById('brandDaily').addEventListener('change',renderBrandDaily);
 document.getElementById('productDailyPeriod').addEventListener('change',renderSelectedProductDaily);
-document.getElementById('sortSales').addEventListener('click',()=>setProductSort('sales_display'));
-document.getElementById('sortGmv').addEventListener('click',()=>setProductSort('gmv_display'));
+document.getElementById('sortSales').addEventListener('click',()=>setProductSort('estimated_sales'));
+document.getElementById('sortGmv').addEventListener('click',()=>setProductSort('estimated_gmv'));
+document.getElementById('sortRollingSales')?.addEventListener('click',()=>setProductSort('raw_daily_sales'));
+document.getElementById('sortRollingGmv')?.addEventListener('click',()=>setProductSort('raw_daily_estimated_gmv'));
 document.getElementById('brandSortSales')?.addEventListener('click',()=>setBrandRankSort('estimated_sales'));
 document.getElementById('brandSortGmv')?.addEventListener('click',()=>setBrandRankSort('estimated_gmv'));
 document.getElementById('sortPurchase').addEventListener('click',()=>setProductSort('purchase_total'));
