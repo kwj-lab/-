@@ -114,11 +114,18 @@ QUICK_KNOWN_STOP_PAGES = int(os.environ.get("MUSINSA_QUICK_KNOWN_STOP_PAGES", "3
 
 # Adaptive sampling thresholds (rolling 24h / 7d average sales).
 # 0~2/day: baseline only (~24h)
-# 3~20/day: one extra observation at ~12h
-# 21+/day: three extra observations at ~6h / ~12h / ~18h
+# 3~20/day: baseline + two extra observations (~9h / ~18h offsets)
+# 21+/day: observation in every 3h clock block
+#
+# Midnight anchor:
+# products scoring >= 3/day get one additional observation around 00:40 KST
+# (except base slot 0, which already has a ~00:15 primary observation).
 ADAPTIVE_MEDIUM_MIN = float(os.environ.get("MUSINSA_ADAPTIVE_MEDIUM_MIN", "3"))
 ADAPTIVE_HIGH_MIN = float(os.environ.get("MUSINSA_ADAPTIVE_HIGH_MIN", "21"))
 ADAPTIVE_MAX_PER_RUN = int(os.environ.get("MUSINSA_ADAPTIVE_MAX_PER_RUN", "15000"))
+MIDNIGHT_ANCHOR_MIN = float(os.environ.get("MUSINSA_MIDNIGHT_ANCHOR_MIN", "3"))
+MIDNIGHT_ANCHOR_MAX_PER_RUN = int(os.environ.get("MUSINSA_MIDNIGHT_ANCHOR_MAX_PER_RUN", "15000"))
+MIDNIGHT_REPORT_DIR = BASE_DIR / "data" / "anchor"
 
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -1057,26 +1064,32 @@ def adaptive_sales_score(row):
 def adaptive_sampling_tier(row):
     score = adaptive_sales_score(row)
     if score >= ADAPTIVE_HIGH_MIN:
-        return "6h", score
+        return "3h", score
     if score >= ADAPTIVE_MEDIUM_MIN:
-        return "12h", score
+        return "9h", score
     return "24h", score
 
 
 def adaptive_due(base_slot, clock_slot, tier):
     """Return True when an extra observation is due in this 3h clock block.
 
-    Main collection is the baseline observation at offset 0.
-    12h tier adds offset 4 slots.
-    6h tier adds offsets 2, 4 and 6 slots.
-    Adaptive workflow runs later than main/recovery, so actual gaps are roughly
-    7.25/6/6/4.75h around the four daily observations rather than exactly 6h.
+    Main collection remains the baseline observation at offset 0.
+
+    9h tier:
+      offsets 3 and 6 -> roughly three observations/day
+      (actual gaps are around 9~10h / 9h / 5~6h because adaptive runs at :30).
+
+    3h tier:
+      offsets 1..7 -> roughly one observation every 3h.
+
+    The midnight anchor is independent and is used to tighten the KST
+    calendar-day boundary for products selling >= 3/day.
     """
     offset = (int(clock_slot) - int(base_slot)) % SLOT_COUNT
-    if tier == "12h":
-        return offset == 4
-    if tier == "6h":
-        return offset in (2, 4, 6)
+    if tier == "9h":
+        return offset in (3, 6)
+    if tier == "3h":
+        return offset in (1, 2, 3, 4, 5, 6, 7)
     return False
 
 
@@ -1148,7 +1161,7 @@ def collect_adaptive(clock_slot, max_products=None, dry_run=False):
         })
 
     # High tier first, then highest sales speed. Cap protects the source and Actions runtime.
-    selected.sort(key=lambda x: (0 if x["tier"] == "6h" else 1, -x["score"], int(x["goods_no"]) if x["goods_no"].isdigit() else 10**30))
+    selected.sort(key=lambda x: (0 if x["tier"] == "3h" else 1, -x["score"], int(x["goods_no"]) if x["goods_no"].isdigit() else 10**30))
     total_due = len(selected)
     if max_products > 0:
         selected = selected[:max_products]
@@ -1159,8 +1172,8 @@ def collect_adaptive(clock_slot, max_products=None, dry_run=False):
         "thresholds": {"medium_min": ADAPTIVE_MEDIUM_MIN, "high_min": ADAPTIVE_HIGH_MIN},
         "due_before_cap": total_due,
         "selected": len(selected),
-        "selected_6h": sum(1 for x in selected if x["tier"] == "6h"),
-        "selected_12h": sum(1 for x in selected if x["tier"] == "12h"),
+        "selected_3h": sum(1 for x in selected if x["tier"] == "3h"),
+        "selected_9h": sum(1 for x in selected if x["tier"] == "9h"),
         "max_products": max_products,
         "dry_run": bool(dry_run),
     }
@@ -1221,6 +1234,189 @@ def collect_adaptive(clock_slot, max_products=None, dry_run=False):
     })
     (report_dir / f"run-{token}.json").write_text(
         json.dumps(stats, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    print(json.dumps(stats, ensure_ascii=False))
+    return 0
+
+
+
+def _midnight_anchor_token():
+    stamp = now_kst().strftime("%Y%m%d-%H%M%S")
+    run_id = re.sub(r"[^0-9A-Za-z_.-]+", "-", os.environ.get("GITHUB_RUN_ID", "local"))
+    return f"{stamp}-{run_id}"
+
+
+def save_midnight_anchor_observations(raw_rows, meta_by_goods):
+    """Save the day-boundary observations without touching primary snapshots."""
+    grouped = {}
+    for r in raw_rows:
+        if to_int(r.get("purchase_total")) is None:
+            continue
+        checked = parse_kst_datetime(r.get("checked_at")) or now_kst()
+        date_text = checked.date().isoformat()
+        g = str(r.get("goods_no") or "")
+        meta = meta_by_goods.get(g, {})
+
+        row = compact_from_raw(r, checked.date(), meta.get("base_slot", 0))
+        row.update({
+            "sample_kind": "midnight_anchor",
+            "sampling_tier": meta.get("tier", ""),
+            "sampling_score": round(float(meta.get("score") or 0.0), 2),
+            "base_slot": meta.get("base_slot", ""),
+            "clock_slot": 0,
+        })
+        grouped.setdefault(date_text, []).append(row)
+
+    token = _midnight_anchor_token()
+    paths = []
+    for date_text, rows in grouped.items():
+        folder = OBSERVATION_DIR / date_text
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / f"midnight-anchor-{token}.csv.gz"
+        rows.sort(
+            key=lambda x: int(x["goods_no"])
+            if str(x.get("goods_no", "")).isdigit()
+            else 10**30
+        )
+        write_csv(path, rows, ADAPTIVE_OBS_FIELDS)
+        paths.append(str(path.relative_to(BASE_DIR)))
+    return paths
+
+
+def collect_midnight_anchor(max_products=None, dry_run=False):
+    """Collect an extra observation near the KST day boundary.
+
+    Selection:
+    - sales-speed score >= MIDNIGHT_ANCHOR_MIN (default 3/day)
+    - base slot 0 is skipped because its primary observation is already near 00:15
+    - faster sellers are collected first if the safety cap is reached
+
+    These observations are used only by Calendar Finalizer and never overwrite
+    the normal primary snapshots.
+    """
+    max_products = (
+        MIDNIGHT_ANCHOR_MAX_PER_RUN
+        if max_products in (None, 0)
+        else int(max_products)
+    )
+
+    latest_rows = read_csv(LATEST_PRODUCT_FILE)
+    catalog_rows = read_csv(CATALOG_FILE)
+    catalog = {
+        str(r.get("goods_no") or ""): r
+        for r in catalog_rows
+        if r.get("goods_no")
+    }
+
+    selected = []
+    for row in latest_rows:
+        g = str(row.get("goods_no") or "").strip()
+        if not g:
+            continue
+
+        score = adaptive_sales_score(row)
+        if score < MIDNIGHT_ANCHOR_MIN:
+            continue
+
+        base_slot = to_int(row.get("slot"))
+        if base_slot is None or not (0 <= base_slot < SLOT_COUNT):
+            base_slot = effective_goods_slot(g, catalog.get(g))
+
+        # slot0 primary is already around the day boundary.
+        if base_slot == 0:
+            continue
+
+        tier, _ = adaptive_sampling_tier(row)
+        selected.append({
+            "goods_no": g,
+            "score": score,
+            "tier": tier,
+            "base_slot": base_slot,
+        })
+
+    selected.sort(
+        key=lambda x: (
+            -x["score"],
+            int(x["goods_no"]) if x["goods_no"].isdigit() else 10**30
+        )
+    )
+    due_before_cap = len(selected)
+    if max_products > 0:
+        selected = selected[:max_products]
+
+    stats = {
+        "checked_at": now_kst().isoformat(timespec="seconds"),
+        "anchor": "KST day-boundary",
+        "threshold_min_sales_per_day": MIDNIGHT_ANCHOR_MIN,
+        "due_before_cap": due_before_cap,
+        "selected": len(selected),
+        "max_products": max_products,
+        "dry_run": bool(dry_run),
+    }
+
+    if dry_run or not selected:
+        print(json.dumps(stats, ensure_ascii=False))
+        return 0
+
+    meta_by_goods = {x["goods_no"]: x for x in selected}
+    deadline = time.monotonic() + max(300, COLLECT_BUDGET_SECONDS)
+    work = Queue()
+    for x in selected:
+        work.put(x["goods_no"])
+
+    rows = []
+    rows_lock = threading.Lock()
+
+    def worker():
+        while time.monotonic() < deadline:
+            try:
+                g = work.get_nowait()
+            except Empty:
+                return
+            try:
+                r = collect_one(g, catalog.get(g), 2)
+            except Exception as e:
+                r = synthetic_failed_row(g, catalog.get(g), str(e))
+            with rows_lock:
+                rows.append(r)
+            work.task_done()
+
+    with ThreadPoolExecutor(max_workers=max(1, SHARD_WORKERS)) as executor:
+        futures = [executor.submit(worker) for _ in range(max(1, SHARD_WORKERS))]
+        for fut in futures:
+            try:
+                fut.result()
+            except Exception as e:
+                print(f"[midnight-anchor-worker-error] {e}", file=sys.stderr)
+
+    by_goods = {str(r.get("goods_no") or ""): r for r in rows}
+    success_rows = [
+        r for r in by_goods.values()
+        if to_int(r.get("purchase_total")) is not None
+    ]
+    failed_goods = [
+        g for g in meta_by_goods
+        if g not in by_goods or to_int(by_goods[g].get("purchase_total")) is None
+    ]
+
+    paths = save_midnight_anchor_observations(success_rows, meta_by_goods)
+
+    report_date = now_kst().date().isoformat()
+    report_dir = MIDNIGHT_REPORT_DIR / report_date
+    report_dir.mkdir(parents=True, exist_ok=True)
+    token = _midnight_anchor_token()
+
+    stats.update({
+        "success": len(success_rows),
+        "failed_or_unattempted": len(failed_goods),
+        "observation_files": paths,
+        "adaptive_state": THROTTLE.state(),
+        "failed_goods_sample": failed_goods[:100],
+    })
+
+    (report_dir / f"run-{token}.json").write_text(
+        json.dumps(stats, ensure_ascii=False, indent=2),
+        encoding="utf-8"
     )
     print(json.dumps(stats, ensure_ascii=False))
     return 0
@@ -2359,6 +2555,10 @@ def main():
     p.add_argument("--max-products", type=int, default=0)
     p.add_argument("--dry-run", action="store_true")
 
+    p = sub.add_parser("collect-midnight-anchor")
+    p.add_argument("--max-products", type=int, default=0)
+    p.add_argument("--dry-run", action="store_true")
+
     p = sub.add_parser("finalize-calendar")
     p.add_argument("--lookback-days", type=int, default=3)
     p.add_argument("--date", default="")
@@ -2376,6 +2576,8 @@ def main():
         return recover_pending(args.lookback_days, args.max_queues)
     if args.cmd == "collect-adaptive":
         return collect_adaptive(args.clock_slot, args.max_products, args.dry_run)
+    if args.cmd == "collect-midnight-anchor":
+        return collect_midnight_anchor(args.max_products, args.dry_run)
     if args.cmd == "finalize-calendar":
         return finalize_calendar_recent(args.lookback_days, args.date or None)
     return 2
