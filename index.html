@@ -132,8 +132,8 @@ dialog{width:min(1200px,96vw);max-height:92vh;border:0;border-radius:16px;paddin
 <div class="body"><div class="chart" id="overallChart"></div></div>
 </section>
 <section class="panel">
-<div class="head"><div><div class="title">브랜드 최신 일판매 순위</div><div class="small">브랜드명을 누르면 날짜별 추이</div></div></div>
-<div class="tablewrap"><table><thead><tr><th>#</th><th>브랜드</th><th>상품수</th><th>완성도</th><th><button class="sortbtn" id="brandSortSales">일일 추정판매 <span id="brandSortSalesIcon">▼</span></button></th><th><button class="sortbtn" id="brandSortGmv">일일 추정GMV <span id="brandSortGmvIcon"></span></button></th></tr></thead><tbody id="brandRank"></tbody></table></div>
+<div class="head"><div><div class="title">브랜드 최신 일판매 순위</div><div class="small">브랜드명을 누르면 날짜별 추이 · 담당 slot은 실제 상품 배정 기준</div></div></div>
+<div class="tablewrap"><table><thead><tr><th>#</th><th>브랜드</th><th>상품수</th><th>담당 slot</th><th>정규 수집시간</th><th>다음 수집</th><th>완성도</th><th><button class="sortbtn" id="brandSortSales">일일 추정판매 <span id="brandSortSalesIcon">▼</span></button></th><th><button class="sortbtn" id="brandSortGmv">일일 추정GMV <span id="brandSortGmvIcon"></span></button></th></tr></thead><tbody id="brandRank"></tbody></table></div>
 </section>
 </div>
 
@@ -480,6 +480,53 @@ function renderK(){const rows=filtered(),d=latestDate(products);document.getElem
     ? f(new Set(rows.map(r=>r.brand_name).filter(Boolean)).size)+'개 브랜드'
     : `catalog 고유 ${f(discoveredBrands.length||new Set(rows.map(r=>r.brand_name).filter(Boolean)).size)} / 등록 ${registeredBrands.length?f(registeredBrands.length):'-'}`}
 function renderOverall(){const rows=[...summary].sort((a,b)=>a.date.localeCompare(b.date)).slice(-45);chart(document.getElementById('overallChart'),rows,'estimated_gmv')}
+
+const SLOT_SCHEDULE_MINUTES=[15,195,375,555,735,915,1095,1275];
+
+function kstNowParts(){
+  const now=new Date();
+  const kst=new Date(now.getTime()+9*60*60*1000);
+  return {
+    y:kst.getUTCFullYear(),
+    m:kst.getUTCMonth()+1,
+    d:kst.getUTCDate(),
+    h:kst.getUTCHours(),
+    min:kst.getUTCMinutes()
+  };
+}
+
+function slotTimeLabel(slot){
+  const s=Number(slot);
+  if(!Number.isInteger(s)||s<0||s>7)return '-';
+  const mins=SLOT_SCHEDULE_MINUTES[s];
+  const h=Math.floor(mins/60);
+  const m=mins%60;
+  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+}
+
+function brandAssignedSlot(brandName){
+  const rows=products.filter(r=>String(r.brand_name||'').trim()===String(brandName||'').trim());
+  const counts=new Map();
+  for(const r of rows){
+    const s=n(r.slot);
+    if(Number.isInteger(s) && s>=0 && s<=7){
+      counts.set(s,(counts.get(s)||0)+1);
+    }
+  }
+  if(!counts.size)return null;
+  return [...counts.entries()].sort((a,b)=>b[1]-a[1] || a[0]-b[0])[0][0];
+}
+
+function nextSlotLabel(slot){
+  const s=Number(slot);
+  if(!Number.isInteger(s)||s<0||s>7)return '-';
+  const p=kstNowParts();
+  const nowMin=p.h*60+p.min;
+  const target=SLOT_SCHEDULE_MINUTES[s];
+  const time=slotTimeLabel(s);
+  return nowMin<target ? `오늘 ${time}` : `내일 ${time}`;
+}
+
 let brandRankSort={key:'estimated_sales',dir:'desc'};
 function setBrandRankSort(key){
   if(brandRankSort.key===key){
@@ -505,14 +552,20 @@ function renderBrandRank(){
     return brandRankSort.dir==='desc' ? bv-av : av-bv;
   }).slice(0,100);
 
-  document.getElementById('brandRank').innerHTML=rows.map((r,i)=>`<tr>
-    <td>${i+1}</td>
-    <td><button class="link" data-brand="${esc(r.brand_name)}">${esc(r.brand_name)}</button></td>
-    <td>${f(n(r.product_count))}</td>
-    <td>${f(n(r.product_coverage_pct),1)}%</td>
-    <td class="positive">${f(Math.max(0,n(r.estimated_sales)||0),1)}</td>
-    <td>${wonExact(Math.max(0,n(r.estimated_gmv)||0))}</td>
-  </tr>`).join('');
+  document.getElementById('brandRank').innerHTML=rows.map((r,i)=>{
+    const slot=brandAssignedSlot(r.brand_name);
+    return `<tr>
+      <td>${i+1}</td>
+      <td><button class="link" data-brand="${esc(r.brand_name)}">${esc(r.brand_name)}</button></td>
+      <td>${f(n(r.product_count))}</td>
+      <td>${slot==null?'-':`slot${slot}`}</td>
+      <td>${slot==null?'-':slotTimeLabel(slot)}</td>
+      <td>${slot==null?'-':nextSlotLabel(slot)}</td>
+      <td>${f(n(r.product_coverage_pct),1)}%</td>
+      <td class="positive">${f(Math.max(0,n(r.estimated_sales)||0),1)}</td>
+      <td>${wonExact(Math.max(0,n(r.estimated_gmv)||0))}</td>
+    </tr>`;
+  }).join('');
 
   document.querySelectorAll('[data-brand]').forEach(b=>b.addEventListener('click',()=>showBrand(b.dataset.brand)));
   updateBrandSortIcons();
@@ -817,7 +870,7 @@ async function loadAll(){
     ` · 판매통계 수집완료(${latestRawDate||'-'}) ${f(latestRawCount)} / ${f(products.length)}`+
     ` · catalog ${f(catalogCount)}개`+
     (calCount?` · 캘린더 확정 ${f(calCount)}개`:' · 캘린더 계산 대기')+
-    ` · 최근 3일 자동 재계산(backfill) · UI v9.18`;
+    ` · 최근 3일 자동 재계산(backfill) · UI v9.19`;
  }catch(e){
   er.textContent='데이터 로드 실패: '+e.message;
   er.style.display='block';
