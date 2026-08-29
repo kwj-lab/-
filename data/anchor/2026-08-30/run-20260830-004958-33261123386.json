@@ -1,0 +1,21 @@
+{
+  "checked_at": "2026-08-30T00:45:52+09:00",
+  "anchor": "KST day-boundary",
+  "threshold_min_sales_per_day": 3.0,
+  "due_before_cap": 1602,
+  "selected": 1602,
+  "max_products": 15000,
+  "dry_run": false,
+  "success": 1602,
+  "failed_or_unattempted": 0,
+  "observation_files": [
+    "data/observations/2026-08-30/midnight-anchor-20260830-004958-33261123386.csv.gz"
+  ],
+  "adaptive_state": {
+    "limit": 4,
+    "max_concurrency": 4,
+    "interval": 0.15,
+    "penalty": 0
+  },
+  "failed_goods_sample": []
+}
