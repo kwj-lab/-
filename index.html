@@ -129,7 +129,15 @@ dialog{width:min(1200px,96vw);max-height:92vh;border:0;border-radius:16px;paddin
 <div class="grid2">
 <section class="panel">
 <div class="head"><div><div class="title">전체 일별 추정 매출 추이</div><div class="small">최종화된 캘린더 날짜 기준</div></div></div>
-<div class="body"><div class="chart" id="overallChart"></div></div>
+<div class="body">
+  <div class="chart" id="overallChart"></div>
+  <div class="tablewrap" style="max-height:240px;margin-top:12px">
+    <table>
+      <thead><tr><th>날짜</th><th>총액(GMV)</th></tr></thead>
+      <tbody id="overallDailyBody"></tbody>
+    </table>
+  </div>
+</div>
 </section>
 <section class="panel">
 <div class="head"><div><div class="title">브랜드 최신 일판매 순위</div><div class="small">브랜드명을 누르면 날짜별 추이 · 담당 slot은 실제 상품 배정 기준</div></div></div>
@@ -511,7 +519,18 @@ function renderK(){const rows=filtered(),d=latestDate(products);document.getElem
   document.getElementById('brandFilter').value
     ? f(new Set(rows.map(r=>r.brand_name).filter(Boolean)).size)+'개 브랜드'
     : `catalog 고유 ${f(discoveredBrands.length||new Set(rows.map(r=>r.brand_name).filter(Boolean)).size)} / 등록 ${registeredBrands.length?f(registeredBrands.length):'-'}`}
-function renderOverall(){const rows=[...summary].sort((a,b)=>a.date.localeCompare(b.date)).slice(-45);chart(document.getElementById('overallChart'),rows,'estimated_gmv')}
+function renderOverall(){
+  const rows=[...summary].sort((a,b)=>a.date.localeCompare(b.date)).slice(-45);
+  chart(document.getElementById('overallChart'),rows,'estimated_gmv');
+
+  const body=document.getElementById('overallDailyBody');
+  if(!body)return;
+
+  body.innerHTML=[...rows].reverse().map(r=>`<tr>
+    <td>${esc(r.date||'-')}</td>
+    <td>${wonExact(Math.max(0,n(r.estimated_gmv)||0))}</td>
+  </tr>`).join('');
+}
 
 const SLOT_SCHEDULE_MINUTES=[15,195,375,555,735,915,1095,1275];
 
@@ -902,7 +921,7 @@ async function loadAll(){
     ` · 판매통계 수집완료(${latestRawDate||'-'}) ${f(latestRawCount)} / ${f(products.length)}`+
     ` · catalog ${f(catalogCount)}개`+
     (calCount?` · 캘린더 확정 ${f(calCount)}개`:' · 캘린더 계산 대기')+
-    ` · 최근 3일 자동 재계산(backfill) · UI v9.20`;
+    ` · 최근 3일 자동 재계산(backfill) · UI v9.21`;
  }catch(e){
   er.textContent='데이터 로드 실패: '+e.message;
   er.style.display='block';
