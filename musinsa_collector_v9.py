@@ -764,6 +764,18 @@ def discover_slot(state_dir, slot, force_full=False):
 
     catalog_rows = read_csv(CATALOG_FILE)
     catalog = {str(r.get("goods_no") or ""): dict(r) for r in catalog_rows if r.get("goods_no")}
+
+    # watchlist-only 상품은 담당 기본 slot에서 하루 1회 자동 catalog 복구 시도.
+    repaired_catalog, unresolved_catalog = repair_missing_catalog(
+        existing_watchlist, catalog, only_slot=slot, max_products=50
+    )
+    if repaired_catalog:
+        print(
+            f"[catalog-repair] slot={slot} repaired={len(repaired_catalog)} "
+            f"unresolved={len(unresolved_catalog)}",
+            file=sys.stderr,
+        )
+
     existing_goods = set(catalog)
 
     known_by_brand = {}
@@ -879,6 +891,8 @@ def discover_slot(state_dir, slot, force_full=False):
         "daily_price_refresh": True,
         "scan_modes": modes,
         "found_by_brand": {b: len(found.get(b, [])) for b in assigned_brands},
+        "catalog_repaired": len(repaired_catalog),
+        "catalog_unresolved": len(unresolved_catalog),
     }
     (state_dir / "discovery_stats.json").write_text(
         json.dumps(stats, ensure_ascii=False, indent=2), encoding="utf-8"
@@ -903,6 +917,43 @@ def extract_script(html, attr_pattern):
     return html_lib.unescape(m.group(1).strip()) if m else None
 
 
+def _meta_content(page, key, value):
+    patterns = [
+        rf'<meta[^>]+{key}=["\']{re.escape(value)}["\'][^>]+content=["\']([^"\']+)["\']',
+        rf'<meta[^>]+content=["\']([^"\']+)["\'][^>]+{key}=["\']{re.escape(value)}["\']',
+    ]
+    for pattern in patterns:
+        m = re.search(pattern, page, re.I)
+        if m:
+            return html_lib.unescape(m.group(1)).strip()
+    return ""
+
+
+def _clean_musinsa_page_title(value):
+    title = html_lib.unescape(str(value or "")).strip()
+    title = re.sub(r"\s*-\s*사이즈\s*&\s*후기\s*\|\s*무신사\s*$", "", title, flags=re.I)
+    title = re.sub(r"\s*\|\s*무신사\s*$", "", title, flags=re.I)
+    return title.strip()
+
+
+def _split_brand_product_from_title(title):
+    """
+    무신사 title 예:
+      키뮤어(KIIMUIR) 써머 세미와이드 슬랙스_딥브라운
+    -> brand=키뮤어(KIIMUIR), product=써머 세미와이드 슬랙스_딥브라운
+    """
+    title = _clean_musinsa_page_title(title)
+    if not title:
+        return "", ""
+
+    # 한글/영문 병기 브랜드가 괄호로 끝나는 일반적인 형태.
+    m = re.match(r"^(.+?\([^)]{1,80}\))\s+(.+)$", title)
+    if m:
+        return m.group(1).strip(), m.group(2).strip()
+
+    return "", title
+
+
 def fallback_metadata(goods_no):
     result = {
         "goods_no": str(goods_no), "brand_name": "", "product_name": "",
@@ -910,37 +961,225 @@ def fallback_metadata(goods_no):
         "review_count": None, "rating": None, "availability": "",
         "product_url": f"https://www.musinsa.com/products/{goods_no}",
     }
+
     try:
         page = http_get(result["product_url"], retries=2)
+
+        # 1) JSON-LD 우선
         raw = extract_script(page, r'type=["\']application/ld\+json["\']')
         if raw:
-            obj = json.loads(raw)
-            candidates = obj if isinstance(obj, list) else [obj]
-            product = None
-            for x in candidates:
-                if isinstance(x, dict) and x.get("@type") == "Product":
-                    product = x
-                    break
-                if isinstance(x, dict) and isinstance(x.get("@graph"), list):
-                    for y in x["@graph"]:
-                        if isinstance(y, dict) and y.get("@type") == "Product":
-                            product = y
+            try:
+                obj = json.loads(raw)
+                candidates = obj if isinstance(obj, list) else [obj]
+                product = None
+                for x in candidates:
+                    if isinstance(x, dict) and x.get("@type") == "Product":
+                        product = x
+                        break
+                    if isinstance(x, dict) and isinstance(x.get("@graph"), list):
+                        for y in x["@graph"]:
+                            if isinstance(y, dict) and y.get("@type") == "Product":
+                                product = y
+                                break
+                        if product:
                             break
-            if product:
-                result["product_name"] = product.get("name") or ""
-                brand = product.get("brand")
-                if isinstance(brand, dict):
-                    result["brand_name"] = brand.get("name") or ""
-                offers = product.get("offers")
-                if isinstance(offers, list) and offers:
-                    offers = offers[0]
-                if isinstance(offers, dict):
-                    result["current_price"] = to_int(offers.get("price"))
-                    result["normal_price"] = result["current_price"]
+
+                if product:
+                    result["product_name"] = str(product.get("name") or "").strip()
+                    brand = product.get("brand")
+                    if isinstance(brand, dict):
+                        result["brand_name"] = str(brand.get("name") or "").strip()
+                    elif brand:
+                        result["brand_name"] = str(brand).strip()
+
+                    offers = product.get("offers")
+                    if isinstance(offers, list) and offers:
+                        offers = offers[0]
+                    if isinstance(offers, dict):
+                        result["current_price"] = to_int(offers.get("price"))
+                        result["normal_price"] = result["current_price"]
+            except Exception:
+                pass
+
+        # 2) JSON-LD가 비어 있으면 OpenGraph/title fallback
+        page_title = (
+            _meta_content(page, "property", "og:title")
+            or _meta_content(page, "name", "title")
+        )
+        if not page_title:
+            m = re.search(r"<title[^>]*>(.*?)</title>", page, re.I | re.S)
+            if m:
+                page_title = re.sub(r"\s+", " ", html_lib.unescape(m.group(1))).strip()
+
+        title_brand, title_product = _split_brand_product_from_title(page_title)
+
+        if not result["product_name"] and title_product:
+            result["product_name"] = title_product
+
+        if not result["brand_name"] and title_brand:
+            result["brand_name"] = title_brand
+
+        # 가격 meta fallback
+        if result["current_price"] is None:
+            for prop in ("product:price:amount", "og:price:amount"):
+                v = _meta_content(page, "property", prop)
+                if v:
+                    result["current_price"] = to_int(v)
+                    if result["current_price"] is not None:
+                        result["normal_price"] = result["current_price"]
+                        break
+
     except Exception:
         pass
+
     return result
 
+
+
+def catalog_row_from_metadata(meta, old=None, detected_at=None):
+    old = dict(old or {})
+    meta = dict(meta or {})
+    ts = detected_at or now_kst().isoformat(timespec="seconds")
+    g = str(meta.get("goods_no") or old.get("goods_no") or "").strip()
+    if not g:
+        return None
+
+    product_name = str(meta.get("product_name") or old.get("product_name") or "").strip()
+    brand_name = str(meta.get("brand_name") or old.get("brand_name") or "").strip()
+
+    if not product_name and not brand_name:
+        return None
+
+    tracked_name, previous_name, changed_at, change_count, history_json, _ = (
+        _update_product_name_tracking(old, product_name, ts)
+    )
+
+    return {
+        "goods_no": g,
+        "brand_name": brand_name,
+        "product_name": tracked_name,
+        "previous_product_name": previous_name,
+        "product_name_changed_at": changed_at,
+        "product_name_change_count": change_count,
+        "product_name_history": history_json,
+        "normal_price": (
+            meta.get("normal_price")
+            if meta.get("normal_price") is not None
+            else old.get("normal_price", "")
+        ),
+        "current_price": (
+            meta.get("current_price")
+            if meta.get("current_price") is not None
+            else old.get("current_price", "")
+        ),
+        "sale_rate": (
+            meta.get("sale_rate")
+            if meta.get("sale_rate") is not None
+            else old.get("sale_rate", "")
+        ),
+        "review_count": (
+            meta.get("review_count")
+            if meta.get("review_count") is not None
+            else old.get("review_count", "")
+        ),
+        "rating": meta.get("rating") or old.get("rating") or "",
+        "availability": meta.get("availability") or old.get("availability") or "",
+        "first_seen_at": old.get("first_seen_at") or ts,
+        "last_seen_at": ts,
+        "product_url": (
+            meta.get("product_url")
+            or old.get("product_url")
+            or f"https://www.musinsa.com/products/{g}"
+        ),
+    }
+
+
+def repair_missing_catalog(watchlist, catalog, only_slot=None, max_products=50):
+    """
+    watchlist에는 있지만 catalog에는 없는 goodsNo의 상품 메타데이터를 자동 복구합니다.
+
+    only_slot이 있으면 goodsNo 기본 hash slot 기준으로 해당 slot 후보만 시도해
+    동일 상품을 하루 8번 반복 조회하지 않도록 합니다.
+    """
+    candidates = []
+    for g in watchlist:
+        g = str(g).strip()
+        if not g or g in catalog:
+            continue
+        if only_slot is not None and goods_slot(g) != int(only_slot):
+            continue
+        candidates.append(g)
+
+    if max_products and max_products > 0:
+        candidates = candidates[:int(max_products)]
+
+    repaired = []
+    unresolved = []
+
+    for g in candidates:
+        meta = fallback_metadata(g)
+
+        # stat은 살아 있는데 페이지 메타가 빈 경우도 있으므로
+        # 빈 데이터를 억지로 catalog에 넣지는 않습니다.
+        row = catalog_row_from_metadata(meta)
+        if row and (row.get("brand_name") or row.get("product_name")):
+            catalog[g] = row
+            repaired.append({
+                "goods_no": g,
+                "brand_name": row.get("brand_name") or "",
+                "product_name": row.get("product_name") or "",
+            })
+        else:
+            unresolved.append(g)
+
+    return repaired, unresolved
+
+
+def repair_catalog_command(max_products=200):
+    watchlist = read_lines(WATCHLIST_FILE)
+    catalog_rows = read_csv(CATALOG_FILE)
+    catalog = {
+        str(r.get("goods_no") or ""): dict(r)
+        for r in catalog_rows
+        if r.get("goods_no")
+    }
+
+    missing_before = [g for g in watchlist if str(g) not in catalog]
+
+    repaired, unresolved = repair_missing_catalog(
+        watchlist, catalog, only_slot=None, max_products=max_products
+    )
+
+    catalog_sorted = [
+        catalog[g]
+        for g in sorted(
+            catalog,
+            key=lambda x: int(x) if str(x).isdigit() else 10**30
+        )
+    ]
+    write_csv(CATALOG_FILE, catalog_sorted, CATALOG_FIELDS)
+
+    missing_after = [g for g in watchlist if str(g) not in catalog]
+
+    report = {
+        "checked_at": now_kst().isoformat(timespec="seconds"),
+        "missing_before": len(missing_before),
+        "repaired": len(repaired),
+        "missing_after": len(missing_after),
+        "repaired_products": repaired,
+        "unresolved_sample": unresolved[:100],
+    }
+
+    report_dir = BASE_DIR / "data" / "catalog_repair"
+    report_dir.mkdir(parents=True, exist_ok=True)
+    report_path = report_dir / f"{now_kst().date().isoformat()}.json"
+    report_path.write_text(
+        json.dumps(report, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    print(json.dumps(report, ensure_ascii=False))
+    return 0
 
 def collect_one(goods_no, catalog_row, retries=2):
     meta = dict(catalog_row or {}) if catalog_row else fallback_metadata(goods_no)
@@ -2700,6 +2939,9 @@ def main():
     p.add_argument("--lookback-days", type=int, default=3)
     p.add_argument("--date", default="")
 
+    p = sub.add_parser("repair-catalog")
+    p.add_argument("--max-products", type=int, default=200)
+
     args = parser.parse_args()
     if args.cmd == "discover-slot":
         return discover_slot(args.state_dir, args.slot, args.full_discovery)
@@ -2717,6 +2959,8 @@ def main():
         return collect_midnight_anchor(args.max_products, args.dry_run)
     if args.cmd == "finalize-calendar":
         return finalize_calendar_recent(args.lookback_days, args.date or None)
+    if args.cmd == "repair-catalog":
+        return repair_catalog_command(args.max_products)
     return 2
 
 
