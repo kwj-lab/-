@@ -129,21 +129,34 @@ dialog{width:min(1200px,96vw);max-height:92vh;border:0;border-radius:16px;paddin
 <div class="grid2">
 <section class="panel">
 <div class="head"><div><div class="title">전체 일별 추정 매출 추이</div><div class="small">최종화된 캘린더 날짜 기준</div></div></div>
-<div class="body">
-  <div class="chart" id="overallChart"></div>
-  <div class="tablewrap" style="max-height:240px;margin-top:12px">
-    <table>
-      <thead><tr><th>날짜</th><th>총액(GMV)</th></tr></thead>
-      <tbody id="overallDailyBody"></tbody>
-    </table>
-  </div>
-</div>
+<div class="body"><div class="chart" id="overallChart"></div></div>
 </section>
 <section class="panel">
 <div class="head"><div><div class="title">브랜드 최신 일판매 순위</div><div class="small">브랜드명을 누르면 날짜별 추이 · 담당 slot은 실제 상품 배정 기준</div></div></div>
 <div class="tablewrap"><table><thead><tr><th>#</th><th>브랜드</th><th>상품수</th><th>담당 slot</th><th>정규 수집시간</th><th>다음 수집</th><th>완성도</th><th><button class="sortbtn" id="brandSortSales">일일 추정판매 <span id="brandSortSalesIcon">▼</span></button></th><th><button class="sortbtn" id="brandSortGmv">일일 추정GMV <span id="brandSortGmvIcon"></span></button></th></tr></thead><tbody id="brandRank"></tbody></table></div>
 </section>
 </div>
+
+<section class="panel" id="overallDailySection">
+  <div class="head">
+    <div>
+      <div class="title">전체 일별 매출 데이터</div>
+      <div class="small">위 매출 추이 그래프와 동일한 날짜 기준 · 최신 날짜가 위</div>
+    </div>
+  </div>
+  <div class="tablewrap" style="max-height:360px">
+    <table>
+      <thead>
+        <tr>
+          <th>날짜</th>
+          <th>일일 추정판매</th>
+          <th>총액(GMV)</th>
+        </tr>
+      </thead>
+      <tbody id="overallDailyBody"></tbody>
+    </table>
+  </div>
+</section>
 
 <section class="panel" id="brandSection">
 <div class="head"><div><div class="title">브랜드별 일일 판매량</div><div class="small">20일 · 21일 · 22일 식의 캘린더 날짜별 추정치</div></div><select id="brandDaily"><option value="">브랜드 선택</option></select></div>
@@ -528,7 +541,8 @@ function renderOverall(){
 
   body.innerHTML=[...rows].reverse().map(r=>`<tr>
     <td>${esc(r.date||'-')}</td>
-    <td>${wonExact(Math.max(0,n(r.estimated_gmv)||0))}</td>
+    <td class="${Math.max(0,n(r.estimated_sales)||0)>0?'positive':''}">${f(Math.max(0,n(r.estimated_sales)||0),1)}</td>
+    <td><b>${wonExact(Math.max(0,n(r.estimated_gmv)||0))}</b></td>
   </tr>`).join('');
 }
 
@@ -921,7 +935,7 @@ async function loadAll(){
     ` · 판매통계 수집완료(${latestRawDate||'-'}) ${f(latestRawCount)} / ${f(products.length)}`+
     ` · catalog ${f(catalogCount)}개`+
     (calCount?` · 캘린더 확정 ${f(calCount)}개`:' · 캘린더 계산 대기')+
-    ` · 최근 3일 자동 재계산(backfill) · UI v9.21`;
+    ` · 최근 3일 자동 재계산(backfill) · UI v9.22`;
  }catch(e){
   er.textContent='데이터 로드 실패: '+e.message;
   er.style.display='block';
