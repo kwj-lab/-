@@ -1,0 +1,54 @@
+name: Musinsa Catalog Repair v9
+
+on:
+  workflow_dispatch:
+    inputs:
+      max_products:
+        description: '최대 복구 시도 상품 수'
+        required: false
+        default: '200'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: musinsa-v9-catalog-repair
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Repair missing catalog metadata
+        shell: bash
+        run: |
+          python musinsa_collector_v9.py repair-catalog --max-products "${{ inputs.max_products }}"
+
+      - name: Commit repaired catalog
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add musinsa_catalog.csv data/catalog_repair || true
+
+          if git diff --cached --quiet; then
+            echo "No catalog repair changes."
+            exit 0
+          fi
+
+          git commit -m "fix(data): repair missing Musinsa catalog metadata [skip ci]"
+          git pull --rebase origin "$GITHUB_REF_NAME"
+          git push origin "HEAD:$GITHUB_REF_NAME"
