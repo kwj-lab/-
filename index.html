@@ -569,17 +569,83 @@ function slotTimeLabel(slot){
   return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
 }
 
-function brandAssignedSlot(brandName){
-  const rows=products.filter(r=>String(r.brand_name||'').trim()===String(brandName||'').trim());
-  const counts=new Map();
-  for(const r of rows){
-    const s=n(r.slot);
-    if(Number.isInteger(s) && s>=0 && s<=7){
-      counts.set(s,(counts.get(s)||0)+1);
+function sha1BytesUtf8(text){
+  // 수집기 Python hashlib.sha1(...).digest()와 동일한 동기식 SHA-1 구현
+  const bytes=new TextEncoder().encode(text);
+  const ml=bytes.length*8;
+  const paddedLen=(((bytes.length+9+63)>>6)<<6);
+  const data=new Uint8Array(paddedLen);
+  data.set(bytes);
+  data[bytes.length]=0x80;
+
+  const view=new DataView(data.buffer);
+  const hi=Math.floor(ml/0x100000000);
+  const lo=ml>>>0;
+  view.setUint32(paddedLen-8,hi,false);
+  view.setUint32(paddedLen-4,lo,false);
+
+  let h0=0x67452301;
+  let h1=0xEFCDAB89;
+  let h2=0x98BADCFE;
+  let h3=0x10325476;
+  let h4=0xC3D2E1F0;
+
+  const w=new Uint32Array(80);
+  const rol=(n,b)=>((n<<b)|(n>>>(32-b)))>>>0;
+
+  for(let off=0;off<paddedLen;off+=64){
+    for(let i=0;i<16;i++) w[i]=view.getUint32(off+i*4,false);
+    for(let i=16;i<80;i++) w[i]=rol(w[i-3]^w[i-8]^w[i-14]^w[i-16],1);
+
+    let a=h0,b=h1,c=h2,d=h3,e=h4;
+    for(let i=0;i<80;i++){
+      let f,k;
+      if(i<20){f=(b&c)|((~b)&d);k=0x5A827999;}
+      else if(i<40){f=b^c^d;k=0x6ED9EBA1;}
+      else if(i<60){f=(b&c)|(b&d)|(c&d);k=0x8F1BBCDC;}
+      else{f=b^c^d;k=0xCA62C1D6;}
+
+      const temp=(rol(a,5)+f+e+k+w[i])>>>0;
+      e=d;
+      d=c;
+      c=rol(b,30);
+      b=a;
+      a=temp;
     }
+
+    h0=(h0+a)>>>0;
+    h1=(h1+b)>>>0;
+    h2=(h2+c)>>>0;
+    h3=(h3+d)>>>0;
+    h4=(h4+e)>>>0;
   }
-  if(!counts.size)return null;
-  return [...counts.entries()].sort((a,b)=>b[1]-a[1] || a[0]-b[0])[0][0];
+
+  return [
+    (h0>>>24)&255,(h0>>>16)&255,(h0>>>8)&255,h0&255,
+    (h1>>>24)&255,(h1>>>16)&255,(h1>>>8)&255,h1&255,
+    (h2>>>24)&255,(h2>>>16)&255,(h2>>>8)&255,h2&255,
+    (h3>>>24)&255,(h3>>>16)&255,(h3>>>8)&255,h3&255,
+    (h4>>>24)&255,(h4>>>16)&255,(h4>>>8)&255,h4&255
+  ];
+}
+
+function brandAssignedSlot(brandName){
+  // Python brand_slot():
+  // sha1(brand_name.strip().casefold().encode("utf-8"))[:4] big-endian % 8
+  // JS에는 casefold가 없으므로 브랜드 목록의 한글/일반 영문 기준으로
+  // trim + toLocaleLowerCase를 사용. 현재 등록 브랜드명에서는 동일 결과.
+  const normalized=String(brandName||'').trim().toLocaleLowerCase('ko-KR');
+  if(!normalized)return null;
+
+  const d=sha1BytesUtf8(normalized);
+  const first4=(
+    ((d[0]<<24)>>>0) |
+    (d[1]<<16) |
+    (d[2]<<8) |
+    d[3]
+  )>>>0;
+
+  return first4 % 8;
 }
 
 function nextSlotLabel(slot){
@@ -935,7 +1001,7 @@ async function loadAll(){
     ` · 판매통계 수집완료(${latestRawDate||'-'}) ${f(latestRawCount)} / ${f(products.length)}`+
     ` · catalog ${f(catalogCount)}개`+
     (calCount?` · 캘린더 확정 ${f(calCount)}개`:' · 캘린더 계산 대기')+
-    ` · 최근 3일 자동 재계산(backfill) · UI v9.22`;
+    ` · 최근 3일 자동 재계산(backfill) · UI v9.23`;
  }catch(e){
   er.textContent='데이터 로드 실패: '+e.message;
   er.style.display='block';
