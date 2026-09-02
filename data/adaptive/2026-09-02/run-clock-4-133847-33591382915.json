@@ -1,0 +1,27 @@
+{
+  "checked_at": "2026-09-02T13:36:14+09:00",
+  "clock_slot": 4,
+  "thresholds": {
+    "medium_min": 3.0,
+    "high_min": 21.0
+  },
+  "due_before_cap": 1017,
+  "selected": 1017,
+  "selected_3h": 307,
+  "selected_9h": 710,
+  "max_products": 15000,
+  "dry_run": false,
+  "success": 1017,
+  "failed_or_unattempted": 0,
+  "not_attempted_before_budget": 0,
+  "observation_files": [
+    "data/observations/2026-09-02/adaptive-clock-4-133847-33591382915.csv.gz"
+  ],
+  "adaptive_state": {
+    "limit": 4,
+    "max_concurrency": 4,
+    "interval": 0.15,
+    "penalty": 0
+  },
+  "failed_goods_sample": []
+}
