@@ -123,9 +123,20 @@ QUICK_KNOWN_STOP_PAGES = int(os.environ.get("MUSINSA_QUICK_KNOWN_STOP_PAGES", "3
 ADAPTIVE_MEDIUM_MIN = float(os.environ.get("MUSINSA_ADAPTIVE_MEDIUM_MIN", "3"))
 ADAPTIVE_HIGH_MIN = float(os.environ.get("MUSINSA_ADAPTIVE_HIGH_MIN", "21"))
 ADAPTIVE_MAX_PER_RUN = int(os.environ.get("MUSINSA_ADAPTIVE_MAX_PER_RUN", "15000"))
-# Newly discovered products are sampled every ~3h for the first 48h regardless of
-# current sales score. This protects both launch-day breakouts and reactivated old goods.
+
+# Bulk-safe new-product sampling:
+# - first observation is only a baseline
+# - a newly discovered product gets ONE lightweight probe about 6h after its base slot
+# - only products that actually move after the baseline are promoted to 9h/3h sampling
+# - probe traffic is separately capped so hundreds of newly added brands cannot flood Actions/API
 NEW_PRODUCT_PROBATION_HOURS = int(os.environ.get("MUSINSA_NEW_PRODUCT_PROBATION_HOURS", "48"))
+NEW_PRODUCT_PROBE_OFFSET = int(os.environ.get("MUSINSA_NEW_PRODUCT_PROBE_OFFSET", "2")) % SLOT_COUNT
+NEW_PRODUCT_PROBE_MAX_PER_RUN = int(
+    os.environ.get("MUSINSA_NEW_PRODUCT_PROBE_MAX_PER_RUN", "3000")
+)
+NEW_PRODUCT_PROBE_LOOKBACK_DAYS = int(
+    os.environ.get("MUSINSA_NEW_PRODUCT_PROBE_LOOKBACK_DAYS", "3")
+)
 
 # First-observation lifecycle guard.
 # A newly discovered/reactivated goodsNo can sometimes return a stale/reset purchaseTotal
@@ -1336,7 +1347,7 @@ def adaptive_sampling_tier(row):
 
 
 def product_in_probation(catalog_row, when=None):
-    """True for a newly discovered item during its temporary high-frequency window."""
+    """Lifecycle observation window for a newly discovered/reactivated item."""
     if not catalog_row:
         return False
     first = parse_kst_datetime(catalog_row.get("first_seen_at"))
@@ -1347,28 +1358,126 @@ def product_in_probation(catalog_row, when=None):
     return 0 <= age_h <= max(1, NEW_PRODUCT_PROBATION_HOURS)
 
 
-def adaptive_due(base_slot, clock_slot, tier):
-    """Return True when an extra observation is due in this 3h clock block.
+def load_recent_extra_observations(goods_set, lookback_days=None):
+    """Load only recent extra observations for the requested goodsNos.
 
-    Main collection remains the baseline observation at offset 0.
-
-    9h tier:
-      offsets 3 and 6 -> roughly three observations/day
-      (actual gaps are around 9~10h / 9h / 5~6h because adaptive runs at :30).
-
-    3h tier:
-      offsets 1..7 -> roughly one observation every 3h.
-
-    The midnight anchor is independent and is used to tighten the KST
-    calendar-day boundary for products selling >= 3/day.
+    This scans data/observations, not the full 90k+ primary snapshots, so the
+    adaptive selector can cheaply tell whether a new item has already received
+    its one probe and whether purchaseTotal moved after the latest primary.
     """
+    wanted = {str(g) for g in goods_set if str(g)}
+    if not wanted:
+        return {}
+
+    days = max(
+        1,
+        int(
+            NEW_PRODUCT_PROBE_LOOKBACK_DAYS
+            if lookback_days in (None, 0)
+            else lookback_days
+        ),
+    )
+    today = now_kst().date()
+    out = {}
+
+    for back in range(days):
+        folder = OBSERVATION_DIR / (today - timedelta(days=back)).isoformat()
+        if not folder.exists():
+            continue
+
+        paths = sorted(list(folder.glob("*.csv.gz")) + list(folder.glob("*.csv")))
+        for path in paths:
+            for row in read_csv(path):
+                g = str(row.get("goods_no") or "").strip()
+                if g not in wanted:
+                    continue
+                checked = parse_kst_datetime(row.get("checked_at"))
+                p = to_int(row.get("purchase_total"))
+                if checked is None or p is None:
+                    continue
+                copied = dict(row)
+                copied["_checked_dt"] = checked
+                out.setdefault(g, []).append(copied)
+
+    for rows in out.values():
+        rows.sort(key=lambda r: r["_checked_dt"])
+    return out
+
+
+def probation_has_probe(catalog_row, extra_rows):
+    """Whether at least one extra observation exists after first_seen."""
+    first = _catalog_first_seen(catalog_row)
+    if first is None:
+        return False
+    return any(
+        (r.get("_checked_dt") or parse_kst_datetime(r.get("checked_at"))) >= first
+        for r in (extra_rows or [])
+    )
+
+
+def probation_activity_score(latest_primary_row, extra_rows):
+    """Observed sales pace after the latest primary baseline.
+
+    No review-count inference and no assumed launch time.  We compare an actual
+    primary purchaseTotal with a later observed purchaseTotal.  A positive delta
+    is annualized only for sampling-tier selection; calendar sales remain based
+    on the original observation intervals.
+    """
+    if not latest_primary_row:
+        return 0.0
+
+    base_p = to_int(latest_primary_row.get("purchase_total"))
+    base_t = parse_kst_datetime(latest_primary_row.get("checked_at"))
+    if base_p is None or base_t is None:
+        return 0.0
+
+    later = []
+    for r in extra_rows or []:
+        t = r.get("_checked_dt") or parse_kst_datetime(r.get("checked_at"))
+        p = to_int(r.get("purchase_total"))
+        if t is None or p is None or t <= base_t:
+            continue
+        later.append((t, p))
+
+    if not later:
+        return 0.0
+
+    t1, p1 = max(later, key=lambda x: x[0])
+    delta = p1 - base_p
+    hours = (t1 - base_t).total_seconds() / 3600.0
+    if delta <= 0 or hours <= 0:
+        return 0.0
+
+    return max(0.0, delta * 24.0 / hours)
+
+
+def calendar_sampling_score(calendar_row):
+    """Use the latest finalized calendar estimate as a stabilizer after day 1."""
+    if not calendar_row:
+        return 0.0
+    v = to_float(calendar_row.get("estimated_sales"))
+    return max(0.0, v) if v is not None else 0.0
+
+
+def tier_for_score(score):
+    score = max(0.0, float(score or 0.0))
+    if score >= ADAPTIVE_HIGH_MIN:
+        return "3h"
+    if score >= ADAPTIVE_MEDIUM_MIN:
+        return "9h"
+    return "24h"
+
+
+def adaptive_due(base_slot, clock_slot, tier):
+    """Return True when an extra observation is due in this 3h clock block."""
     offset = (int(clock_slot) - int(base_slot)) % SLOT_COUNT
+    if tier == "probe_6h":
+        return offset == NEW_PRODUCT_PROBE_OFFSET
     if tier == "9h":
         return offset in (3, 6)
-    if tier in ("3h", "probation_3h"):
+    if tier == "3h":
         return offset in (1, 2, 3, 4, 5, 6, 7)
     return False
-
 
 def _adaptive_run_token(clock_slot):
     stamp = now_kst().strftime("%H%M%S")
@@ -1409,51 +1518,155 @@ def save_adaptive_observations(raw_rows, meta_by_goods, clock_slot):
 
 
 def collect_adaptive(clock_slot, max_products=None, dry_run=False):
-    """Collect extra observations only for products whose sales speed justifies it."""
+    """Collect extra observations with a bulk-safe discovery policy.
+
+    Existing sellers keep the normal 3h/9h tiers.
+
+    A newly discovered product is NOT automatically sampled every 3h. Instead:
+      1. first primary observation = baseline
+      2. one probe ~6h later (subject to a separate cap)
+      3. if purchaseTotal actually increased, observed pace promotes it to 9h/3h
+      4. latest finalized calendar sales also keeps a proven seller promoted
+
+    This prevents hundreds of newly added brands from turning every newly
+    discovered SKU into a 3-hour polling job.
+    """
     clock_slot = int(clock_slot)
     max_products = ADAPTIVE_MAX_PER_RUN if max_products in (None, 0) else int(max_products)
 
     latest_rows = read_csv(LATEST_PRODUCT_FILE)
     catalog_rows = read_csv(CATALOG_FILE)
-    catalog = {str(r.get("goods_no") or ""): r for r in catalog_rows if r.get("goods_no")}
+    calendar_rows = read_csv(CALENDAR_LATEST_PRODUCT_FILE)
 
-    selected = []
+    catalog = {
+        str(r.get("goods_no") or ""): r
+        for r in catalog_rows
+        if r.get("goods_no")
+    }
+    calendar = {
+        str(r.get("goods_no") or ""): r
+        for r in calendar_rows
+        if r.get("goods_no")
+    }
+
+    probation_goods = {
+        str(row.get("goods_no") or "").strip()
+        for row in latest_rows
+        if str(row.get("goods_no") or "").strip()
+        and product_in_probation(
+            catalog.get(str(row.get("goods_no") or "").strip())
+        )
+    }
+    recent_extra = load_recent_extra_observations(probation_goods)
+
+    active_due = []
+    probe_due = []
+
     for row in latest_rows:
         g = str(row.get("goods_no") or "").strip()
         if not g:
             continue
-        tier, score = adaptive_sampling_tier(row)
-        if product_in_probation(catalog.get(g)):
-            tier = "probation_3h"
-        elif tier == "24h":
-            continue
+
+        cat = catalog.get(g)
+        normal_score = adaptive_sales_score(row)
+        cal_score = calendar_sampling_score(calendar.get(g))
+        score = max(normal_score, cal_score)
+
+        probation = g in probation_goods
+        activity_score = (
+            probation_activity_score(row, recent_extra.get(g, []))
+            if probation
+            else 0.0
+        )
+        score = max(score, activity_score)
+        tier = tier_for_score(score)
+
         base_slot = to_int(row.get("slot"))
         if base_slot is None or not (0 <= base_slot < SLOT_COUNT):
-            base_slot = effective_goods_slot(g, catalog.get(g))
-        if not adaptive_due(base_slot, clock_slot, tier):
+            base_slot = effective_goods_slot(g, cat)
+
+        if tier != "24h":
+            if not adaptive_due(base_slot, clock_slot, tier):
+                continue
+            active_due.append({
+                "goods_no": g,
+                "tier": tier,
+                "score": score,
+                "base_slot": base_slot,
+                "reason": "probation_activity" if activity_score >= max(normal_score, cal_score) and activity_score > 0 else "sales_score",
+            })
             continue
-        selected.append({
+
+        # Quiet/unknown newly discovered goods get only ONE lightweight probe.
+        if not probation:
+            continue
+        if probation_has_probe(cat, recent_extra.get(g, [])):
+            continue
+        if not adaptive_due(base_slot, clock_slot, "probe_6h"):
+            continue
+
+        probe_due.append({
             "goods_no": g,
-            "tier": tier,
-            "score": score,
+            "tier": "probe_6h",
+            "score": 0.0,
             "base_slot": base_slot,
+            "reason": "first_probe",
         })
 
-    # High tier first, then highest sales speed. Cap protects the source and Actions runtime.
-    selected.sort(key=lambda x: (0 if x["tier"] == "probation_3h" else 1 if x["tier"] == "3h" else 2, -x["score"], int(x["goods_no"]) if x["goods_no"].isdigit() else 10**30))
-    total_due = len(selected)
-    if max_products > 0:
-        selected = selected[:max_products]
+    # Proven sellers always have priority over discovery probes.
+    active_due.sort(
+        key=lambda x: (
+            0 if x["tier"] == "3h" else 1,
+            -x["score"],
+            int(x["goods_no"]) if x["goods_no"].isdigit() else 10**30,
+        )
+    )
+
+    selected_active = active_due[:max_products] if max_products > 0 else active_due[:]
+
+    remaining = (
+        max(0, max_products - len(selected_active))
+        if max_products > 0
+        else len(probe_due)
+    )
+    probe_cap = max(0, NEW_PRODUCT_PROBE_MAX_PER_RUN)
+    probe_take = min(remaining, probe_cap) if max_products > 0 else probe_cap
+
+    # Oldest unprobed items first; goodsNo breaks ties deterministically.
+    probe_due.sort(
+        key=lambda x: (
+            _catalog_first_seen(catalog.get(x["goods_no"])) or now_kst(),
+            int(x["goods_no"]) if x["goods_no"].isdigit() else 10**30,
+        )
+    )
+    selected_probe = probe_due[:probe_take]
+
+    selected = selected_active + selected_probe
+    total_due = len(active_due) + len(probe_due)
 
     stats = {
         "checked_at": now_kst().isoformat(timespec="seconds"),
         "clock_slot": clock_slot,
-        "thresholds": {"medium_min": ADAPTIVE_MEDIUM_MIN, "high_min": ADAPTIVE_HIGH_MIN},
+        "thresholds": {
+            "medium_min": ADAPTIVE_MEDIUM_MIN,
+            "high_min": ADAPTIVE_HIGH_MIN,
+        },
+        "bulk_safe_new_product_policy": {
+            "probation_hours": NEW_PRODUCT_PROBATION_HOURS,
+            "probe_offset_slots": NEW_PRODUCT_PROBE_OFFSET,
+            "probe_approx_hours": NEW_PRODUCT_PROBE_OFFSET * 3,
+            "probe_max_per_run": NEW_PRODUCT_PROBE_MAX_PER_RUN,
+            "blanket_3h_probation": False,
+        },
+        "probation_goods": len(probation_goods),
+        "active_due_before_cap": len(active_due),
+        "probe_due_before_cap": len(probe_due),
         "due_before_cap": total_due,
         "selected": len(selected),
-        "selected_probation_3h": sum(1 for x in selected if x["tier"] == "probation_3h"),
+        "selected_probe_6h": len(selected_probe),
         "selected_3h": sum(1 for x in selected if x["tier"] == "3h"),
         "selected_9h": sum(1 for x in selected if x["tier"] == "9h"),
+        "deferred_probes": max(0, len(probe_due) - len(selected_probe)),
         "max_products": max_products,
         "dry_run": bool(dry_run),
     }
@@ -1587,6 +1800,21 @@ def collect_midnight_anchor(max_products=None, dry_run=False):
         for r in catalog_rows
         if r.get("goods_no")
     }
+    calendar_rows = read_csv(CALENDAR_LATEST_PRODUCT_FILE)
+    calendar = {
+        str(r.get("goods_no") or ""): r
+        for r in calendar_rows
+        if r.get("goods_no")
+    }
+    probation_goods = {
+        str(row.get("goods_no") or "").strip()
+        for row in latest_rows
+        if str(row.get("goods_no") or "").strip()
+        and product_in_probation(
+            catalog.get(str(row.get("goods_no") or "").strip())
+        )
+    }
+    recent_extra = load_recent_extra_observations(probation_goods)
 
     selected = []
     for row in latest_rows:
@@ -1595,8 +1823,14 @@ def collect_midnight_anchor(max_products=None, dry_run=False):
             continue
 
         score = adaptive_sales_score(row)
-        probation = product_in_probation(catalog.get(g))
-        if score < MIDNIGHT_ANCHOR_MIN and not probation:
+        cal_row = calendar.get(g)
+        score = max(score, calendar_sampling_score(cal_row))
+        if g in probation_goods:
+            score = max(
+                score,
+                probation_activity_score(row, recent_extra.get(g, [])),
+            )
+        if score < MIDNIGHT_ANCHOR_MIN:
             continue
 
         base_slot = to_int(row.get("slot"))
@@ -1607,9 +1841,7 @@ def collect_midnight_anchor(max_products=None, dry_run=False):
         if base_slot == 0:
             continue
 
-        tier, _ = adaptive_sampling_tier(row)
-        if probation:
-            tier = "probation_3h"
+        tier = tier_for_score(score)
         selected.append({
             "goods_no": g,
             "score": score,
