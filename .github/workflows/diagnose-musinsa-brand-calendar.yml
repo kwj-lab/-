@@ -1,0 +1,158 @@
+name: Diagnose Musinsa Brand Calendar
+
+on:
+  workflow_dispatch:
+    inputs:
+      brand:
+        description: '브랜드명'
+        required: true
+        default: '노티카'
+      date:
+        description: '진단 날짜 YYYY-MM-DD'
+        required: true
+        default: '2026-09-02'
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Diagnose brand calendar contributors
+        shell: bash
+        env:
+          BRAND: ${{ inputs.brand }}
+          TARGET_DATE: ${{ inputs.date }}
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import csv, os, collections
+
+          BRAND=os.environ["BRAND"].strip()
+          DATE=os.environ["TARGET_DATE"].strip()
+          ROOT=Path(".")
+
+          def read_csv(path):
+              if not path.exists():
+                  return []
+              with path.open("r", encoding="utf-8-sig", newline="") as f:
+                  return list(csv.DictReader(f))
+
+          def num(v):
+              try:
+                  return float(str(v).replace(",",""))
+              except:
+                  return 0.0
+
+          print("="*110)
+          print(f"BRAND CALENDAR DIAGNOSIS brand={BRAND} date={DATE}")
+          print("="*110)
+
+          # 1) Stored brand aggregate
+          brand_file=ROOT/"musinsa_calendar_brand_daily.csv"
+          stored=[
+              r for r in read_csv(brand_file)
+              if str(r.get("brand_name") or "").strip()==BRAND
+              and str(r.get("date") or "").strip()==DATE
+          ]
+          print("\n=== STORED BRAND ROW ===")
+          if stored:
+              for r in stored:
+                  print(
+                      f"estimated_sales={r.get('estimated_sales')} | "
+                      f"estimated_gmv={r.get('estimated_gmv')} | "
+                      f"product_count={r.get('product_count')} | "
+                      f"product_coverage_pct={r.get('product_coverage_pct')}"
+                  )
+          else:
+              print("NOT FOUND")
+
+          # 2) Product rows from immutable calendar history
+          ym=DATE[:7]
+          hist_dir=ROOT/"data"/"calendar"/"history"/ym
+          rows=[]
+          if hist_dir.exists():
+              for p in sorted(hist_dir.glob("bucket-*.csv")):
+                  for r in read_csv(p):
+                      if (
+                          str(r.get("date") or "").strip()==DATE
+                          and str(r.get("brand_name") or "").strip()==BRAND
+                      ):
+                          rows.append(r)
+
+          # Deduplicate by goods_no just in case
+          by_goods={}
+          for r in rows:
+              g=str(r.get("goods_no") or "").strip()
+              if g:
+                  by_goods[g]=r
+          rows=list(by_goods.values())
+
+          total_sales=sum(num(r.get("estimated_sales")) for r in rows)
+          total_gmv=sum(num(r.get("estimated_gmv")) for r in rows)
+
+          print("\n=== REBUILT FROM PRODUCT HISTORY ===")
+          print(f"products={len(rows)}")
+          print(f"sum_estimated_sales={total_sales:.2f}")
+          print(f"sum_estimated_gmv={round(total_gmv)}")
+
+          stored_sales=num(stored[0].get("estimated_sales")) if stored else None
+          if stored_sales is not None:
+              diff=stored_sales-total_sales
+              print(f"stored_minus_rebuilt={diff:.2f}")
+              if abs(diff) > 0.05:
+                  print("RESULT: BRAND AGGREGATE IS STALE / DOES NOT MATCH PRODUCT HISTORY")
+              else:
+                  print("RESULT: BRAND AGGREGATE MATCHES PRODUCT HISTORY")
+                  print("       -> remaining spike is coming from OTHER PRODUCTS.")
+
+          print("\n=== TOP PRODUCT CONTRIBUTORS ===")
+          rows.sort(key=lambda r:num(r.get("estimated_sales")), reverse=True)
+          print(
+              f"{'#':>3} {'goodsNo':>10} {'estimated':>12} {'GMV':>14} "
+              f"{'coverage':>9} {'init_status':>12} {'init_delta':>12} product"
+          )
+          print("-"*110)
+          for i,r in enumerate(rows[:50],1):
+              print(
+                  f"{i:>3} "
+                  f"{str(r.get('goods_no') or ''):>10} "
+                  f"{num(r.get('estimated_sales')):>12.2f} "
+                  f"{round(num(r.get('estimated_gmv'))):>14} "
+                  f"{str(r.get('coverage_pct') or ''):>9} "
+                  f"{str(r.get('initial_delta_status') or ''):>12} "
+                  f"{str(r.get('initial_delta_value') or ''):>12} "
+                  f"{r.get('product_name') or ''}"
+              )
+
+          print("\n=== SUSPICIOUS CONTRIBUTORS ===")
+          suspicious=[]
+          for r in rows:
+              sales=num(r.get("estimated_sales"))
+              status=str(r.get("initial_delta_status") or "").strip()
+              coverage=num(r.get("coverage_pct"))
+              if sales >= 100 or status in ("pending","rebase") or (sales >= 30 and coverage < 60):
+                  suspicious.append(r)
+
+          if not suspicious:
+              print("none")
+          else:
+              for r in suspicious[:100]:
+                  print(
+                      f"goodsNo={r.get('goods_no')} | "
+                      f"sales={num(r.get('estimated_sales')):.2f} | "
+                      f"coverage={r.get('coverage_pct')} | "
+                      f"initial={r.get('initial_delta_status')} | "
+                      f"initial_delta={r.get('initial_delta_value')} | "
+                      f"name={r.get('product_name')}"
+                  )
+
+          print("\n=== WHAT TO SEND CHATGPT ===")
+          print("Copy everything from STORED BRAND ROW through SUSPICIOUS CONTRIBUTORS.")
+          PY
