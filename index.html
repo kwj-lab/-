@@ -133,7 +133,7 @@ dialog{width:min(1200px,96vw);max-height:92vh;border:0;border-radius:16px;paddin
 </section>
 <section class="panel">
 <div class="head"><div><div class="title">브랜드 최신 일판매 순위</div><div class="small">브랜드명을 누르면 날짜별 추이 · 담당 slot은 실제 상품 배정 기준</div></div></div>
-<div class="tablewrap" style="max-height:760px;overflow:auto"><table><thead><tr><th>#</th><th>브랜드</th><th>상품수</th><th>담당 slot</th><th>정규 수집시간</th><th>다음 수집</th><th>완성도</th><th><button class="sortbtn" id="brandSortSales">일일 추정판매 <span id="brandSortSalesIcon">▼</span></button></th><th><button class="sortbtn" id="brandSortGmv">일일 추정GMV <span id="brandSortGmvIcon"></span></button></th></tr></thead><tbody id="brandRank"></tbody></table></div>
+<div class="tablewrap" style="max-height:760px;overflow:auto"><table><thead><tr><th>#</th><th>브랜드</th><th>현재 상품수</th><th>담당 slot</th><th>정규 수집시간</th><th>다음 수집</th><th>완성도</th><th><button class="sortbtn" id="brandSortSales">일일 추정판매 <span id="brandSortSalesIcon">▼</span></button></th><th><button class="sortbtn" id="brandSortGmv">일일 추정GMV <span id="brandSortGmvIcon"></span></button></th></tr></thead><tbody id="brandRank"></tbody></table></div>
 </section>
 </div>
 
@@ -713,6 +713,42 @@ function updateBrandSortIcons(){
   if(s)s.textContent=brandRankSort.key==='estimated_sales'?(brandRankSort.dir==='desc'?'▼':'▲'):'';
   if(g)g.textContent=brandRankSort.key==='estimated_gmv'?(brandRankSort.dir==='desc'?'▼':'▲'):'';
 }
+function uiBrandKeys(value){
+  const raw=String(value||'').normalize('NFKC').trim().toLocaleLowerCase('ko-KR');
+  if(!raw)return new Set();
+
+  const keys=new Set();
+  const compact=raw.replace(/[^0-9a-z가-힣]+/g,'');
+  if(compact)keys.add(compact);
+
+  const ko=(raw.match(/[가-힣]+/g)||[]).join('');
+  if(ko)keys.add(ko);
+
+  const latin=(raw.match(/[a-z0-9]+/g)||[]).join('');
+  if(latin)keys.add(latin);
+
+  const base=raw.replace(/\([^)]*\)/g,'');
+  const baseCompact=base.replace(/[^0-9a-z가-힣]+/g,'');
+  if(baseCompact)keys.add(baseCompact);
+
+  for(const m of raw.matchAll(/\(([^)]*)\)/g)){
+    const p=String(m[1]||'').replace(/[^0-9a-z가-힣]+/g,'');
+    if(p)keys.add(p);
+  }
+  return keys;
+}
+
+function uiBrandMatches(a,b){
+  const A=uiBrandKeys(a),B=uiBrandKeys(b);
+  if(!A.size||!B.size)return false;
+  for(const k of A)if(B.has(k))return true;
+  return false;
+}
+
+function currentBrandProductCount(brandName){
+  return products.filter(r=>uiBrandMatches(brandName,r.brand_name)).length;
+}
+
 function renderBrandRank(){
   const d=latestDate(brands);
   const rows=brands.filter(r=>r.date===d).sort((a,b)=>{
@@ -726,7 +762,7 @@ function renderBrandRank(){
     return `<tr>
       <td>${i+1}</td>
       <td><button class="link" data-brand="${esc(r.brand_name)}">${esc(r.brand_name)}</button></td>
-      <td>${f(n(r.product_count))}</td>
+      <td title="최신 캘린더 계산 상품수 ${f(n(r.product_count))}개">${f(currentBrandProductCount(r.brand_name))}</td>
       <td>${slot==null?'-':`slot${slot}`}</td>
       <td>${slot==null?'-':slotTimeLabel(slot)}</td>
       <td>${slot==null?'-':nextSlotLabel(slot)}</td>
@@ -1054,7 +1090,7 @@ async function loadAll(){
     ` · 판매통계 수집완료(${latestRawDate||'-'}) ${f(latestRawCount)} / ${f(products.length)}`+
     ` · catalog ${f(catalogCount)}개`+
     (calCount?` · 캘린더 확정 ${f(calCount)}개`:' · 캘린더 계산 대기')+
-    ` · 최근 3일 자동 재계산(backfill) · UI v9.26`;
+    ` · 최근 3일 자동 재계산(backfill) · UI v9.27`;
  }catch(e){
   er.textContent='데이터 로드 실패: '+e.message;
   er.style.display='block';

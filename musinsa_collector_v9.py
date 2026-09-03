@@ -110,6 +110,10 @@ REQUEST_MIN_INTERVAL = float(os.environ.get("MUSINSA_REQUEST_MIN_INTERVAL", "0.1
 REQUEST_MAX_INTERVAL = float(os.environ.get("MUSINSA_REQUEST_MAX_INTERVAL", "3.0"))
 MAX_SEARCH_PAGES = int(os.environ.get("MUSINSA_MAX_SEARCH_PAGES", "300"))
 QUICK_SEARCH_MAX_PAGES = int(os.environ.get("MUSINSA_QUICK_SEARCH_MAX_PAGES", "40"))
+# A brand with only a handful of catalog goods is treated as an incomplete seed.
+# This prevents a partial first discovery (e.g. 1 product) from permanently switching
+# the brand into quick daily scans before the full catalog has ever been discovered.
+MIN_BRAND_SEED_GOODS = int(os.environ.get("MUSINSA_MIN_BRAND_SEED_GOODS", "5"))
 QUICK_KNOWN_STOP_PAGES = int(os.environ.get("MUSINSA_QUICK_KNOWN_STOP_PAGES", "3"))
 
 # Adaptive sampling thresholds (rolling 24h / 7d average sales).
@@ -832,8 +836,23 @@ def discover_slot(state_dir, slot, force_full=False):
             futures = {}
             for brand in assigned_brands:
                 known = known_by_brand.get(brand.casefold(), set())
-                exhaustive = bool(force_full or weekly_full or not known)
-                modes[brand] = "exhaustive" if exhaustive else "daily_price_scan"
+
+                # 0~MIN_BRAND_SEED_GOODS-1개처럼 비정상적으로 작은 catalog seed는
+                # "초기 discovery가 끝난 브랜드"로 보지 않는다.
+                # 첫 검색이 일부 결과만 반환해 1개만 들어온 경우에도 다음 담당 slot에서
+                # 자동 exhaustive scan을 다시 수행해 catalog를 스스로 복구한다.
+                incomplete_seed = len(known) < max(1, MIN_BRAND_SEED_GOODS)
+                exhaustive = bool(force_full or weekly_full or incomplete_seed)
+
+                if force_full:
+                    modes[brand] = "forced_exhaustive"
+                elif weekly_full:
+                    modes[brand] = "weekly_exhaustive"
+                elif incomplete_seed:
+                    modes[brand] = f"seed_repair_exhaustive({len(known)})"
+                else:
+                    modes[brand] = "daily_price_scan"
+
                 futures[executor.submit(search_brand_products, brand, known, exhaustive)] = brand
 
             for fut in as_completed(futures):
