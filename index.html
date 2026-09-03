@@ -219,7 +219,7 @@ dialog{width:min(1200px,96vw);max-height:92vh;border:0;border-radius:16px;paddin
 <div class="tablewrap"><table><thead><tr><th>#</th><th>브랜드</th><th>상품명</th><th>상품명 변경</th><th>상품번호</th><th><button class="sortbtn" id="sortPurchase" type="button" data-sort="purchase_total">누적 구매수 <span class="arrow">↕</span></button></th><th>기준값 수집</th><th>마지막 수집시각</th><th><button class="sortbtn active" id="sortSales" type="button" data-sort="estimated_sales">일일 추정판매 <span class="arrow">▼</span></button></th><th><button class="sortbtn" id="sortRollingSales" type="button" data-sort="raw_daily_sales">24h 구매증가 <span class="arrow">↕</span></button></th><th><button class="sortbtn" id="sortGmv" type="button" data-sort="estimated_gmv">일일 추정GMV <span class="arrow">↕</span></button></th><th><button class="sortbtn" id="sortRollingGmv" type="button" data-sort="raw_daily_estimated_gmv">24h 추정GMV <span class="arrow">↕</span></button></th><th>판매가</th><th>가격변화</th><th>시간범위</th><th>신뢰도</th></tr></thead><tbody id="productBody"></tbody></table></div>
 </section>
 
-<div class="footer">추정판매량 = 연속된 purchaseTotal 관측값의 증가량을 실제 관측시간 간격에 균등 배분한 뒤 KST 00:00~24:00와 겹치는 시간만 합산합니다. 가격은 새 가격을 처음 관측하기 전까지 이전 관측가를 유지하는 방식(LOCF)으로 추정 GMV에 적용합니다. 따라서 실제 시간대별 주문 집중도, 쿠폰, 적립금, 취소·반품, 실정산매출과는 차이가 날 수 있습니다.</div>
+<div class="footer">추정판매량 = 연속된 purchaseTotal 관측값의 증가량을 실제 관측시간 간격에 균등 배분한 뒤 KST 00:00~24:00와 겹치는 시간만 합산합니다. 가격은 새 가격을 처음 관측하기 전까지 이전 관측가를 유지하는 방식(LOCF)으로 추정 GMV에 적용합니다. 따라서 실제 시간대별 주문 집중도, 쿠폰, 적립금, 취소·반품, 실정산매출과는 차이가 날 수 있습니다.<br><span class="muted">데이터 소스: GitHub main 최신 파일 우선 · Pages 로컬 파일 fallback</span></div>
 </div>
 
 
@@ -488,8 +488,46 @@ function renderDataDiagnostics(catalogMap){
  }
 }
 
-async function txt(p,opt=false){try{const r=await fetch('./'+p+'?v='+Date.now(),{cache:'no-store'});if(!r.ok){if(opt)return'';throw new Error(p+' HTTP '+r.status)}return await r.text()}catch(e){if(opt)return'';throw e}}
-async function jsn(p,opt=false){try{const r=await fetch('./'+p+'?v='+Date.now(),{cache:'no-store'});if(!r.ok){if(opt)return null;throw new Error(p+' HTTP '+r.status)}return await r.json()}catch(e){if(opt)return null;throw e}}
+const RAW_BASE='https://raw.githubusercontent.com/kwj-lab/-/main/';
+
+function dataUrls(p){
+  const clean=String(p||'').replace(/^\.\//,'');
+  const bust='v='+Date.now();
+  return [
+    RAW_BASE+clean+'?'+bust,
+    './'+clean+'?'+bust
+  ];
+}
+
+async function txt(p,opt=false){
+  let lastErr=null;
+  for(const url of dataUrls(p)){
+    try{
+      const r=await fetch(url,{cache:'no-store'});
+      if(!r.ok){lastErr=new Error(p+' HTTP '+r.status);continue}
+      return await r.text();
+    }catch(e){
+      lastErr=e;
+    }
+  }
+  if(opt)return'';
+  throw lastErr||new Error(p+' load failed');
+}
+
+async function jsn(p,opt=false){
+  let lastErr=null;
+  for(const url of dataUrls(p)){
+    try{
+      const r=await fetch(url,{cache:'no-store'});
+      if(!r.ok){lastErr=new Error(p+' HTTP '+r.status);continue}
+      return await r.json();
+    }catch(e){
+      lastErr=e;
+    }
+  }
+  if(opt)return null;
+  throw lastErr||new Error(p+' load failed');
+}
 
 function filtered(){let x=products;const b=document.getElementById('brandFilter').value;if(b)x=x.filter(r=>r.brand_name===b);const q=document.getElementById('search').value.trim().toLowerCase();if(q)x=x.filter(r=>(r.product_name||'').toLowerCase().includes(q)||(r.previous_product_name||'').toLowerCase().includes(q)||(r.product_name_history||'').toLowerCase().includes(q)||String(r.goods_no||'').includes(q));return x}
 function chart(el,rows,key){
