@@ -123,6 +123,31 @@ QUICK_KNOWN_STOP_PAGES = int(os.environ.get("MUSINSA_QUICK_KNOWN_STOP_PAGES", "3
 ADAPTIVE_MEDIUM_MIN = float(os.environ.get("MUSINSA_ADAPTIVE_MEDIUM_MIN", "3"))
 ADAPTIVE_HIGH_MIN = float(os.environ.get("MUSINSA_ADAPTIVE_HIGH_MIN", "21"))
 ADAPTIVE_MAX_PER_RUN = int(os.environ.get("MUSINSA_ADAPTIVE_MAX_PER_RUN", "15000"))
+# Newly discovered products are sampled every ~3h for the first 48h regardless of
+# current sales score. This protects both launch-day breakouts and reactivated old goods.
+NEW_PRODUCT_PROBATION_HOURS = int(os.environ.get("MUSINSA_NEW_PRODUCT_PROBATION_HOURS", "48"))
+
+# First-observation lifecycle guard.
+# A newly discovered/reactivated goodsNo can sometimes return a stale/reset purchaseTotal
+# at the first observation and then jump to its historical cumulative value.
+# We never decide this from review_count or from the literal value "0" alone.
+INITIAL_JUMP_MIN = int(os.environ.get("MUSINSA_INITIAL_JUMP_MIN", "100"))
+INITIAL_JUMP_FIRST_SEEN_WINDOW_HOURS = float(
+    os.environ.get("MUSINSA_INITIAL_JUMP_FIRST_SEEN_WINDOW_HOURS", "12")
+)
+INITIAL_JUMP_PLATEAU_HOURS = float(
+    os.environ.get("MUSINSA_INITIAL_JUMP_PLATEAU_HOURS", "12")
+)
+INITIAL_JUMP_PLATEAU_CONFIRMATIONS = int(
+    os.environ.get("MUSINSA_INITIAL_JUMP_PLATEAU_CONFIRMATIONS", "3")
+)
+INITIAL_JUMP_GENUINE_MIN_FOLLOW = int(
+    os.environ.get("MUSINSA_INITIAL_JUMP_GENUINE_MIN_FOLLOW", "20")
+)
+INITIAL_JUMP_GENUINE_FOLLOW_RATIO = float(
+    os.environ.get("MUSINSA_INITIAL_JUMP_GENUINE_FOLLOW_RATIO", "0.10")
+)
+
 MIDNIGHT_ANCHOR_MIN = float(os.environ.get("MUSINSA_MIDNIGHT_ANCHOR_MIN", "3"))
 MIDNIGHT_ANCHOR_MAX_PER_RUN = int(os.environ.get("MUSINSA_MIDNIGHT_ANCHOR_MAX_PER_RUN", "15000"))
 MIDNIGHT_REPORT_DIR = BASE_DIR / "data" / "anchor"
@@ -199,6 +224,7 @@ CALENDAR_PRODUCT_FIELDS = [
     "price_change_detected", "price_change_amount", "price_change_pct",
     "coverage_pct", "calendar_complete", "confidence",
     "max_interval_hours", "observation_count", "contributing_intervals",
+    "initial_delta_status", "initial_delta_value",
     "history_bucket", "product_url",
 ]
 CALENDAR_BRAND_FIELDS = [
@@ -1309,6 +1335,18 @@ def adaptive_sampling_tier(row):
     return "24h", score
 
 
+def product_in_probation(catalog_row, when=None):
+    """True for a newly discovered item during its temporary high-frequency window."""
+    if not catalog_row:
+        return False
+    first = parse_kst_datetime(catalog_row.get("first_seen_at"))
+    if first is None:
+        return False
+    now = when or now_kst()
+    age_h = (now - first).total_seconds() / 3600.0
+    return 0 <= age_h <= max(1, NEW_PRODUCT_PROBATION_HOURS)
+
+
 def adaptive_due(base_slot, clock_slot, tier):
     """Return True when an extra observation is due in this 3h clock block.
 
@@ -1327,7 +1365,7 @@ def adaptive_due(base_slot, clock_slot, tier):
     offset = (int(clock_slot) - int(base_slot)) % SLOT_COUNT
     if tier == "9h":
         return offset in (3, 6)
-    if tier == "3h":
+    if tier in ("3h", "probation_3h"):
         return offset in (1, 2, 3, 4, 5, 6, 7)
     return False
 
@@ -1385,7 +1423,9 @@ def collect_adaptive(clock_slot, max_products=None, dry_run=False):
         if not g:
             continue
         tier, score = adaptive_sampling_tier(row)
-        if tier == "24h":
+        if product_in_probation(catalog.get(g)):
+            tier = "probation_3h"
+        elif tier == "24h":
             continue
         base_slot = to_int(row.get("slot"))
         if base_slot is None or not (0 <= base_slot < SLOT_COUNT):
@@ -1400,7 +1440,7 @@ def collect_adaptive(clock_slot, max_products=None, dry_run=False):
         })
 
     # High tier first, then highest sales speed. Cap protects the source and Actions runtime.
-    selected.sort(key=lambda x: (0 if x["tier"] == "3h" else 1, -x["score"], int(x["goods_no"]) if x["goods_no"].isdigit() else 10**30))
+    selected.sort(key=lambda x: (0 if x["tier"] == "probation_3h" else 1 if x["tier"] == "3h" else 2, -x["score"], int(x["goods_no"]) if x["goods_no"].isdigit() else 10**30))
     total_due = len(selected)
     if max_products > 0:
         selected = selected[:max_products]
@@ -1411,6 +1451,7 @@ def collect_adaptive(clock_slot, max_products=None, dry_run=False):
         "thresholds": {"medium_min": ADAPTIVE_MEDIUM_MIN, "high_min": ADAPTIVE_HIGH_MIN},
         "due_before_cap": total_due,
         "selected": len(selected),
+        "selected_probation_3h": sum(1 for x in selected if x["tier"] == "probation_3h"),
         "selected_3h": sum(1 for x in selected if x["tier"] == "3h"),
         "selected_9h": sum(1 for x in selected if x["tier"] == "9h"),
         "max_products": max_products,
@@ -1554,7 +1595,8 @@ def collect_midnight_anchor(max_products=None, dry_run=False):
             continue
 
         score = adaptive_sales_score(row)
-        if score < MIDNIGHT_ANCHOR_MIN:
+        probation = product_in_probation(catalog.get(g))
+        if score < MIDNIGHT_ANCHOR_MIN and not probation:
             continue
 
         base_slot = to_int(row.get("slot"))
@@ -1566,6 +1608,8 @@ def collect_midnight_anchor(max_products=None, dry_run=False):
             continue
 
         tier, _ = adaptive_sampling_tier(row)
+        if probation:
+            tier = "probation_3h"
         selected.append({
             "goods_no": g,
             "score": score,
@@ -1703,37 +1747,200 @@ def metric_delta(cur, baseline, field):
     return delta
 
 
+def purchase_counter_observation_inconsistent(row):
+    """Basic structural validation only.
+
+    review_count is deliberately NOT used as a hard classifier.
+    A launch can legitimately have reviews by the time our first crawler arrives,
+    and a reactivated old item can also have old reviews.  Lifecycle decisions are
+    therefore made from the time-series itself, not from review_count.
+    """
+    p = to_int((row or {}).get("purchase_total"))
+    return p is None or p < 0
+
+
 def guarded_purchase_delta(cur, baseline, older_baselines=()):
-    """
-    purchaseTotal 복구 스파이크 방지용 delta.
+    """Counter-safe rolling delta.
 
-    예:
-      어제 API 이상값 = 0
-      7일 전 정상값 = 1000
-      오늘 정상 복구값 = 1005
-
-    단순 계산 0 -> 1005 = +1005 로 잡지 않고,
-    최근 정상 historical floor 1000을 사용해 +5로 계산합니다.
+    This function handles historical resets when an older trusted baseline exists.
+    It intentionally does not guess whether a first-ever large jump is genuine.
+    That decision is made by the calendar lifecycle resolver, which has access to
+    multiple observations before/after the jump.
     """
-    cv = to_int((cur or {}).get("purchase_total"))
-    bv = to_int((baseline or {}).get("purchase_total"))
-    if cv is None or bv is None:
+    if purchase_counter_observation_inconsistent(cur):
         return None
 
-    reference = bv
-    for row in older_baselines or ():
-        ov = to_int((row or {}).get("purchase_total"))
-        if ov is not None:
-            reference = max(reference, ov)
+    cv = to_int((cur or {}).get("purchase_total"))
+    if cv is None:
+        return None
 
+    candidates = []
+    for row in (baseline,) + tuple(older_baselines or ()):
+        if not row or purchase_counter_observation_inconsistent(row):
+            continue
+        value = to_int(row.get("purchase_total"))
+        if value is not None:
+            candidates.append(value)
+
+    if not candidates:
+        return None
+
+    reference = max(candidates)
     if cv < reference:
         return None
     return cv - reference
 
 
-def build_latest_row(raw, prev, b7, b30, today, slot):
+def _catalog_first_seen(catalog_row):
+    if not catalog_row:
+        return None
+    return parse_kst_datetime(catalog_row.get("first_seen_at"))
+
+
+def _row_dt(row):
+    return row.get("_checked_dt") or parse_kst_datetime(row.get("checked_at"))
+
+
+def _is_true_first_observation(rows, catalog_row):
+    """Whether rows[0] is close enough to catalog.first_seen_at to be the first crawl."""
+    if not rows:
+        return False
+    first_seen = _catalog_first_seen(catalog_row)
+    first_dt = _row_dt(rows[0])
+    if first_seen is None or first_dt is None:
+        return False
+    gap_h = abs((first_dt - first_seen).total_seconds()) / 3600.0
+    return gap_h <= max(1.0, INITIAL_JUMP_FIRST_SEEN_WINDOW_HOURS)
+
+
+def resolve_initial_purchase_jump(rows, catalog_row=None):
+    """Resolve the first large purchaseTotal jump for a newly discovered goodsNo.
+
+    Returns: (rows_with_segments, state, initial_delta)
+
+    state:
+      none      - no special first-jump condition
+      pending   - not enough evidence yet; first jump excluded *for now*
+      genuine   - later observations show continued growth; first jump is restored
+      rebase    - jump behaved like historical cumulative-value restoration; excluded
+
+    Important:
+    - We do NOT use review_count.
+    - We do NOT say "0 means invalid".
+    - The first observed cumulative value is always just a baseline.
+    - A large first jump is only promoted into sales after follow-through evidence.
+    - Finalizer re-runs can later change pending -> genuine and retroactively restore it.
+    """
+    rows = [dict(r) for r in rows]
+    if len(rows) < 2 or not _is_true_first_observation(rows, catalog_row):
+        for r in rows:
+            r.setdefault("_counter_segment", 0)
+        return rows, "none", 0
+
+    v0 = to_int(rows[0].get("purchase_total"))
+    v1 = to_int(rows[1].get("purchase_total"))
+    t0 = _row_dt(rows[0])
+    t1 = _row_dt(rows[1])
+    if v0 is None or v1 is None or t0 is None or t1 is None or t1 <= t0:
+        for r in rows:
+            r.setdefault("_counter_segment", 0)
+        return rows, "none", 0
+
+    jump = v1 - v0
+    if jump < INITIAL_JUMP_MIN:
+        for r in rows:
+            r.setdefault("_counter_segment", 0)
+        return rows, "none", max(0, jump)
+
+    # Evaluate only observations inside the temporary 48h probation window.
+    decision_end = t0 + timedelta(hours=max(6, NEW_PRODUCT_PROBATION_HOURS))
+    future = [r for r in rows[2:] if (_row_dt(r) or decision_end) <= decision_end]
+
+    # Until enough follow-up exists, do not invent a decision.
+    # Mark the first interval as a separate segment so it is excluded from totals,
+    # while every later observed delta remains usable.
+    state = "pending"
+
+    if future:
+        later_values = [to_int(r.get("purchase_total")) for r in future]
+        later_values = [v for v in later_values if v is not None]
+
+        if later_values:
+            # Growth after the disputed jump.
+            highest = max([v1] + later_values)
+            follow_growth = max(0, highest - v1)
+
+            # Count genuine positive steps after v1.
+            prev = v1
+            positive_steps = 0
+            for val in later_values:
+                if val > prev:
+                    positive_steps += 1
+                prev = max(prev, val)
+
+            last_dt = max([_row_dt(r) for r in future if _row_dt(r) is not None], default=t1)
+            elapsed_h = max(0.0, (last_dt - t1).total_seconds() / 3600.0)
+
+            # "genuine" requires material continuing growth, not merely one tiny tick.
+            genuine_follow = max(
+                INITIAL_JUMP_GENUINE_MIN_FOLLOW,
+                int(round(jump * INITIAL_JUMP_GENUINE_FOLLOW_RATIO)),
+            )
+            if follow_growth >= genuine_follow and positive_steps >= 2:
+                state = "genuine"
+
+            # "rebase" requires a long, repeatedly confirmed plateau.
+            # This is what the NAUTICA 0 -> 1906 -> 1906... pattern looks like.
+            plateau_tol = max(5, int(round(jump * 0.01)))
+            if (
+                state != "genuine"
+                and elapsed_h >= INITIAL_JUMP_PLATEAU_HOURS
+                and len(future) >= INITIAL_JUMP_PLATEAU_CONFIRMATIONS
+                and follow_growth <= plateau_tol
+            ):
+                state = "rebase"
+
+    # Genuine => keep one segment, so the first jump is restored.
+    if state == "genuine":
+        for r in rows:
+            r["_counter_segment"] = 0
+        return rows, state, jump
+
+    # Pending/rebase => first observation and all later observations live in
+    # different segments. This excludes only the disputed first jump.
+    rows[0]["_counter_segment"] = 0
+    for r in rows[1:]:
+        r["_counter_segment"] = 1
+    return rows, state, jump
+
+
+def build_latest_row(raw, prev, b7, b30, today, slot, catalog_row=None):
     price = to_int(raw.get("current_price"))
     daily_sales = guarded_purchase_delta(raw, prev, (b7, b30))
+
+    # Rolling 24h has no future observations available at build time.
+    # For a newly discovered item, a large first-day jump with no older baseline
+    # is therefore displayed as unknown instead of a false spike. Calendar Finalizer
+    # can later restore it retroactively after the 48h follow-through is known.
+    raw_checked = parse_kst_datetime(raw.get("checked_at")) or now_kst()
+    first_seen = _catalog_first_seen(catalog_row)
+    prev_checked = parse_kst_datetime((prev or {}).get("checked_at"))
+    first_baseline = (
+        first_seen is not None
+        and prev_checked is not None
+        and abs((prev_checked - first_seen).total_seconds()) / 3600.0
+            <= max(1.0, INITIAL_JUMP_FIRST_SEEN_WINDOW_HOURS)
+    )
+    if (
+        daily_sales is not None
+        and daily_sales >= INITIAL_JUMP_MIN
+        and product_in_probation(catalog_row, raw_checked)
+        and first_baseline
+        and b7 is None
+        and b30 is None
+    ):
+        daily_sales = None
+
     sales7 = guarded_purchase_delta(raw, b7, (b30,))
     sales30 = guarded_purchase_delta(raw, b30)
     views = metric_delta(raw, prev, "page_view_total")
@@ -2040,7 +2247,7 @@ def build_rows_for_date(date_value):
         for c in read_csv(path):
             g = str(c.get("goods_no") or "")
             raw = raw_from_compact(c, catalog)
-            out.append(build_latest_row(raw, prev.get(g), d7.get(g), d30.get(g), date_value, slot))
+            out.append(build_latest_row(raw, prev.get(g), d7.get(g), d30.get(g), date_value, slot, catalog.get(g)))
     return out
 
 
@@ -2114,7 +2321,7 @@ def refresh_latest_slot_from_snapshot(date_value, slot):
     for c in compact:
         g = str(c.get("goods_no") or "")
         raw = raw_from_compact(c, catalog)
-        latest.append(build_latest_row(raw, prev.get(g), d7.get(g), d30.get(g), date_value, slot))
+        latest.append(build_latest_row(raw, prev.get(g), d7.get(g), d30.get(g), date_value, slot, catalog.get(g)))
     write_csv(LATEST_SLOT_DIR / f"slot-{slot}.csv.gz", latest, LATEST_FIELDS)
     return latest
 
@@ -2317,7 +2524,7 @@ def aggregate_slot(state_dir, shard_dir):
     compact = []
     for r in raw:
         g = str(r.get("goods_no") or "")
-        latest.append(build_latest_row(r, prev.get(g), d7.get(g), d30.get(g), today, slot))
+        latest.append(build_latest_row(r, prev.get(g), d7.get(g), d30.get(g), today, slot, catalog.get(g)))
         compact.append(compact_from_raw(r, today, slot))
 
     canonical_snapshot = SLOT_DIR / f"slot-{slot}" / f"{today.isoformat()}.csv.gz"
@@ -2498,50 +2705,36 @@ def interval_gmv_contribution(prev_row, cur_row, overlap_start, overlap_end, del
 
 
 
-def sanitize_purchase_observations(observations):
+def sanitize_purchase_observations(observations, catalog_row=None):
+    """Clean purchaseTotal resets, then resolve a newly discovered item's first jump.
+
+    Step 1: remove transient downward resets (1000 -> 0 -> 1005).
+    Step 2: if the very first tracked interval is a large jump, use later 48h
+            observations to decide genuine / rebase / pending.
+
+    review_count is never a hard decision rule.
     """
-    purchaseTotal의 일시적인 하락/복구로 생기는 가짜 판매 스파이크를 제거합니다.
-
-    예:
-      1000 -> 0 -> 1005
-
-    기존 계산:
-      1000 -> 0    = 음수라 제외
-      0 -> 1005    = +1005 판매로 오인
-
-    수정 계산:
-      중간 0을 이상 관측으로 제거
-      1000 -> 1005 = +5
-
-    분석 구간 끝까지 이전 정상값으로 복구되지 않고 낮은 값이 2회 이상
-    이어지는 경우에는 영구 reset/rebase 가능성이 있으므로 새 counter segment를
-    시작합니다. 서로 다른 segment 사이의 delta는 계산하지 않습니다.
-    """
-    rows = [
-        r for r in sorted(observations, key=lambda r: r["_checked_dt"])
+    source = [
+        dict(r) for r in sorted(observations, key=lambda r: r["_checked_dt"])
         if to_int(r.get("purchase_total")) is not None
     ]
 
-    if len(rows) < 2:
-        out = []
-        for r in rows:
-            x = dict(r)
-            x["_counter_segment"] = 0
-            out.append(x)
-        return out, False
+    if not source:
+        return [], False, "none", 0
 
-    clean = []
-    segment = 0
     anomaly = False
 
-    first = dict(rows[0])
+    # First clean transient/persistent downward counter resets.
+    clean = []
+    segment = 0
+    first = dict(source[0])
     first["_counter_segment"] = segment
     clean.append(first)
     last_value = to_int(first.get("purchase_total"))
 
     i = 1
-    while i < len(rows):
-        row = rows[i]
+    while i < len(source):
+        row = source[i]
         value = to_int(row.get("purchase_total"))
 
         if value >= last_value:
@@ -2555,17 +2748,20 @@ def sanitize_purchase_observations(observations):
         anomaly = True
 
         recovery_idx = None
-        for j in range(i + 1, len(rows)):
-            future = to_int(rows[j].get("purchase_total"))
+        for j in range(i + 1, len(source)):
+            future = to_int(source[j].get("purchase_total"))
             if future is not None and future >= last_value:
                 recovery_idx = j
                 break
 
         if recovery_idx is not None:
+            # transient reset: skip low rows and resume from recovered level
             i = recovery_idx
             continue
 
-        remaining = rows[i:]
+        # Persistent lower counter: begin a new segment only after at least
+        # two observations support the lower regime.
+        remaining = source[i:]
         if len(remaining) >= 2:
             segment += 1
             x = dict(row)
@@ -2577,7 +2773,42 @@ def sanitize_purchase_observations(observations):
 
         i += 1
 
-    return clean, anomaly
+    # Initial-jump resolver should only operate inside the first counter segment.
+    # If there was an unrelated later reset, preserve its segment boundaries.
+    if len(clean) >= 2:
+        first_segment = clean[0].get("_counter_segment", 0)
+        head = []
+        tail = []
+        switched = False
+        for r in clean:
+            if not switched and r.get("_counter_segment", 0) == first_segment:
+                head.append(r)
+            else:
+                switched = True
+                tail.append(r)
+
+        resolved, initial_state, initial_delta = resolve_initial_purchase_jump(
+            head, catalog_row
+        )
+
+        if initial_state in ("pending", "rebase"):
+            anomaly = True
+
+        # Keep later reset segments distinct by shifting them above resolved head.
+        if tail:
+            max_head_seg = max((int(r.get("_counter_segment", 0)) for r in resolved), default=0)
+            old_tail_min = min(int(r.get("_counter_segment", 0)) for r in tail)
+            shift = max_head_seg + 1 - old_tail_min
+            for r in tail:
+                r["_counter_segment"] = int(r.get("_counter_segment", 0)) + shift
+            resolved.extend(tail)
+
+        clean = resolved
+    else:
+        initial_state, initial_delta = "none", 0
+
+    return clean, anomaly, initial_state, initial_delta
+
 
 def estimate_calendar_product(target_date, goods_no, observations, catalog_row=None):
     day_start = datetime(
@@ -2588,7 +2819,9 @@ def estimate_calendar_product(target_date, goods_no, observations, catalog_row=N
     # 가격/메타데이터는 원본 관측을 유지하되,
     # purchaseTotal 판매량 계산은 이상 하락/복구를 정제한 관측만 사용합니다.
     original_observations = sorted(observations, key=lambda r: r["_checked_dt"])
-    observations, counter_anomaly = sanitize_purchase_observations(original_observations)
+    observations, counter_anomaly, initial_delta_status, initial_delta_value = (
+        sanitize_purchase_observations(original_observations, catalog_row)
+    )
     if len(observations) < 2:
         return None
 
@@ -2719,6 +2952,8 @@ def estimate_calendar_product(target_date, goods_no, observations, catalog_row=N
         "max_interval_hours": round(max_interval_hours, 2),
         "observation_count": len(observations),
         "contributing_intervals": contributing,
+        "initial_delta_status": initial_delta_status,
+        "initial_delta_value": initial_delta_value if initial_delta_value else "",
         "history_bucket": calendar_bucket(goods_no),
         "product_url": product_url,
     }
@@ -2803,7 +3038,7 @@ def write_calendar_manifest():
         "finalized_dates": dates,
         "months": months,
         "history_buckets": CALENDAR_HISTORY_BUCKETS,
-        "method": "uniform purchaseTotal delta allocation across KST calendar-day overlap; price uses last-observation-carried-forward",
+        "method": "KST calendar-day purchaseTotal interval allocation with lifecycle first-jump deferral/reclassification; price uses last-observation-carried-forward",
     }
     CALENDAR_MANIFEST_FILE.parent.mkdir(parents=True, exist_ok=True)
     CALENDAR_MANIFEST_FILE.write_text(
