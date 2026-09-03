@@ -518,22 +518,49 @@ def search_json(url, brand_name):
     return json.loads(http_get(url, referer=referer))
 
 
-def _extract_brand_name(item):
+def _extract_brand_names(item):
+    """
+    검색 API가 동일 브랜드를 한글/영문으로 동시에 내려줄 수 있으므로
+    첫 번째 필드 하나만 쓰지 않고 가능한 브랜드 표기를 모두 수집한다.
+    예: 굿라이프웍스 / GOOD LIFE WORKS / GOODLIFEWORKS
+    """
     candidates = [
         item.get("brandName"),
         item.get("brandKorName"),
         item.get("brandKoreanName"),
         item.get("brand"),
     ]
+    out = []
+    seen = set()
+
+    def add(v):
+        if v is None:
+            return
+        v = str(v).strip()
+        if not v:
+            return
+        k = unicodedata.normalize("NFKC", v).casefold()
+        if k in seen:
+            return
+        seen.add(k)
+        out.append(v)
+
     for value in candidates:
         if isinstance(value, dict):
-            for key in ("name", "brandName", "korName", "koreanName"):
-                v = value.get(key)
-                if v:
-                    return str(v).strip()
-        elif value:
-            return str(value).strip()
-    return ""
+            for key in (
+                "name", "brandName", "korName", "koreanName",
+                "engName", "englishName"
+            ):
+                add(value.get(key))
+        else:
+            add(value)
+
+    return out
+
+
+def _extract_brand_name(item):
+    names = _extract_brand_names(item)
+    return names[0] if names else ""
 
 
 def _brand_keys(value):
@@ -723,9 +750,18 @@ def search_brand_products(brand_name, known_goods=None, exhaustive=False):
                 seen_any.add(goods_no)
                 page_any_new += 1
 
-            item_brand = _extract_brand_name(item)
-            if not _brand_matches(brand_name, item_brand):
+            item_brands = _extract_brand_names(item)
+            matched_brand = next(
+                (b for b in item_brands if _brand_matches(brand_name, b)),
+                None,
+            )
+            if matched_brand is None:
                 continue
+
+            # catalog에는 등록 브랜드명을 canonical name으로 저장한다.
+            # 그러면 한글 등록명과 영문 API명이 섞여도 다음 discovery에서
+            # known_by_brand가 끊기지 않는다.
+            item_brand = brand_name
 
             if goods_no in seen_exact:
                 continue
@@ -821,9 +857,19 @@ def discover_slot(state_dir, slot, force_full=False):
 
     known_by_brand = {}
     for g, row in catalog.items():
-        b = str(row.get("brand_name") or "").strip().casefold()
-        if b:
-            known_by_brand.setdefault(b, set()).add(g)
+        raw_brand = str(row.get("brand_name") or "").strip()
+        if not raw_brand:
+            continue
+
+        # exact key
+        known_by_brand.setdefault(raw_brand.casefold(), set()).add(g)
+
+        # 등록 브랜드와 alias가 일치하면 등록명 key에도 연결.
+        # 기존 catalog에 GOODLIFEWORKS로 저장돼 있고 brands.txt에는
+        # 굿라이프웍스로 등록된 경우 같은 브랜드의 기존 상품으로 인식한다.
+        for registered in brands:
+            if _brand_matches(registered, raw_brand):
+                known_by_brand.setdefault(registered.casefold(), set()).add(g)
 
     weekly_full = snapshot_date.weekday() == 6  # Sunday KST
     ts = now_kst().isoformat(timespec="seconds")
