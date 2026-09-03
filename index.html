@@ -133,7 +133,7 @@ dialog{width:min(1200px,96vw);max-height:92vh;border:0;border-radius:16px;paddin
 </section>
 <section class="panel">
 <div class="head"><div><div class="title">브랜드 최신 일판매 순위</div><div class="small">브랜드명을 누르면 날짜별 추이 · 담당 slot은 실제 상품 배정 기준</div></div></div>
-<div class="tablewrap"><table><thead><tr><th>#</th><th>브랜드</th><th>상품수</th><th>담당 slot</th><th>정규 수집시간</th><th>다음 수집</th><th>완성도</th><th><button class="sortbtn" id="brandSortSales">일일 추정판매 <span id="brandSortSalesIcon">▼</span></button></th><th><button class="sortbtn" id="brandSortGmv">일일 추정GMV <span id="brandSortGmvIcon"></span></button></th></tr></thead><tbody id="brandRank"></tbody></table></div>
+<div class="tablewrap" style="max-height:760px;overflow:auto"><table><thead><tr><th>#</th><th>브랜드</th><th>상품수</th><th>담당 slot</th><th>정규 수집시간</th><th>다음 수집</th><th>완성도</th><th><button class="sortbtn" id="brandSortSales">일일 추정판매 <span id="brandSortSalesIcon">▼</span></button></th><th><button class="sortbtn" id="brandSortGmv">일일 추정GMV <span id="brandSortGmvIcon"></span></button></th></tr></thead><tbody id="brandRank"></tbody></table></div>
 </section>
 </div>
 
@@ -719,7 +719,7 @@ function renderBrandRank(){
     const av=Math.max(0,n(a[brandRankSort.key])||0);
     const bv=Math.max(0,n(b[brandRankSort.key])||0);
     return brandRankSort.dir==='desc' ? bv-av : av-bv;
-  }).slice(0,100);
+  });
 
   document.getElementById('brandRank').innerHTML=rows.map((r,i)=>{
     const slot=brandAssignedSlot(r.brand_name);
@@ -1054,7 +1054,7 @@ async function loadAll(){
     ` · 판매통계 수집완료(${latestRawDate||'-'}) ${f(latestRawCount)} / ${f(products.length)}`+
     ` · catalog ${f(catalogCount)}개`+
     (calCount?` · 캘린더 확정 ${f(calCount)}개`:' · 캘린더 계산 대기')+
-    ` · 최근 3일 자동 재계산(backfill) · UI v9.25`;
+    ` · 최근 3일 자동 재계산(backfill) · UI v9.26`;
  }catch(e){
   er.textContent='데이터 로드 실패: '+e.message;
   er.style.display='block';
