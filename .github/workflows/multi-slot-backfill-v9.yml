@@ -1,0 +1,300 @@
+name: Musinsa Multi-Slot Backfill v9
+
+run-name: Multi-Slot Backfill v9 · ${{ inputs.slots }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      slots:
+        description: '순서대로 실행할 slot. 예: 0-5 또는 0,1,2,3,4,5'
+        required: true
+        default: '0-5'
+      full_discovery:
+        description: '각 slot을 full discovery로 실행'
+        required: true
+        type: boolean
+        default: false
+      continue_on_failure:
+        description: '중간 slot 실패 시 다음 slot도 계속 실행'
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: musinsa-v9-multislot-backfill
+  cancel-in-progress: false
+
+jobs:
+  run-slots-sequentially:
+    runs-on: ubuntu-latest
+    timeout-minutes: 720
+
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TARGET_WORKFLOW: collect-distributed-v9.yml
+      TARGET_REF: main
+
+    steps:
+      - name: Parse requested slots
+        id: parse
+        shell: bash
+        env:
+          RAW_SLOTS: ${{ inputs.slots }}
+        run: |
+          set -euo pipefail
+
+          python - <<'PY' > /tmp/slots.txt
+          import os, re
+
+          raw = os.environ["RAW_SLOTS"].strip()
+          slots = []
+
+          for token in re.split(r"[\s,]+", raw):
+              token = token.strip()
+              if not token:
+                  continue
+
+              if re.fullmatch(r"\d+-\d+", token):
+                  a, b = map(int, token.split("-", 1))
+                  step = 1 if b >= a else -1
+                  slots.extend(range(a, b + step, step))
+              elif token.isdigit():
+                  slots.append(int(token))
+              else:
+                  raise SystemExit(f"잘못된 slot 입력: {token!r}")
+
+          out = []
+          seen = set()
+          for s in slots:
+              if not 0 <= s <= 7:
+                  raise SystemExit(f"slot은 0~7만 가능합니다: {s}")
+              if s not in seen:
+                  seen.add(s)
+                  out.append(s)
+
+          if not out:
+              raise SystemExit("실행할 slot이 없습니다.")
+
+          print(" ".join(map(str, out)))
+          PY
+
+          SLOTS="$(cat /tmp/slots.txt)"
+          echo "slots=$SLOTS" >> "$GITHUB_OUTPUT"
+          echo "실행 순서: $SLOTS"
+
+      - name: Run Distributed slots one by one
+        shell: bash
+        env:
+          SLOTS: ${{ steps.parse.outputs.slots }}
+          FULL_DISCOVERY: ${{ inputs.full_discovery }}
+          CONTINUE_ON_FAILURE: ${{ inputs.continue_on_failure }}
+        run: |
+          set -uo pipefail
+
+          list_runs() {
+            gh api \
+              "repos/${GITHUB_REPOSITORY}/actions/workflows/${TARGET_WORKFLOW}/runs?event=workflow_dispatch&branch=${TARGET_REF}&per_page=50"
+          }
+
+          wait_until_distributed_idle() {
+            # 기존 수동/자동 Distributed Run이 queued 또는 in_progress라면
+            # 새 batch 요청을 넣지 않고 먼저 끝날 때까지 기다린다.
+            # 이렇게 해야 GitHub concurrency가 기존 waiting request를 교체/취소하지 않는다.
+            while true; do
+              ACTIVE="$(
+                list_runs | python -c '
+          import json,sys
+          runs=json.load(sys.stdin).get("workflow_runs", [])
+          active=[
+              r for r in runs
+              if r.get("status") in ("queued","in_progress","waiting","pending","requested")
+          ]
+          print(len(active))
+          '
+              )"
+
+              if [ "${ACTIVE:-0}" -eq 0 ]; then
+                return 0
+              fi
+
+              echo "기존 Distributed Run ${ACTIVE}개가 진행/대기 중입니다. 완료 후 계속합니다..."
+              sleep 20
+            done
+          }
+
+          wait_for_new_run() {
+            local slot="$1"
+            local before_file="$2"
+            local dispatched_epoch="$3"
+
+            for attempt in $(seq 1 60); do
+              sleep 3
+
+              list_runs > /tmp/runs.json
+
+              # 1) 가능하면 display_title에 slot 번호가 들어간 새 Run을 우선 선택.
+              RUN_ID="$(
+                python - "$slot" "$before_file" "$dispatched_epoch" <<'PY'
+          import json, sys, datetime, re
+
+          slot = sys.argv[1]
+          before_file = sys.argv[2]
+          dispatched_epoch = int(sys.argv[3])
+
+          before = set()
+          try:
+              with open(before_file, "r", encoding="utf-8") as f:
+                  before = {x.strip() for x in f if x.strip()}
+          except FileNotFoundError:
+              pass
+
+          with open("/tmp/runs.json", "r", encoding="utf-8") as f:
+              runs = json.load(f).get("workflow_runs", [])
+
+          candidates = []
+          for r in runs:
+              rid = str(r.get("id", ""))
+              if not rid or rid in before:
+                  continue
+
+              created = r.get("created_at") or ""
+              try:
+                  dt = datetime.datetime.fromisoformat(created.replace("Z", "+00:00"))
+                  epoch = int(dt.timestamp())
+              except Exception:
+                  continue
+
+              # GitHub timestamp rounding 여유.
+              if epoch < dispatched_epoch - 5:
+                  continue
+
+              title = str(r.get("display_title") or "")
+              candidates.append((epoch, rid, title))
+
+          if not candidates:
+              raise SystemExit(0)
+
+          candidates.sort(reverse=True)
+
+          slot_patterns = [
+              rf"\bslot[\s:_-]*{re.escape(slot)}\b",
+              rf"\b{re.escape(slot)}\b",
+          ]
+          for _, rid, title in candidates:
+              low = title.lower()
+              if any(re.search(p, low, re.I) for p in slot_patterns):
+                  print(rid)
+                  raise SystemExit(0)
+
+          # 다른 workflow_dispatch가 같은 몇 초 안에 들어오지 않는 일반적인 경우:
+          # 가장 최근 unseen Run을 선택.
+          print(candidates[0][1])
+          PY
+              )"
+
+              if [ -n "${RUN_ID:-}" ]; then
+                echo "$RUN_ID"
+                return 0
+              fi
+            done
+
+            return 1
+          }
+
+          mkdir -p /tmp/musinsa-batch
+          : > /tmp/musinsa-batch/summary.txt
+
+          TOTAL=0
+          SUCCESS=0
+          FAILED=0
+
+          for SLOT in $SLOTS; do
+            TOTAL=$((TOTAL + 1))
+
+            echo
+            echo "============================================================"
+            echo "slot ${SLOT} 시작"
+            echo "============================================================"
+
+            # Dispatch 전 현재 Run ID 목록 저장.
+            BEFORE="/tmp/musinsa-batch/before-slot-${SLOT}.txt"
+            list_runs | python -c '
+          import json,sys
+          for r in json.load(sys.stdin).get("workflow_runs", []):
+              print(r.get("id",""))
+          ' > "$BEFORE"
+
+            DISPATCH_EPOCH="$(date +%s)"
+
+            # 자동 스케줄/기존 수동 Run과 충돌하지 않도록 완전 idle 상태까지 대기.
+            wait_until_distributed_idle
+
+            echo "Distributed Musinsa Collection v9 dispatch: slot=${SLOT}"
+            gh api \
+              --method POST \
+              "repos/${GITHUB_REPOSITORY}/actions/workflows/${TARGET_WORKFLOW}/dispatches" \
+              -f "ref=${TARGET_REF}" \
+              -f "inputs[slot]=${SLOT}" \
+              -f "inputs[full_discovery]=${FULL_DISCOVERY}"
+
+            echo "새 Run 생성 대기..."
+
+            if ! RUN_ID="$(wait_for_new_run "$SLOT" "$BEFORE" "$DISPATCH_EPOCH")"; then
+              echo "::error::slot ${SLOT}: dispatch된 Run ID를 찾지 못했습니다."
+              echo "slot ${SLOT}: RUN_NOT_FOUND" >> /tmp/musinsa-batch/summary.txt
+              FAILED=$((FAILED + 1))
+
+              if [ "$CONTINUE_ON_FAILURE" != "true" ]; then
+                exit 1
+              fi
+              continue
+            fi
+
+            echo "slot ${SLOT} Run ID: ${RUN_ID}"
+            echo "https://github.com/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}"
+
+            # 기존 distributed workflow가 discover → collect → aggregate까지 끝날 때까지 대기.
+            if gh run watch "$RUN_ID" --repo "$GITHUB_REPOSITORY" --exit-status; then
+              echo "slot ${SLOT}: SUCCESS"
+              echo "slot ${SLOT}: SUCCESS · run ${RUN_ID}" >> /tmp/musinsa-batch/summary.txt
+              SUCCESS=$((SUCCESS + 1))
+            else
+              echo "::error::slot ${SLOT}: FAILED · run ${RUN_ID}"
+              echo "slot ${SLOT}: FAILED · run ${RUN_ID}" >> /tmp/musinsa-batch/summary.txt
+              FAILED=$((FAILED + 1))
+
+              if [ "$CONTINUE_ON_FAILURE" != "true" ]; then
+                echo "중간 실패로 batch를 중단합니다."
+                exit 1
+              fi
+            fi
+
+            # GitHub가 concurrency 상태를 정리할 짧은 여유.
+            sleep 8
+          done
+
+          echo
+          echo "==================== 최종 결과 ===================="
+          cat /tmp/musinsa-batch/summary.txt
+          echo "TOTAL=${TOTAL} SUCCESS=${SUCCESS} FAILED=${FAILED}"
+
+          {
+            echo "## Musinsa Multi-Slot Backfill v9"
+            echo
+            echo "- 요청 slot: \`${SLOTS}\`"
+            echo "- full_discovery: \`${FULL_DISCOVERY}\`"
+            echo "- 성공: **${SUCCESS}**"
+            echo "- 실패: **${FAILED}**"
+            echo
+            echo '```text'
+            cat /tmp/musinsa-batch/summary.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$FAILED" -gt 0 ]; then
+            exit 1
+          fi
