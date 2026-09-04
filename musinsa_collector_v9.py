@@ -717,7 +717,7 @@ def _update_product_name_tracking(old, incoming_name, detected_at):
     return new_name, previous_name, changed_at, change_count, history_json, changed
 
 
-def search_brand_products(brand_name, known_goods=None, exhaustive=False):
+def _search_brand_products_single(brand_name, known_goods=None, exhaustive=False):
     """
     무신사 검색결과에서 요청 브랜드의 상품을 수집합니다.
 
@@ -825,6 +825,7 @@ def search_brand_products(brand_name, known_goods=None, exhaustive=False):
             results.append({
                 "goods_no": goods_no,
                 "brand_name": item_brand or brand_name,
+                "_search_brand_aliases": item_brands,
                 "product_name": item.get("goodsName") or "",
                 "normal_price": to_int(item.get("normalPrice")),
                 "current_price": current_price,
@@ -872,6 +873,103 @@ def search_brand_products(brand_name, known_goods=None, exhaustive=False):
         file=sys.stderr,
     )
     return results
+
+def _query_alias_key(value):
+    return unicodedata.normalize("NFKC", str(value or "")).strip().casefold()
+
+
+def search_brand_products(brand_name, known_goods=None, exhaustive=False):
+    """Search a brand using the registered name plus aliases learned from Musinsa.
+
+    Why:
+      brands.txt may contain `가까이유니언즈`, while Musinsa's searchable label is
+      `가까이 유니언즈` / `GAKKAI UNIONS`.  Brand matching already ignores spacing,
+      but the SEARCH KEYWORD itself previously used only the literal registered name.
+
+    Policy:
+      - always try the registered name first;
+      - when exhaustive/incomplete-seed discovery is active, learn the exact Korean /
+        English labels returned by matching Musinsa items and retry those labels;
+      - deduplicate by goodsNo;
+      - cap alias queries to avoid runaway discovery traffic.
+    """
+    registered = str(brand_name or "").strip()
+    if not registered:
+        return []
+
+    known_goods = set(str(x) for x in (known_goods or set()))
+    merged = {}
+    query_queue = [registered]
+    queued = {_query_alias_key(registered)}
+    completed = set()
+    max_queries = 4 if exhaustive else 1
+
+    while query_queue and len(completed) < max_queries:
+        query = query_queue.pop(0)
+        qkey = _query_alias_key(query)
+        if not qkey or qkey in completed:
+            continue
+        completed.add(qkey)
+
+        rows = _search_brand_products_single(
+            query,
+            known_goods=set(known_goods) | set(merged),
+            exhaustive=exhaustive,
+        )
+
+        learned_aliases = []
+        for row in rows:
+            g = str(row.get("goods_no") or "").strip()
+            if not g:
+                continue
+
+            # Only keep rows that match the originally registered brand.
+            # This prevents an alias query from widening into a different brand.
+            aliases = row.pop("_search_brand_aliases", []) or []
+            candidate_names = [row.get("brand_name")] + list(aliases)
+            if not any(_brand_matches(registered, x) for x in candidate_names if x):
+                continue
+
+            # Canonicalize catalog brand name back to the registered brand.
+            row["brand_name"] = registered
+            merged[g] = row
+
+            for alias in aliases:
+                alias = str(alias or "").strip()
+                if not alias or not _brand_matches(registered, alias):
+                    continue
+                akey = _query_alias_key(alias)
+                if akey and akey not in queued and akey not in completed:
+                    queued.add(akey)
+                    learned_aliases.append(alias)
+
+        # Alias expansion is only needed for exhaustive / seed-repair discovery.
+        if exhaustive:
+            # Prefer human-readable spaced Korean and English labels returned by API.
+            learned_aliases.sort(
+                key=lambda x: (
+                    0 if re.search(r"\s", x) else 1,
+                    0 if re.search(r"[가-힣]", x) else 1,
+                    len(x),
+                )
+            )
+            query_queue.extend(learned_aliases)
+
+    rows = list(merged.values())
+    rows.sort(
+        key=lambda r: int(r["goods_no"])
+        if str(r.get("goods_no", "")).isdigit()
+        else 10**30
+    )
+
+    print(
+        f"[brand-search-alias] {registered}: queries={list(completed)}, "
+        f"matched_total={len(rows)}",
+        file=sys.stderr,
+    )
+    return rows
+
+
 def discover_slot(state_dir, slot, force_full=False):
     state_dir = Path(state_dir)
     state_dir.mkdir(parents=True, exist_ok=True)
