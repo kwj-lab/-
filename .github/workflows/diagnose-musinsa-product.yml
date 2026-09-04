@@ -102,6 +102,7 @@ jobs:
                       "dt": dt,
                       "checked_at": r.get("checked_at") or "",
                       "purchase_total": r.get("purchase_total") or "",
+                      "page_view_total": r.get("page_view_total") or "",
                       "price": r.get("current_price") or r.get("display_price") or "",
                       "kind": r.get("sample_kind") or ("primary" if "slots" in str(path) else ""),
                       "file": str(path),
@@ -113,7 +114,7 @@ jobs:
           compact=[]
           keys=set()
           for r in rows:
-              k=(r["checked_at"], r["purchase_total"])
+              k=(r["checked_at"], r["purchase_total"], r["page_view_total"])
               if k in keys:
                   continue
               keys.add(k)
@@ -127,34 +128,91 @@ jobs:
           if not rows:
               print("NO RAW OBSERVATIONS FOUND")
           else:
-              print(f"{'checked_at':27s} {'purchaseTotal':>14s} {'delta':>10s} {'price':>12s} {'kind':>16s}")
-              print("-"*100)
-              prev=None
+              print(
+                  f"{'checked_at':27s} "
+                  f"{'purchaseTotal':>14s} {'pΔ':>10s} "
+                  f"{'pageViewTotal':>14s} {'pvΔ':>10s} "
+                  f"{'price':>10s} {'kind':>16s}"
+              )
+              print("-"*125)
+              prev_p=None
+              prev_pv=None
               anomaly=False
+              purchase_zero_with_normal_pv=0
+              both_zero=0
+
               for r in rows:
-                  try: cur=int(float(str(r["purchase_total"]).replace(",","")))
-                  except: cur=None
-                  delta=None if prev is None or cur is None else cur-prev
-                  flag=""
-                  if delta is not None and delta < 0:
-                      flag="  <<< DROP"
+                  try:
+                      cur=int(float(str(r["purchase_total"]).replace(",","")))
+                  except:
+                      cur=None
+                  try:
+                      cur_pv=int(float(str(r["page_view_total"]).replace(",","")))
+                  except:
+                      cur_pv=None
+
+                  p_delta=None if prev_p is None or cur is None else cur-prev_p
+                  pv_delta=None if prev_pv is None or cur_pv is None else cur_pv-prev_pv
+
+                  flags=[]
+                  if p_delta is not None and p_delta < 0:
+                      flags.append("PURCHASE DROP")
                       anomaly=True
-                  elif delta is not None and prev is not None and prev <= 10 and cur is not None and cur >= 100:
-                      flag="  <<< POSSIBLE RECOVERY SPIKE"
+                  elif (
+                      p_delta is not None
+                      and prev_p is not None
+                      and prev_p <= 10
+                      and cur is not None
+                      and cur >= 100
+                  ):
+                      flags.append("PURCHASE RECOVERY")
                       anomaly=True
+
+                  if pv_delta is not None and pv_delta < 0:
+                      flags.append("PAGEVIEW DROP")
+                      anomaly=True
+
+                  # 핵심 진단:
+                  # purchaseTotal만 0인데 pageViewTotal은 직전 수준을 유지하면
+                  # purchase counter 계층만 비정상일 가능성이 높다.
+                  if (
+                      cur == 0
+                      and cur_pv is not None and cur_pv > 0
+                      and prev_pv is not None
+                      and cur_pv >= max(1, int(prev_pv * 0.8))
+                  ):
+                      flags.append("PURCHASE-ONLY ZERO")
+                      purchase_zero_with_normal_pv += 1
+                      anomaly=True
+
+                  # 둘 다 동시에 0이면 /stat 전체 통계 payload/cache 이상 가능성.
+                  if cur == 0 and cur_pv == 0:
+                      flags.append("BOTH ZERO")
+                      both_zero += 1
+                      anomaly=True
+
+                  flag_text=("  <<< " + " / ".join(flags)) if flags else ""
+
                   print(
                       f"{r['checked_at'][:27]:27s} "
                       f"{str(r['purchase_total']):>14s} "
-                      f"{('' if delta is None else str(delta)):>10s} "
-                      f"{str(r['price']):>12s} "
-                      f"{str(r['kind']):>16s}{flag}"
+                      f"{('' if p_delta is None else str(p_delta)):>10s} "
+                      f"{str(r['page_view_total']):>14s} "
+                      f"{('' if pv_delta is None else str(pv_delta)):>10s} "
+                      f"{str(r['price']):>10s} "
+                      f"{str(r['kind']):>16s}{flag_text}"
                   )
-                  if cur is not None:
-                      prev=cur
 
-              print("-"*100)
+                  if cur is not None:
+                      prev_p=cur
+                  if cur_pv is not None:
+                      prev_pv=cur_pv
+
+              print("-"*125)
               print("raw observations:", len(rows))
               print("anomaly pattern found:", anomaly)
+              print("purchase-only zero observations:", purchase_zero_with_normal_pv)
+              print("purchase+pageview both zero observations:", both_zero)
 
           # Dashboard/calculated values
           print("\n=== CURRENT CALCULATED ROWS ===")
@@ -181,4 +239,6 @@ jobs:
           print("- DROP followed by large recovery = likely counter/API anomaly, not real sales.")
           print("- Smooth monotonic increases across multiple observations = likely genuine purchaseTotal growth.")
           print("- A single huge positive jump with no preceding drop still needs comparison with adjacent observations.")
+          print("- purchaseTotal=0 while pageViewTotal stays near its prior level => purchase counter layer likely failed.")
+          print("- purchaseTotal=0 and pageViewTotal=0 together => broader /stat payload/cache issue is more plausible.")
           PY
