@@ -198,6 +198,17 @@ MIDSTREAM_JUMP_GENUINE_MIN_FOLLOW = int(
     os.environ.get("MUSINSA_MIDSTREAM_JUMP_GENUINE_MIN_FOLLOW", "100")
 )
 
+# Downward-reset recovery tolerance.
+# purchaseTotal can recover to almost the same historical level but a few units
+# lower (e.g. 46996 -> 0 -> 46994) because Musinsa may revise/cancel counts.
+# Such a near-recovery must never be interpreted as 0 -> 46994 new sales.
+COUNTER_RECOVERY_TOLERANCE_MIN = int(
+    os.environ.get("MUSINSA_COUNTER_RECOVERY_TOLERANCE_MIN", "10")
+)
+COUNTER_RECOVERY_TOLERANCE_RATIO = float(
+    os.environ.get("MUSINSA_COUNTER_RECOVERY_TOLERANCE_RATIO", "0.01")
+)
+
 MIDNIGHT_ANCHOR_MIN = float(os.environ.get("MUSINSA_MIDNIGHT_ANCHOR_MIN", "3"))
 MIDNIGHT_ANCHOR_MAX_PER_RUN = int(os.environ.get("MUSINSA_MIDNIGHT_ANCHOR_MAX_PER_RUN", "15000"))
 MIDNIGHT_REPORT_DIR = BASE_DIR / "data" / "anchor"
@@ -3297,15 +3308,32 @@ def sanitize_purchase_observations(observations, catalog_row=None):
         anomaly = True
 
         recovery_idx = None
+        recovery_tolerance = max(
+            COUNTER_RECOVERY_TOLERANCE_MIN,
+            int(round(abs(last_value) * COUNTER_RECOVERY_TOLERANCE_RATIO)),
+        )
+        recovery_floor = max(0, last_value - recovery_tolerance)
+
         for j in range(i + 1, len(source)):
             future = to_int(source[j].get("purchase_total"))
-            if future is not None and future >= last_value:
+            if future is not None and future >= recovery_floor:
                 recovery_idx = j
                 break
 
         if recovery_idx is not None:
-            # transient reset: skip low rows and resume from recovered level
-            i = recovery_idx
+            # transient/near recovery:
+            # 46996 -> 0 -> 46994처럼 거의 원래 counter 수준으로 돌아왔지만
+            # 소폭 낮아진 경우도 "0 -> 46994 신규 판매"로 연결하면 안 됩니다.
+            #
+            # 낮은 오류행(0 등)은 버리고, 복구 지점에서 새 segment를 시작해
+            # 경계 자체는 판매량 계산에서 제외합니다.
+            anomaly = True
+            segment += 1
+            recovered = dict(source[recovery_idx])
+            recovered["_counter_segment"] = segment
+            clean.append(recovered)
+            last_value = to_int(recovered.get("purchase_total"))
+            i = recovery_idx + 1
             continue
 
         # Persistent lower counter: begin a new segment only after at least
