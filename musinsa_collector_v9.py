@@ -657,6 +657,64 @@ def _brand_matches(requested, candidate):
     return bool(a and b and (a & b))
 
 
+_REGISTERED_BRAND_ALIAS_CACHE = None
+_REGISTERED_BRAND_ALIAS_CACHE_MTIME = None
+
+
+def _registered_brand_alias_map(force=False):
+    """Build an unambiguous alias-key -> registered canonical brand map.
+
+    musinsa_brands.txt is the source of truth for display/canonical brand names.
+    If two registered brands ever share the same normalized key, that key is
+    deliberately treated as ambiguous and is not auto-canonicalized.
+    """
+    global _REGISTERED_BRAND_ALIAS_CACHE, _REGISTERED_BRAND_ALIAS_CACHE_MTIME
+
+    try:
+        mtime = BRANDS_FILE.stat().st_mtime
+    except Exception:
+        mtime = None
+
+    if (
+        not force
+        and _REGISTERED_BRAND_ALIAS_CACHE is not None
+        and _REGISTERED_BRAND_ALIAS_CACHE_MTIME == mtime
+    ):
+        return _REGISTERED_BRAND_ALIAS_CACHE
+
+    owners = {}
+    registered = read_lines(BRANDS_FILE)
+    for canonical in registered:
+        for key in _brand_keys(canonical):
+            owners.setdefault(key, set()).add(canonical)
+
+    alias_map = {}
+    for key, names in owners.items():
+        if len(names) == 1:
+            alias_map[key] = next(iter(names))
+
+    _REGISTERED_BRAND_ALIAS_CACHE = alias_map
+    _REGISTERED_BRAND_ALIAS_CACHE_MTIME = mtime
+    return alias_map
+
+
+def canonical_brand_name(value):
+    """Return the registered canonical brand name when alias matching is unique."""
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+
+    alias_map = _registered_brand_alias_map()
+    candidates = {
+        alias_map[k]
+        for k in _brand_keys(raw)
+        if k in alias_map
+    }
+    if len(candidates) == 1:
+        return next(iter(candidates))
+    return raw
+
+
 
 def _normalize_product_name(value):
     """상품명 변경 비교용 정규화. 공백/유니코드 표기 흔들림만 무시합니다."""
@@ -931,7 +989,7 @@ def search_brand_products(brand_name, known_goods=None, exhaustive=False):
                 continue
 
             # Canonicalize catalog brand name back to the registered brand.
-            row["brand_name"] = registered
+            row["brand_name"] = canonical_brand_name(registered) or registered
             merged[g] = row
 
             for alias in aliases:
@@ -3608,9 +3666,9 @@ def estimate_calendar_product(target_date, goods_no, observations, catalog_row=N
 
     meta = dict(catalog_row or {})
     sample = original_observations[-1] if original_observations else {}
-    brand = (
-        str(sample.get("brand_name") or "").strip()
-        or str(meta.get("brand_name") or "").strip()
+    brand = canonical_brand_name(
+        str(meta.get("brand_name") or "").strip()
+        or str(sample.get("brand_name") or "").strip()
     )
     product_name = sample.get("product_name") or meta.get("product_name") or ""
     product_url = meta.get("product_url") or f"https://www.musinsa.com/products/{goods_no}"
@@ -3735,6 +3793,144 @@ def write_calendar_manifest():
     )
 
 
+
+def _canonicalize_rows_brand(rows):
+    changed = 0
+    out = []
+    for row in rows:
+        x = dict(row)
+        old = str(x.get("brand_name") or "").strip()
+        new = canonical_brand_name(old)
+        if new and new != old:
+            x["brand_name"] = new
+            changed += 1
+        out.append(x)
+    return out, changed
+
+
+def _merge_calendar_brand_rows(rows):
+    """Merge duplicate alias rows after canonicalization."""
+    grouped = {}
+    for row in rows:
+        x = dict(row)
+        x["brand_name"] = canonical_brand_name(x.get("brand_name"))
+        key = (str(x.get("date") or ""), str(x.get("brand_name") or ""))
+        grouped.setdefault(key, []).append(x)
+
+    out = []
+    for (date_text, brand), group in grouped.items():
+        if len(group) == 1:
+            out.append(group[0])
+            continue
+
+        product_count = sum(max(0, to_int(r.get("product_count")) or 0) for r in group)
+        complete_count = sum(max(0, to_int(r.get("complete_product_count")) or 0) for r in group)
+
+        weighted_cov_num = 0.0
+        weighted_cov_den = 0
+        for r in group:
+            nprod = max(0, to_int(r.get("product_count")) or 0)
+            cov = to_float(r.get("average_time_coverage_pct"))
+            if nprod and cov is not None:
+                weighted_cov_num += nprod * cov
+                weighted_cov_den += nprod
+
+        out.append({
+            "date": date_text,
+            "checked_at": max(str(r.get("checked_at") or "") for r in group),
+            "brand_name": brand,
+            "product_count": product_count,
+            "complete_product_count": complete_count,
+            "product_coverage_pct": (
+                round(complete_count / product_count * 100.0, 2)
+                if product_count else 100.0
+            ),
+            "average_time_coverage_pct": (
+                round(weighted_cov_num / weighted_cov_den, 2)
+                if weighted_cov_den else 0.0
+            ),
+            "estimated_sales": round(sum(to_float(r.get("estimated_sales")) or 0.0 for r in group), 2),
+            "estimated_gmv": round(sum(to_float(r.get("estimated_gmv")) or 0.0 for r in group)),
+            "price_change_products": sum(max(0, to_int(r.get("price_change_products")) or 0) for r in group),
+            "high_confidence_products": sum(max(0, to_int(r.get("high_confidence_products")) or 0) for r in group),
+            "medium_confidence_products": sum(max(0, to_int(r.get("medium_confidence_products")) or 0) for r in group),
+            "low_confidence_products": sum(max(0, to_int(r.get("low_confidence_products")) or 0) for r in group),
+        })
+
+    out.sort(key=lambda r: (str(r.get("date") or ""), str(r.get("brand_name") or "")))
+    return out
+
+
+def canonicalize_brand_storage():
+    """One-time repair for already persisted brand aliases.
+
+    Rewrites only compact/canonical files. Raw slot/observation archives are left
+    untouched; future Finalizer runs canonicalize those rows while rebuilding.
+    """
+    _registered_brand_alias_map(force=True)
+    report = {
+        "checked_at": now_kst().isoformat(timespec="seconds"),
+        "files": {},
+    }
+
+    simple_files = [
+        (CATALOG_FILE, CATALOG_FIELDS),
+        (CALENDAR_LATEST_PRODUCT_FILE, CALENDAR_PRODUCT_FIELDS),
+    ]
+
+    # Optional root compact files.
+    optional_specs = []
+    for path, fields in [
+        (BASE_DIR / "musinsa_daily_product_sales.csv", LATEST_FIELDS),
+    ]:
+        if Path(path).exists():
+            optional_specs.append((Path(path), fields))
+
+    for path, fields in simple_files + optional_specs:
+        if not Path(path).exists():
+            continue
+        rows = read_csv(path)
+        rows2, changed = _canonicalize_rows_brand(rows)
+        write_csv(path, rows2, fields)
+        report["files"][str(Path(path).relative_to(BASE_DIR))] = {
+            "rows": len(rows2),
+            "brand_names_changed": changed,
+        }
+
+    # Calendar brand daily: canonicalize AND merge duplicate aliases by date.
+    if CALENDAR_BRAND_FILE.exists():
+        before = read_csv(CALENDAR_BRAND_FILE)
+        canonical, changed = _canonicalize_rows_brand(before)
+        merged = _merge_calendar_brand_rows(canonical)
+        write_csv(CALENDAR_BRAND_FILE, merged, CALENDAR_BRAND_FIELDS)
+        report["files"][str(CALENDAR_BRAND_FILE.relative_to(BASE_DIR))] = {
+            "rows_before": len(before),
+            "rows_after": len(merged),
+            "brand_names_changed": changed,
+            "duplicate_rows_merged": len(before) - len(merged),
+        }
+
+    # Product calendar history buckets: change brand_name only; goodsNo rows remain unique.
+    history_files = 0
+    history_changed = 0
+    if CALENDAR_HISTORY_DIR.exists():
+        for path in sorted(CALENDAR_HISTORY_DIR.glob("*/bucket-*.csv")):
+            rows = read_csv(path)
+            rows2, changed = _canonicalize_rows_brand(rows)
+            if changed:
+                write_csv(path, rows2, CALENDAR_PRODUCT_FIELDS)
+                history_changed += changed
+            history_files += 1
+
+    report["calendar_history"] = {
+        "files_scanned": history_files,
+        "brand_names_changed": history_changed,
+    }
+
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+    return 0
+
+
 def finalize_calendar_date(target_date):
     observations = load_calendar_observations(target_date)
     catalog_rows = read_csv(CATALOG_FILE)
@@ -3744,6 +3940,7 @@ def finalize_calendar_date(target_date):
     for g, obs in observations.items():
         row = estimate_calendar_product(target_date, g, obs, catalog.get(g))
         if row is not None:
+            row["brand_name"] = canonical_brand_name(row.get("brand_name"))
             product_rows.append(row)
 
     product_rows.sort(key=lambda r: (
@@ -3753,12 +3950,13 @@ def finalize_calendar_date(target_date):
 
     brand_rows = calendar_brand_rows(target_date, product_rows)
 
-    brand_all = upsert_rows(
-        CALENDAR_BRAND_FILE,
-        brand_rows,
-        CALENDAR_BRAND_FIELDS,
-        lambda r: (str(r.get("date") or ""), str(r.get("brand_name") or "")),
-    )
+    # Replace the target date as a whole instead of per-brand upsert.
+    # Otherwise an old alias row such as "트릴리온(TRILLION)" remains beside
+    # the newly canonical "트릴리온" row forever.
+    brand_all = [
+        r for r in read_csv(CALENDAR_BRAND_FILE)
+        if str(r.get("date") or "") != target_date.isoformat()
+    ] + brand_rows
     brand_all.sort(key=lambda r: (str(r.get("date") or ""), str(r.get("brand_name") or "")))
     write_csv(CALENDAR_BRAND_FILE, brand_all, CALENDAR_BRAND_FIELDS)
 
@@ -3865,6 +4063,8 @@ def main():
     p = sub.add_parser("repair-catalog")
     p.add_argument("--max-products", type=int, default=200)
 
+    sub.add_parser("canonicalize-brands")
+
     args = parser.parse_args()
     if args.cmd == "discover-slot":
         return discover_slot(args.state_dir, args.slot, args.full_discovery)
@@ -3884,6 +4084,8 @@ def main():
         return finalize_calendar_recent(args.lookback_days, args.date or None)
     if args.cmd == "repair-catalog":
         return repair_catalog_command(args.max_products)
+    if args.cmd == "canonicalize-brands":
+        return canonicalize_brand_storage()
     return 2
 
 
