@@ -1,0 +1,39 @@
+{
+  "checked_at": "2026-09-04T15:16:35+09:00",
+  "clock_slot": 5,
+  "thresholds": {
+    "medium_min": 3.0,
+    "high_min": 21.0
+  },
+  "bulk_safe_new_product_policy": {
+    "probation_hours": 48,
+    "probe_offset_slots": 2,
+    "probe_approx_hours": 6,
+    "probe_max_per_run": 3000,
+    "blanket_3h_probation": false
+  },
+  "probation_goods": 88075,
+  "active_due_before_cap": 1149,
+  "probe_due_before_cap": 20264,
+  "due_before_cap": 21413,
+  "selected": 4149,
+  "selected_probe_6h": 3000,
+  "selected_3h": 414,
+  "selected_9h": 735,
+  "deferred_probes": 17264,
+  "max_products": 15000,
+  "dry_run": false,
+  "success": 4113,
+  "failed_or_unattempted": 0,
+  "not_attempted_before_budget": 36,
+  "observation_files": [
+    "data/observations/2026-09-04/adaptive-clock-5-152714-33840428341.csv.gz"
+  ],
+  "adaptive_state": {
+    "limit": 4,
+    "max_concurrency": 4,
+    "interval": 0.15,
+    "penalty": 0
+  },
+  "failed_goods_sample": []
+}
