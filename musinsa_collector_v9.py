@@ -163,6 +163,41 @@ INITIAL_JUMP_GENUINE_FOLLOW_RATIO = float(
     os.environ.get("MUSINSA_INITIAL_JUMP_GENUINE_FOLLOW_RATIO", "0.10")
 )
 
+# Mid-stream positive rebase guard.
+# Some long-tracked goodsNo values can suddenly jump from a normal cumulative
+# counter into a much larger cumulative regime (e.g. +16,871 at once), then
+# resume at the old low daily pace.  We must not count that boundary as sales.
+#
+# This is deliberately conservative:
+# - candidate must be a very large absolute jump
+# - candidate must dwarf the product's own recent observed pace
+# - until follow-up evidence arrives, only that disputed interval is excluded
+# - sustained strong growth after the jump restores it as genuine
+MIDSTREAM_JUMP_MIN = int(
+    os.environ.get("MUSINSA_MIDSTREAM_JUMP_MIN", "500")
+)
+MIDSTREAM_JUMP_PRIOR_INTERVALS = int(
+    os.environ.get("MUSINSA_MIDSTREAM_JUMP_PRIOR_INTERVALS", "3")
+)
+MIDSTREAM_JUMP_PRIOR_MULTIPLIER = float(
+    os.environ.get("MUSINSA_MIDSTREAM_JUMP_PRIOR_MULTIPLIER", "50")
+)
+MIDSTREAM_JUMP_CONFIRM_HOURS = float(
+    os.environ.get("MUSINSA_MIDSTREAM_JUMP_CONFIRM_HOURS", "12")
+)
+MIDSTREAM_JUMP_CONFIRMATIONS = int(
+    os.environ.get("MUSINSA_MIDSTREAM_JUMP_CONFIRMATIONS", "3")
+)
+MIDSTREAM_JUMP_PLATEAU_RATIO = float(
+    os.environ.get("MUSINSA_MIDSTREAM_JUMP_PLATEAU_RATIO", "0.02")
+)
+MIDSTREAM_JUMP_GENUINE_RATIO = float(
+    os.environ.get("MUSINSA_MIDSTREAM_JUMP_GENUINE_RATIO", "0.10")
+)
+MIDSTREAM_JUMP_GENUINE_MIN_FOLLOW = int(
+    os.environ.get("MUSINSA_MIDSTREAM_JUMP_GENUINE_MIN_FOLLOW", "100")
+)
+
 MIDNIGHT_ANCHOR_MIN = float(os.environ.get("MUSINSA_MIDNIGHT_ANCHOR_MIN", "3"))
 MIDNIGHT_ANCHOR_MAX_PER_RUN = int(os.environ.get("MUSINSA_MIDNIGHT_ANCHOR_MAX_PER_RUN", "15000"))
 MIDNIGHT_REPORT_DIR = BASE_DIR / "data" / "anchor"
@@ -2211,9 +2246,226 @@ def resolve_initial_purchase_jump(rows, catalog_row=None):
     return rows, state, jump
 
 
+
+def _median(values):
+    vals = sorted(float(v) for v in values if v is not None)
+    if not vals:
+        return 0.0
+    n = len(vals)
+    mid = n // 2
+    if n % 2:
+        return vals[mid]
+    return (vals[mid - 1] + vals[mid]) / 2.0
+
+
+def resolve_midstream_purchase_jumps(rows):
+    """Split extreme mid-stream positive counter rebases from real sales.
+
+    Existing `_counter_segment` boundaries are preserved.  Within each segment,
+    an interval is considered a candidate only when all of the following hold:
+
+    1) at least a few trusted prior intervals already exist;
+    2) the positive jump is at least MIDSTREAM_JUMP_MIN;
+    3) the jump is >= MIDSTREAM_JUMP_PRIOR_MULTIPLIER times the product's
+       recent median 24h-normalized observed pace.
+
+    Decision:
+      - pending: candidate is suspicious but follow-up is not sufficient yet.
+                 Exclude only that disputed boundary for now.
+      - rebase:  >= configured hours / confirmations later, post-jump growth
+                 remains tiny relative to the jump. Exclude boundary permanently.
+      - genuine: follow-up growth is large and has >=2 positive steps.
+                 Keep the original segment, restoring the jump.
+
+    The function intentionally uses only the purchaseTotal time-series.  It does
+    not use review_count, product name changes, or brand heuristics as hard rules.
+    """
+    if len(rows) < max(4, MIDSTREAM_JUMP_PRIOR_INTERVALS + 2):
+        return [dict(r) for r in rows], False, []
+
+    out = [dict(r) for r in rows]
+    anomaly = False
+    events = []
+
+    # Work segment by segment because downward-reset and initial-lifecycle
+    # boundaries have already been established.
+    seg_ids = []
+    for r in out:
+        sid = int(r.get("_counter_segment", 0))
+        if sid not in seg_ids:
+            seg_ids.append(sid)
+
+    next_segment_id = max(seg_ids, default=0) + 1
+
+    for sid in list(seg_ids):
+        idxs = [i for i, r in enumerate(out) if int(r.get("_counter_segment", 0)) == sid]
+        if len(idxs) < max(4, MIDSTREAM_JUMP_PRIOR_INTERVALS + 2):
+            continue
+
+        # A segment can theoretically contain more than one schema jump.
+        pos = MIDSTREAM_JUMP_PRIOR_INTERVALS
+        while pos < len(idxs):
+            i_prev = idxs[pos - 1]
+            i_cur = idxs[pos]
+            a, b = out[i_prev], out[i_cur]
+            p0, p1 = to_int(a.get("purchase_total")), to_int(b.get("purchase_total"))
+            t0, t1 = _row_dt(a), _row_dt(b)
+
+            if p0 is None or p1 is None or t0 is None or t1 is None or t1 <= t0:
+                pos += 1
+                continue
+
+            jump = p1 - p0
+            if jump < MIDSTREAM_JUMP_MIN:
+                pos += 1
+                continue
+
+            # Recent trusted pace, normalized to units/day.  This avoids treating
+            # a 3h adaptive interval and a 24h primary interval as comparable raw deltas.
+            prior_rates = []
+            prior_start = max(1, pos - MIDSTREAM_JUMP_PRIOR_INTERVALS)
+            for k in range(prior_start, pos):
+                x0 = out[idxs[k - 1]]
+                x1 = out[idxs[k]]
+                q0, q1 = to_int(x0.get("purchase_total")), to_int(x1.get("purchase_total"))
+                d0, d1 = _row_dt(x0), _row_dt(x1)
+                if q0 is None or q1 is None or d0 is None or d1 is None or d1 <= d0:
+                    continue
+                d = q1 - q0
+                if d < 0:
+                    continue
+                hours = (d1 - d0).total_seconds() / 3600.0
+                if hours > 0:
+                    prior_rates.append(d * 24.0 / hours)
+
+            if len(prior_rates) < max(2, MIDSTREAM_JUMP_PRIOR_INTERVALS - 1):
+                pos += 1
+                continue
+
+            prior_daily = _median(prior_rates)
+            # 1/day historical pace => threshold >= 50; absolute 500 still dominates.
+            # 100/day historical pace => threshold >= 5,000.
+            dynamic_threshold = max(
+                float(MIDSTREAM_JUMP_MIN),
+                prior_daily * MIDSTREAM_JUMP_PRIOR_MULTIPLIER,
+            )
+            if jump < dynamic_threshold:
+                pos += 1
+                continue
+
+            # Examine only later observations in this same current segment.
+            future_idxs = idxs[pos + 1:]
+            future = [out[j] for j in future_idxs]
+            later_values = [to_int(r.get("purchase_total")) for r in future]
+            later_values = [v for v in later_values if v is not None]
+
+            state = "pending"
+            follow_growth = 0
+            positive_steps = 0
+            elapsed_h = 0.0
+
+            if later_values:
+                highest = max([p1] + later_values)
+                follow_growth = max(0, highest - p1)
+
+                prev_val = p1
+                for val in later_values:
+                    if val > prev_val:
+                        positive_steps += 1
+                    prev_val = max(prev_val, val)
+
+                future_dts = [_row_dt(r) for r in future if _row_dt(r) is not None]
+                if future_dts:
+                    elapsed_h = max(
+                        0.0,
+                        (max(future_dts) - t1).total_seconds() / 3600.0,
+                    )
+
+                genuine_follow = max(
+                    MIDSTREAM_JUMP_GENUINE_MIN_FOLLOW,
+                    int(round(jump * MIDSTREAM_JUMP_GENUINE_RATIO)),
+                )
+                if follow_growth >= genuine_follow and positive_steps >= 2:
+                    state = "genuine"
+
+                plateau_tol = max(
+                    10,
+                    int(round(jump * MIDSTREAM_JUMP_PLATEAU_RATIO)),
+                    int(round(prior_daily * max(1.0, elapsed_h / 24.0) * 4.0)),
+                )
+                if (
+                    state != "genuine"
+                    and elapsed_h >= MIDSTREAM_JUMP_CONFIRM_HOURS
+                    and len(future) >= MIDSTREAM_JUMP_CONFIRMATIONS
+                    and follow_growth <= plateau_tol
+                ):
+                    state = "rebase"
+
+            events.append({
+                "index": i_cur,
+                "checked_at": str(b.get("checked_at") or ""),
+                "jump": jump,
+                "prior_daily_median": round(prior_daily, 3),
+                "follow_growth": follow_growth,
+                "positive_steps": positive_steps,
+                "elapsed_hours": round(elapsed_h, 2),
+                "state": state,
+            })
+
+            if state == "genuine":
+                pos += 1
+                continue
+
+            # pending/rebase: split exactly at the disputed boundary.
+            anomaly = True
+            new_sid = next_segment_id
+            next_segment_id += 1
+
+            for j in idxs[pos:]:
+                out[j]["_counter_segment"] = new_sid
+
+            # Continue scanning the newly created right-hand segment.  Rebuild its
+            # index list so subsequent genuine data can still be checked safely.
+            sid = new_sid
+            idxs = [i for i, r in enumerate(out) if int(r.get("_counter_segment", 0)) == sid]
+            pos = MIDSTREAM_JUMP_PRIOR_INTERVALS
+
+    return out, anomaly, events
+
+
 def build_latest_row(raw, prev, b7, b30, today, slot, catalog_row=None):
     price = to_int(raw.get("current_price"))
     daily_sales = guarded_purchase_delta(raw, prev, (b7, b30))
+
+    # Mid-stream live guard: rolling 24h has no future observations yet.
+    # If an established product suddenly jumps by an extreme amount while its
+    # older 7d/30d baselines imply a radically lower pace, display unknown rather
+    # than publishing a false five-digit 24h sale. Calendar Finalizer can later
+    # restore a genuine jump after follow-through evidence.
+    if daily_sales is not None and daily_sales >= MIDSTREAM_JUMP_MIN:
+        historical_rates = []
+        raw_dt = parse_kst_datetime((raw or {}).get("checked_at"))
+        for older in (b7, b30):
+            if not older:
+                continue
+            ov = to_int(older.get("purchase_total"))
+            cv = to_int((raw or {}).get("purchase_total"))
+            odt = parse_kst_datetime(older.get("checked_at"))
+            if ov is None or cv is None or odt is None or raw_dt is None or raw_dt <= odt:
+                continue
+            d = cv - ov
+            days = (raw_dt - odt).total_seconds() / 86400.0
+            if d >= 0 and days > 0:
+                historical_rates.append(d / days)
+
+        if historical_rates:
+            hist_daily = min(historical_rates)
+            threshold = max(
+                float(MIDSTREAM_JUMP_MIN),
+                hist_daily * MIDSTREAM_JUMP_PRIOR_MULTIPLIER,
+            )
+            if daily_sales >= threshold:
+                daily_sales = None
 
     # Rolling 24h has no future observations available at build time.
     # For a newly discovered item, a large first-day jump with no older baseline
@@ -3103,6 +3355,19 @@ def sanitize_purchase_observations(observations, catalog_row=None):
         clean = resolved
     else:
         initial_state, initial_delta = "none", 0
+
+    # Finally protect already-established products from an extreme positive
+    # counter schema jump in the middle of their history.  This runs after the
+    # initial lifecycle resolver so the two protections do not compete.
+    clean, midstream_anomaly, midstream_events = resolve_midstream_purchase_jumps(clean)
+    if midstream_anomaly:
+        anomaly = True
+        if midstream_events:
+            sample = "; ".join(
+                f"{e['state']}:+{e['jump']}@{e['checked_at']}"
+                for e in midstream_events[:5]
+            )
+            print(f"[midstream-counter] {sample}", file=sys.stderr)
 
     return clean, anomaly, initial_state, initial_delta
 
