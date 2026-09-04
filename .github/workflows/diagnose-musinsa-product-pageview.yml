@@ -1,0 +1,244 @@
+name: Diagnose Musinsa Product
+
+on:
+  workflow_dispatch:
+    inputs:
+      goods_no:
+        description: '무신사 상품번호'
+        required: true
+        default: '4551885'
+      lookback_days:
+        description: '최근 며칠 원본을 볼지'
+        required: false
+        default: '14'
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Diagnose purchaseTotal timeline
+        shell: bash
+        env:
+          GOODS_NO: ${{ inputs.goods_no }}
+          LOOKBACK_DAYS: ${{ inputs.lookback_days }}
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from datetime import datetime, timedelta, timezone
+          from zoneinfo import ZoneInfo
+          import csv, gzip, os, re
+
+          ROOT = Path(".")
+          GOODS = str(os.environ["GOODS_NO"]).strip()
+          DAYS = max(1, int(os.environ.get("LOOKBACK_DAYS", "14")))
+          KST = ZoneInfo("Asia/Seoul")
+          cutoff = datetime.now(KST) - timedelta(days=DAYS)
+
+          def read_csv(path):
+              try:
+                  if path.suffix == ".gz":
+                      with gzip.open(path, "rt", encoding="utf-8-sig", newline="") as f:
+                          return list(csv.DictReader(f))
+                  with path.open("r", encoding="utf-8-sig", newline="") as f:
+                      return list(csv.DictReader(f))
+              except Exception:
+                  return []
+
+          def parse_dt(v):
+              if not v:
+                  return None
+              try:
+                  d = datetime.fromisoformat(str(v).replace("Z","+00:00"))
+                  if d.tzinfo is None:
+                      d = d.replace(tzinfo=KST)
+                  return d.astimezone(KST)
+              except Exception:
+                  return None
+
+          rows = []
+
+          # Primary, adaptive, anchor observations
+          candidates = []
+          for root in [
+              ROOT/"data"/"slots",
+              ROOT/"data"/"observations",
+              ROOT/"data"/"daily",
+              ROOT/"data"/"latest_slots",
+          ]:
+              if root.exists():
+                  candidates.extend(root.rglob("*.csv"))
+                  candidates.extend(root.rglob("*.csv.gz"))
+
+          seen = set()
+          for path in candidates:
+              for r in read_csv(path):
+                  if str(r.get("goods_no") or "").strip() != GOODS:
+                      continue
+                  dt = parse_dt(r.get("checked_at"))
+                  if dt and dt < cutoff:
+                      continue
+                  key = (
+                      str(r.get("checked_at") or ""),
+                      str(r.get("purchase_total") or ""),
+                      str(path),
+                  )
+                  if key in seen:
+                      continue
+                  seen.add(key)
+                  rows.append({
+                      "dt": dt,
+                      "checked_at": r.get("checked_at") or "",
+                      "purchase_total": r.get("purchase_total") or "",
+                      "page_view_total": r.get("page_view_total") or "",
+                      "price": r.get("current_price") or r.get("display_price") or "",
+                      "kind": r.get("sample_kind") or ("primary" if "slots" in str(path) else ""),
+                      "file": str(path),
+                  })
+
+          rows.sort(key=lambda x: (x["dt"] or datetime.min.replace(tzinfo=KST), x["file"]))
+
+          # Deduplicate same timestamp/value across copied snapshot files.
+          compact=[]
+          keys=set()
+          for r in rows:
+              k=(r["checked_at"], r["purchase_total"], r["page_view_total"])
+              if k in keys:
+                  continue
+              keys.add(k)
+              compact.append(r)
+          rows=compact
+
+          print("="*100)
+          print(f"PRODUCT DIAGNOSIS goodsNo={GOODS} lookback={DAYS}d")
+          print("="*100)
+
+          if not rows:
+              print("NO RAW OBSERVATIONS FOUND")
+          else:
+              print(
+                  f"{'checked_at':27s} "
+                  f"{'purchaseTotal':>14s} {'pΔ':>10s} "
+                  f"{'pageViewTotal':>14s} {'pvΔ':>10s} "
+                  f"{'price':>10s} {'kind':>16s}"
+              )
+              print("-"*125)
+              prev_p=None
+              prev_pv=None
+              anomaly=False
+              purchase_zero_with_normal_pv=0
+              both_zero=0
+
+              for r in rows:
+                  try:
+                      cur=int(float(str(r["purchase_total"]).replace(",","")))
+                  except:
+                      cur=None
+                  try:
+                      cur_pv=int(float(str(r["page_view_total"]).replace(",","")))
+                  except:
+                      cur_pv=None
+
+                  p_delta=None if prev_p is None or cur is None else cur-prev_p
+                  pv_delta=None if prev_pv is None or cur_pv is None else cur_pv-prev_pv
+
+                  flags=[]
+                  if p_delta is not None and p_delta < 0:
+                      flags.append("PURCHASE DROP")
+                      anomaly=True
+                  elif (
+                      p_delta is not None
+                      and prev_p is not None
+                      and prev_p <= 10
+                      and cur is not None
+                      and cur >= 100
+                  ):
+                      flags.append("PURCHASE RECOVERY")
+                      anomaly=True
+
+                  if pv_delta is not None and pv_delta < 0:
+                      flags.append("PAGEVIEW DROP")
+                      anomaly=True
+
+                  # 핵심 진단:
+                  # purchaseTotal만 0인데 pageViewTotal은 직전 수준을 유지하면
+                  # purchase counter 계층만 비정상일 가능성이 높다.
+                  if (
+                      cur == 0
+                      and cur_pv is not None and cur_pv > 0
+                      and prev_pv is not None
+                      and cur_pv >= max(1, int(prev_pv * 0.8))
+                  ):
+                      flags.append("PURCHASE-ONLY ZERO")
+                      purchase_zero_with_normal_pv += 1
+                      anomaly=True
+
+                  # 둘 다 동시에 0이면 /stat 전체 통계 payload/cache 이상 가능성.
+                  if cur == 0 and cur_pv == 0:
+                      flags.append("BOTH ZERO")
+                      both_zero += 1
+                      anomaly=True
+
+                  flag_text=("  <<< " + " / ".join(flags)) if flags else ""
+
+                  print(
+                      f"{r['checked_at'][:27]:27s} "
+                      f"{str(r['purchase_total']):>14s} "
+                      f"{('' if p_delta is None else str(p_delta)):>10s} "
+                      f"{str(r['page_view_total']):>14s} "
+                      f"{('' if pv_delta is None else str(pv_delta)):>10s} "
+                      f"{str(r['price']):>10s} "
+                      f"{str(r['kind']):>16s}{flag_text}"
+                  )
+
+                  if cur is not None:
+                      prev_p=cur
+                  if cur_pv is not None:
+                      prev_pv=cur_pv
+
+              print("-"*125)
+              print("raw observations:", len(rows))
+              print("anomaly pattern found:", anomaly)
+              print("purchase-only zero observations:", purchase_zero_with_normal_pv)
+              print("purchase+pageview both zero observations:", both_zero)
+
+          # Dashboard/calculated values
+          print("\n=== CURRENT CALCULATED ROWS ===")
+          for fname in [
+              "musinsa_calendar_latest_products.csv",
+              "musinsa_daily_product_sales.csv",
+          ]:
+              p=ROOT/fname
+              found=[r for r in read_csv(p) if str(r.get("goods_no") or "").strip()==GOODS]
+              print(f"\n[{fname}]")
+              if not found:
+                  print("not found")
+                  continue
+              for r in found[-5:]:
+                  keys=[
+                      "date","brand_name","product_name",
+                      "purchase_total","daily_sales","estimated_sales",
+                      "daily_estimated_gmv","estimated_gmv",
+                      "coverage_pct","confidence","observation_count","max_interval_hours"
+                  ]
+                  print(" | ".join(f"{k}={r.get(k,'')}" for k in keys if k in r))
+
+          print("\n=== INTERPRETATION ===")
+          print("- DROP followed by large recovery = likely counter/API anomaly, not real sales.")
+          print("- Smooth monotonic increases across multiple observations = likely genuine purchaseTotal growth.")
+          print("- A single huge positive jump with no preceding drop still needs comparison with adjacent observations.")
+          print("- purchaseTotal=0 while pageViewTotal stays near its prior level => purchase counter layer likely failed.")
+          print("- purchaseTotal=0 and pageViewTotal=0 together => broader /stat payload/cache issue is more plausible.")
+          PY
