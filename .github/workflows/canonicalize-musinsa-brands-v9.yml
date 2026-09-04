@@ -1,0 +1,64 @@
+name: Musinsa Brand Canonical Repair v9
+
+run-name: Brand Canonical Repair v9
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  canonicalize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Canonicalize brand aliases
+        run: |
+          python musinsa_collector_v9.py canonicalize-brands
+
+      - name: Show changed files
+        run: |
+          git status --short
+          echo
+          echo "Examples expected:"
+          echo "  트릴리온(TRILLION) -> 트릴리온"
+          echo "  키뮤어(KIIMUIR) -> 키뮤어"
+
+      - name: Commit canonical brand repair
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add \
+            musinsa_catalog.csv \
+            musinsa_calendar_brand_daily.csv \
+            musinsa_calendar_latest_products.csv \
+            musinsa_daily_product_sales.csv \
+            data/calendar/history 2>/dev/null || true
+
+          if git diff --cached --quiet; then
+            echo "No brand alias changes to commit."
+            exit 0
+          fi
+
+          git commit -m "fix(data): canonicalize Musinsa brand aliases [skip ci]"
+
+          # This repair rewrites canonical/history files, so do not silently
+          # resolve a genuine concurrent data write. Abort and rerun instead.
+          if ! git pull --rebase origin main; then
+            git rebase --abort || true
+            echo "::error::Concurrent Musinsa data write detected. Wait for other Musinsa workflows to finish, then rerun this repair."
+            exit 1
+          fi
+
+          git push origin HEAD:main
