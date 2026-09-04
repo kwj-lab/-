@@ -61,6 +61,15 @@ dialog{width:min(1200px,96vw);max-height:92vh;border:0;border-radius:16px;paddin
 
 
 
+
+.productload{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.productload .status{font-size:12px;color:var(--muted)}
+.productload .status.loading{color:var(--warn);font-weight:600}
+.productload .status.ready{color:#047857;font-weight:600}
+.productpager{display:flex;justify-content:center;align-items:center;gap:10px;padding:12px;border-top:1px solid var(--line);background:#fff}
+.productpager button:disabled{opacity:.4;cursor:default}
+.deferrow td{padding:28px 12px!important;text-align:center;color:var(--muted)}
+
 @media(max-width:1050px){.kpis{grid-template-columns:repeat(3,1fr)}.grid2,.brandlayout,.detailgrid{grid-template-columns:1fr}.detailkpis{grid-template-columns:repeat(3,1fr)}}
 @media(max-width:650px){.wrap{padding:10px}header{display:block}.actions{margin-top:9px}.kpis{grid-template-columns:repeat(2,1fr)}.detailkpis{grid-template-columns:repeat(2,1fr)}dialog{width:98vw}}
 </style>
@@ -214,9 +223,24 @@ dialog{width:min(1200px,96vw);max-height:92vh;border:0;border-radius:16px;paddin
 </div>
 </section>
 
-<section class="panel">
-<div class="head"><div><div class="title">상품별 최종 확정 일매출</div><div class="small">일일 추정치는 KST 00:00~24:00 기준이며, 24h 구매증가는 같은 상품의 약 24시간 누적구매수 차이입니다.</div></div><div class="small" id="productCount"></div></div>
-<div class="tablewrap"><table><thead><tr><th>#</th><th>브랜드</th><th>상품명</th><th>상품명 변경</th><th>상품번호</th><th><button class="sortbtn" id="sortPurchase" type="button" data-sort="purchase_total">누적 구매수 <span class="arrow">↕</span></button></th><th>기준값 수집</th><th>마지막 수집시각</th><th><button class="sortbtn active" id="sortSales" type="button" data-sort="estimated_sales">일일 추정판매 <span class="arrow">▼</span></button></th><th><button class="sortbtn" id="sortRollingSales" type="button" data-sort="raw_daily_sales">24h 구매증가 <span class="arrow">↕</span></button></th><th><button class="sortbtn" id="sortGmv" type="button" data-sort="estimated_gmv">일일 추정GMV <span class="arrow">↕</span></button></th><th><button class="sortbtn" id="sortRollingGmv" type="button" data-sort="raw_daily_estimated_gmv">24h 추정GMV <span class="arrow">↕</span></button></th><th>판매가</th><th>가격변화</th><th>시간범위</th><th>신뢰도</th></tr></thead><tbody id="productBody"></tbody></table></div>
+<section class="panel" id="productTableSection">
+<div class="head">
+  <div>
+    <div class="title">상품별 최종 확정 일매출</div>
+    <div class="small">상품 데이터는 처음부터 9만+ 건을 모두 읽지 않고, 이 영역을 보거나 검색할 때 불러옵니다.</div>
+  </div>
+  <div class="productload">
+    <button id="loadProductsBtn" type="button">상품 데이터 불러오기</button>
+    <span class="status" id="productLoadStatus">빠른 화면 모드</span>
+    <span class="small" id="productCount"></span>
+  </div>
+</div>
+<div class="tablewrap"><table><thead><tr><th>#</th><th>브랜드</th><th>상품명</th><th>상품명 변경</th><th>상품번호</th><th><button class="sortbtn" id="sortPurchase" type="button" data-sort="purchase_total">누적 구매수 <span class="arrow">↕</span></button></th><th>기준값 수집</th><th>마지막 수집시각</th><th><button class="sortbtn active" id="sortSales" type="button" data-sort="estimated_sales">일일 추정판매 <span class="arrow">▼</span></button></th><th><button class="sortbtn" id="sortRollingSales" type="button" data-sort="raw_daily_sales">24h 구매증가 <span class="arrow">↕</span></button></th><th><button class="sortbtn" id="sortGmv" type="button" data-sort="estimated_gmv">일일 추정GMV <span class="arrow">↕</span></button></th><th><button class="sortbtn" id="sortRollingGmv" type="button" data-sort="raw_daily_estimated_gmv">24h 추정GMV <span class="arrow">↕</span></button></th><th>판매가</th><th>가격변화</th><th>시간범위</th><th>신뢰도</th></tr></thead><tbody id="productBody"><tr class="deferrow"><td colspan="16">상품 데이터는 필요할 때 불러옵니다.</td></tr></tbody></table></div>
+<div class="productpager" id="productPager" style="display:none">
+  <button id="productPrev" type="button">이전</button>
+  <span id="productPageInfo" class="small">-</span>
+  <button id="productNext" type="button">다음</button>
+</div>
 </section>
 
 <div class="footer">추정판매량 = 연속된 purchaseTotal 관측값의 증가량을 실제 관측시간 간격에 균등 배분한 뒤 KST 00:00~24:00와 겹치는 시간만 합산합니다. 가격은 새 가격을 처음 관측하기 전까지 이전 관측가를 유지하는 방식(LOCF)으로 추정 GMV에 적용합니다. 따라서 실제 시간대별 주문 집중도, 쿠폰, 적립금, 취소·반품, 실정산매출과는 차이가 날 수 있습니다.<br><span class="muted">데이터 소스: GitHub main 최신 파일 우선 · Pages 로컬 파일 fallback</span></div>
@@ -231,6 +255,13 @@ let registeredBrands=[],discoveredBrands=[],missingBrands=[],aliasBrandGroups=[]
 let missingCatalogProducts=[],uncollectedTodayProducts=[];
 let latestRawDate='';
 let productSort={key:'estimated_sales',dir:'desc'};
+let productsLoaded=false,productsLoading=false,productLoadPromise=null;
+let currentCatalogMap=new Map();
+let brandProductCountCache=new Map();
+let productPage=1;
+const PRODUCT_PAGE_SIZE=200;
+let productViewCacheKey='',productViewCacheRows=[];
+let searchDebounceTimer=null;
 
 function updateProductSortHeaders(){
  const buttons=document.querySelectorAll('.sortbtn[data-sort]');
@@ -244,12 +275,18 @@ function updateProductSortHeaders(){
 }
 
 function setProductSort(key){
+ if(!productsLoaded){
+   ensureProductsLoaded('sort').then(()=>setProductSort(key));
+   return;
+ }
  if(productSort.key===key){
    productSort.dir=productSort.dir==='desc'?'asc':'desc';
  }else{
    productSort.key=key;
    productSort.dir='desc';
  }
+ productPage=1;
+ invalidateProductView();
  updateProductSortHeaders();
  renderProducts();
 }
@@ -433,6 +470,40 @@ function renderBrandStatus(){
  }
 }
 
+function renderBrandStatusLight(){
+ discoveredBrands=[...new Set(brands.map(r=>String(r.brand_name||'').trim()).filter(Boolean))]
+   .sort((a,b)=>a.localeCompare(b,'ko'));
+
+ const matchedRegistered=registeredBrands.filter(r=>discoveredBrands.some(d=>brandsMatch(r,d)));
+ missingBrands=registeredBrands.filter(r=>!discoveredBrands.some(d=>brandsMatch(r,d)));
+
+ document.getElementById('registeredBrandCount').textContent=f(registeredBrands.length);
+ document.getElementById('matchedBrandCount').textContent=f(matchedRegistered.length);
+ document.getElementById('discoveredBrandCount').textContent=f(discoveredBrands.length);
+ document.getElementById('missingBrandCount').textContent=f(missingBrands.length);
+
+ document.getElementById('brandStatusNote').textContent=
+   `빠른 화면: 최신 캘린더 기준 ${matchedRegistered.length}개 매칭 · 상품 데이터 로드 후 catalog 기준으로 갱신`;
+
+ const list=document.getElementById('missingBrandList');
+ list.innerHTML=missingBrands.length
+   ? missingBrands.map(b=>`<span class="missingbrand">${esc(b)}</span>`).join('')
+   : '<span class="positive">최신 캘린더 기준 모든 등록 브랜드가 확인됩니다.</span>';
+
+ document.getElementById('aliasBrandSummary').textContent='중복/별칭 상세는 상품 데이터 로드 후 계산';
+ document.getElementById('aliasBrandList').innerHTML='<span class="muted">상품 데이터 로드 대기</span>';
+}
+
+function renderDataDiagnosticsDeferred(){
+ for(const id of ['diagSearchCount','diagCatalogCount','diagMissingCatalogCount','diagCollectedTodayCount','diagUncollectedTodayCount']){
+   document.getElementById(id).textContent='대기';
+ }
+ document.getElementById('missingCatalogSummary').textContent='catalog 진단 · 상품 데이터 로드 후 표시';
+ document.getElementById('missingCatalogList').innerHTML='<span class="muted">상품 데이터 로드 대기</span>';
+ document.getElementById('uncollectedTodaySummary').textContent='오늘 수집 진단 · 상품 데이터 로드 후 표시';
+ document.getElementById('uncollectedTodayList').innerHTML='<span class="muted">상품 데이터 로드 대기</span>';
+}
+
 function renderDataDiagnostics(catalogMap){
  const catalogSet=new Set([...catalogMap.keys()]);
  missingCatalogProducts=products.filter(r=>!catalogSet.has(String(r.goods_no||'')));
@@ -448,12 +519,12 @@ function renderDataDiagnostics(catalogMap){
 
  const mcSummary=document.getElementById('missingCatalogSummary');
  const mcList=document.getElementById('missingCatalogList');
- mcSummary.textContent=`catalog 미등록 상품 ${missingCatalogProducts.length}개 보기`;
+ mcSummary.textContent=`catalog 미등록 상품 ${missingCatalogProducts.length}개 보기${missingCatalogProducts.length>500?' · 목록은 500개까지만 표시':''}`;
 
  if(missingCatalogProducts.length){
    mcList.innerHTML=`<table class="audittable">
      <thead><tr><th>상품번호</th><th>브랜드</th><th>상품명</th><th>현재 상태</th><th>마지막 수집</th></tr></thead>
-     <tbody>${missingCatalogProducts.map(r=>`<tr>
+     <tbody>${missingCatalogProducts.slice(0,500).map(r=>`<tr>
        <td>${esc(r.goods_no||'-')}</td>
        <td>${esc(r.brand_name||'-')}</td>
        <td>${esc(r.product_name||'-')}</td>
@@ -468,13 +539,13 @@ function renderDataDiagnostics(catalogMap){
 
  const ucSummary=document.getElementById('uncollectedTodaySummary');
  const ucList=document.getElementById('uncollectedTodayList');
- ucSummary.textContent=`오늘 미수집 상품 ${uncollectedTodayProducts.length}개 보기`;
+ ucSummary.textContent=`오늘 미수집 상품 ${uncollectedTodayProducts.length}개 보기${uncollectedTodayProducts.length>500?' · 목록은 500개까지만 표시':''}`;
 
  if(uncollectedTodayProducts.length){
    ucList.innerHTML=`<div class="small" style="margin:0 0 8px">오늘(${esc(latestRawDate||'-')}) purchaseTotal 정상 관측이 아직 없는 상품입니다. 신규 편입·timeout·실패·recovery 대기 등이 포함될 수 있습니다.</div>
    <table class="audittable">
      <thead><tr><th>상품번호</th><th>브랜드</th><th>상품명</th><th>상태</th><th>마지막 수집</th></tr></thead>
-     <tbody>${uncollectedTodayProducts.map(r=>`<tr>
+     <tbody>${uncollectedTodayProducts.slice(0,500).map(r=>`<tr>
        <td>${esc(r.goods_no||'-')}</td>
        <td>${esc(r.brand_name||'-')}</td>
        <td>${esc(r.product_name||'-')}</td>
@@ -565,11 +636,73 @@ function chart(el,rows,key){
 }
 function priceChart(el,rows){const v=rows.map(r=>n(r.display_price)).filter(x=>x!=null);if(!v.length){el.innerHTML='<div class="empty">가격 데이터 없음</div>';return}const W=900,H=210,L=65,R=18,T=15,B=32,mn=Math.min(...v),mx=Math.max(...v),span=Math.max(mx-mn,1),x=i=>L+(W-L-R)*(rows.length===1?.5:i/(rows.length-1)),y=z=>T+(H-T-B)*(1-(z-mn)/span);let pts=rows.map((r,i)=>n(r.display_price)!=null?`${x(i)},${y(n(r.display_price))}`:'').filter(Boolean).join(' ');el.innerHTML=`<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"><polyline fill="none" stroke="#111827" stroke-width="2.4" points="${pts}"/><text x="${L-7}" y="${T+4}" text-anchor="end" font-size="9" fill="#6b7280">${priceWon(mx)}</text><text x="${L-7}" y="${H-B+4}" text-anchor="end" font-size="9" fill="#6b7280">${priceWon(mn)}</text></svg>`}
 
-function populate(){const bs=[...new Set(products.map(r=>r.brand_name).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ko'));for(const id of ['brandFilter','brandDaily']){const el=document.getElementById(id),old=el.value;el.innerHTML=`<option value="">${id==='brandFilter'?'전체 브랜드':'브랜드 선택'}</option>`+bs.map(b=>`<option value="${esc(b)}">${esc(b)}</option>`).join('');if(bs.includes(old))el.value=old}}
-function renderK(){const rows=filtered(),d=latestDate(products);document.getElementById('kDate').textContent=d||'-';document.getElementById('kSales').textContent=f(rows.reduce((a,r)=>a+Math.max(0,n(r.estimated_sales)||0),0),1);document.getElementById('kGmv').textContent=wonExact(rows.reduce((a,r)=>a+Math.max(0,n(r.estimated_gmv)||0),0));const c=rows.filter(r=>n(r.calendar_complete)===1).length;document.getElementById('kCoverage').textContent=rows.length?f(c/rows.length*100,1)+'%':'-';document.getElementById('kPriceChanges').textContent=f(rows.filter(r=>n(r.price_change_detected)===1).length);document.getElementById('kProducts').textContent=f(rows.length);document.getElementById('kBrands').textContent=
-  document.getElementById('brandFilter').value
-    ? f(new Set(rows.map(r=>r.brand_name).filter(Boolean)).size)+'개 브랜드'
-    : `catalog 고유 ${f(discoveredBrands.length||new Set(rows.map(r=>r.brand_name).filter(Boolean)).size)} / 등록 ${registeredBrands.length?f(registeredBrands.length):'-'}`}
+function availableBrandNames(){
+ const fromProducts=productsLoaded?products.map(r=>r.brand_name):[];
+ const fromCalendar=brands.map(r=>r.brand_name);
+ return [...new Set([...fromProducts,...fromCalendar,...registeredBrands].map(x=>String(x||'').trim()).filter(Boolean))]
+   .sort((a,b)=>a.localeCompare(b,'ko'));
+}
+
+function populate(){
+ const bs=availableBrandNames();
+ for(const id of ['brandFilter','brandDaily']){
+   const el=document.getElementById(id),old=el.value;
+   el.innerHTML=`<option value="">${id==='brandFilter'?'전체 브랜드':'브랜드 선택'}</option>`+
+     bs.map(b=>`<option value="${esc(b)}">${esc(b)}</option>`).join('');
+   if(bs.includes(old))el.value=old;
+ }
+}
+
+function renderK(){
+ const b=document.getElementById('brandFilter').value;
+
+ if(productsLoaded){
+   const rows=filtered(),d=latestDate(products);
+   document.getElementById('kDate').textContent=d||manifest.latest_finalized_date||'-';
+   document.getElementById('kSales').textContent=f(rows.reduce((a,r)=>a+Math.max(0,n(r.estimated_sales)||0),0),1);
+   document.getElementById('kGmv').textContent=wonExact(rows.reduce((a,r)=>a+Math.max(0,n(r.estimated_gmv)||0),0));
+   const c=rows.filter(r=>n(r.calendar_complete)===1).length;
+   document.getElementById('kCoverage').textContent=rows.length?f(c/rows.length*100,1)+'%':'-';
+   document.getElementById('kPriceChanges').textContent=f(rows.filter(r=>n(r.price_change_detected)===1).length);
+   document.getElementById('kProducts').textContent=f(rows.length);
+   document.getElementById('kBrands').textContent=b
+     ? f(new Set(rows.map(r=>r.brand_name).filter(Boolean)).size)+'개 브랜드'
+     : `catalog 고유 ${f(discoveredBrands.length||new Set(rows.map(r=>r.brand_name).filter(Boolean)).size)} / 등록 ${registeredBrands.length?f(registeredBrands.length):'-'}`;
+   return;
+ }
+
+ // 빠른 초기 화면: 상품 9만+ 건을 읽기 전 summary/brand daily만으로 표시.
+ const sd=latestDate(summary);
+ const bd=latestDate(brands);
+ const latestBrands=brands.filter(r=>r.date===bd);
+ const row=b
+   ? latestBrands.find(r=>r.brand_name===b)
+   : summary.find(r=>r.date===sd);
+
+ document.getElementById('kDate').textContent=(b?bd:sd)||manifest.latest_finalized_date||'-';
+ document.getElementById('kSales').textContent=row?f(Math.max(0,n(row.estimated_sales)||0),1):'-';
+ document.getElementById('kGmv').textContent=row?wonExact(Math.max(0,n(row.estimated_gmv)||0)):'-';
+
+ let coverage=null,priceChanges=null,productCount=null;
+ if(b && row){
+   coverage=n(row.product_coverage_pct);
+   priceChanges=n(row.price_change_products);
+   productCount=n(row.product_count);
+ }else if(!b){
+   const totalProducts=latestBrands.reduce((a,r)=>a+Math.max(0,n(r.product_count)||0),0);
+   const weighted=latestBrands.reduce((a,r)=>a+(Math.max(0,n(r.product_count)||0)*(n(r.product_coverage_pct)||0)),0);
+   coverage=totalProducts?weighted/totalProducts:null;
+   priceChanges=latestBrands.reduce((a,r)=>a+Math.max(0,n(r.price_change_products)||0),0);
+   productCount=totalProducts||n(row?.product_count);
+ }
+
+ document.getElementById('kCoverage').textContent=coverage==null?'-':f(coverage,1)+'%';
+ document.getElementById('kPriceChanges').textContent=priceChanges==null?'-':f(priceChanges);
+ document.getElementById('kProducts').textContent=productCount==null?'-':f(productCount);
+ document.getElementById('kBrands').textContent=b
+   ? '브랜드 요약 · 상품 데이터 미로드'
+   : `캘린더 ${f(new Set(latestBrands.map(r=>r.brand_name).filter(Boolean)).size)} / 등록 ${registeredBrands.length?f(registeredBrands.length):'-'} · 빠른 모드`;
+}
 function renderOverall(){
   const rows=[...summary].sort((a,b)=>a.date.localeCompare(b.date)).slice(-45);
   chart(document.getElementById('overallChart'),rows,'estimated_gmv');
@@ -745,8 +878,29 @@ function uiBrandMatches(a,b){
   return false;
 }
 
-function currentBrandProductCount(brandName){
-  return products.filter(r=>uiBrandMatches(brandName,r.brand_name)).length;
+function rebuildBrandProductCountCache(){
+  const rawCounts=new Map();
+  for(const r of products){
+    const b=String(r.brand_name||'').trim();
+    if(!b)continue;
+    rawCounts.set(b,(rawCounts.get(b)||0)+1);
+  }
+
+  brandProductCountCache=new Map();
+  const targets=[...new Set([...brands.map(r=>r.brand_name),...registeredBrands].filter(Boolean))];
+  for(const target of targets){
+    let count=0;
+    for(const [raw,c] of rawCounts){
+      if(uiBrandMatches(target,raw))count+=c;
+    }
+    brandProductCountCache.set(target,count);
+  }
+}
+
+function currentBrandProductCount(brandName,fallback=null){
+  if(!productsLoaded)return fallback;
+  if(brandProductCountCache.has(brandName))return brandProductCountCache.get(brandName);
+  return fallback;
 }
 
 function renderBrandRank(){
@@ -762,7 +916,7 @@ function renderBrandRank(){
     return `<tr>
       <td>${i+1}</td>
       <td><button class="link" data-brand="${esc(r.brand_name)}">${esc(r.brand_name)}</button></td>
-      <td title="최신 캘린더 계산 상품수 ${f(n(r.product_count))}개">${f(currentBrandProductCount(r.brand_name))}</td>
+      <td title="${productsLoaded?'현재 catalog/추적 기준':'빠른 화면에서는 최신 캘린더 계산 상품수 · 상품 데이터 로드 후 현재 catalog 기준으로 갱신'}">${f(currentBrandProductCount(r.brand_name,n(r.product_count)))}</td>
       <td>${slot==null?'-':`slot${slot}`}</td>
       <td>${slot==null?'-':slotTimeLabel(slot)}</td>
       <td>${slot==null?'-':nextSlotLabel(slot)}</td>
@@ -775,7 +929,17 @@ function renderBrandRank(){
   document.querySelectorAll('[data-brand]').forEach(b=>b.addEventListener('click',()=>showBrand(b.dataset.brand)));
   updateBrandSortIcons();
 }
-function renderProducts(){
+function invalidateProductView(){
+ productViewCacheKey='';
+ productViewCacheRows=[];
+}
+
+function productViewRows(){
+ const b=document.getElementById('brandFilter').value;
+ const q=document.getElementById('search').value.trim().toLowerCase();
+ const key=[b,q,productSort.key,productSort.dir,products.length].join('|');
+ if(key===productViewCacheKey)return productViewCacheRows;
+
  const rows=filtered().sort((a,b)=>{
    const av=sortValue(a,productSort.key);
    const bv=sortValue(b,productSort.key);
@@ -786,13 +950,36 @@ function renderProducts(){
    }
    return productSort.dir==='asc'?aa-bb:bb-aa;
  });
+
+ productViewCacheKey=key;
+ productViewCacheRows=rows;
+ return rows;
+}
+
+function renderProducts(){
+ const body=document.getElementById('productBody');
+ const pager=document.getElementById('productPager');
+
+ if(!productsLoaded){
+   body.innerHTML=`<tr class="deferrow"><td colspan="16">${productsLoading?'상품 데이터를 불러오는 중입니다…':'상품 데이터는 필요할 때 불러옵니다. 검색하거나 아래 버튼을 눌러주세요.'}</td></tr>`;
+   document.getElementById('productCount').textContent='';
+   if(pager)pager.style.display='none';
+   return;
+ }
+
+ const rows=productViewRows();
  updateProductSortHeaders();
+
+ const totalPages=Math.max(1,Math.ceil(rows.length/PRODUCT_PAGE_SIZE));
+ productPage=Math.min(Math.max(1,productPage),totalPages);
+ const start=(productPage-1)*PRODUCT_PAGE_SIZE;
+ const pageRows=rows.slice(start,start+PRODUCT_PAGE_SIZE);
 
  const todayCollected=rows.filter(r=>r.raw_collected_today==='1').length;
  document.getElementById('productCount').textContent=
-   `${f(rows.length)}개 상품 · ${latestRawDate||'-'} 기준값 수집 ${f(todayCollected)}개`;
+   `${f(rows.length)}개 · ${latestRawDate||'-'} 수집 ${f(todayCollected)}개`;
 
- document.getElementById('productBody').innerHTML=rows.slice(0,4000).map((r,i)=>{
+ body.innerHTML=pageRows.map((r,i)=>{
    const ch=n(r.price_change_detected)===1
      ? `${n(r.price_change_amount)>0?'+':''}${priceWon(n(r.price_change_amount))}`
      : '-';
@@ -817,7 +1004,7 @@ function renderProducts(){
        : `<span class="badge low">미수집</span>`;
 
    return `<tr>
-     <td>${i+1}</td>
+     <td>${start+i+1}</td>
      <td><button class="link" data-b2="${esc(r.brand_name)}">${esc(r.brand_name||'-')}</button></td>
      <td><button class="link" data-g="${esc(r.goods_no)}">${esc(r.product_name||'-')}</button></td>
      <td>${(n(r.product_name_change_count)||0)>0
@@ -836,27 +1023,38 @@ function renderProducts(){
      <td>${f(n(r.coverage_pct),1)}%</td>
      <td><span class="badge ${esc(r.confidence)}">${esc(r.confidence||'-')}</span></td>
    </tr>`;
- }).join('');
+ }).join('') || '<tr class="deferrow"><td colspan="16">조건에 맞는 상품이 없습니다.</td></tr>';
+
+ if(pager){
+   pager.style.display='flex';
+   document.getElementById('productPageInfo').textContent=
+     `${f(productPage)} / ${f(totalPages)} 페이지 · 페이지당 ${f(PRODUCT_PAGE_SIZE)}개`;
+   document.getElementById('productPrev').disabled=productPage<=1;
+   document.getElementById('productNext').disabled=productPage>=totalPages;
+ }
 
  document.querySelectorAll('[data-g]').forEach(b=>b.addEventListener('click',()=>openProduct(b.dataset.g)));
  document.querySelectorAll('[data-b2]').forEach(b=>b.addEventListener('click',()=>showBrand(b.dataset.b2)));
 }
 
 function showBrand(b){
-  // 브랜드 순위에서 클릭하면 상단 브랜드 필터에서 직접 선택한 것과 동일하게 동작
   const topFilter=document.getElementById('brandFilter');
   const dailyFilter=document.getElementById('brandDaily');
 
   if(topFilter)topFilter.value=b;
   if(dailyFilter)dailyFilter.value=b;
 
+  productPage=1;
+  invalidateProductView();
   renderK();
-  renderProducts();
+  if(productsLoaded)renderProducts();
   renderBrandDaily();
 
-  // 선택 결과를 바로 확인할 수 있도록 상단 필터 위치로 이동
   const filters=document.querySelector('.filters');
   if(filters)filters.scrollIntoView({behavior:'smooth',block:'start'});
+
+  // 브랜드를 직접 선택한 것은 상품 조회 의도가 강하므로 뒤에서 상품 데이터를 준비한다.
+  if(!productsLoaded)ensureProductsLoaded('brand');
 }
 function renderBrandDaily(){const b=document.getElementById('brandDaily').value;if(!b){document.getElementById('brandChart').innerHTML='<div class="empty">브랜드를 선택하세요.</div>';document.getElementById('brandDailyBody').innerHTML='';return}const rows=brands.filter(r=>r.brand_name===b).sort((a,c)=>a.date.localeCompare(c.date));chart(document.getElementById('brandChart'),rows.slice(-90),'estimated_sales');document.getElementById('brandDailyBody').innerHTML=[...rows].reverse().slice(0,180).map(r=>`<tr><td>${r.date}</td><td>${f(Math.max(0,n(r.estimated_sales)||0),1)}</td><td>${wonExact(Math.max(0,n(r.estimated_gmv)||0))}</td><td>${f(n(r.product_coverage_pct),1)}%</td><td>${f(n(r.price_change_products))}</td></tr>`).join('')}
 
@@ -930,29 +1128,104 @@ async function openProduct(g){
 }
 
 
-function renderAll(){renderK();renderOverall();renderBrandRank();renderProducts();renderBrandDaily()}
-async function loadAll(){
- const er=document.getElementById('err');er.style.display='none';
+function setProductLoadState(state,msg){
+ const el=document.getElementById('productLoadStatus');
+ const btn=document.getElementById('loadProductsBtn');
+ if(el){
+   el.className='status'+(state==='loading'?' loading':state==='ready'?' ready':'');
+   el.textContent=msg;
+ }
+ if(btn){
+   btn.disabled=state==='loading';
+   btn.textContent=state==='ready'?'상품 데이터 새로고침':state==='loading'?'불러오는 중…':'상품 데이터 불러오기';
+ }
+}
+
+function renderShell(){
+ populate();
+ renderK();
+ renderOverall();
+ renderBrandRank();
+ renderBrandDaily();
+ renderBrandStatusLight();
+ renderDataDiagnosticsDeferred();
+ renderProducts();
+}
+
+function renderFull(){
+ populate();
+ rebuildBrandProductCountCache();
+ renderK();
+ renderOverall();
+ renderBrandRank();
+ renderProducts();
+ renderBrandDaily();
+ renderBrandStatus();
+ renderDataDiagnostics(currentCatalogMap);
+}
+
+async function loadShell(){
+ const er=document.getElementById('err');
+ er.style.display='none';
+
  try{
-  const [p,b,s,m,c,rw,wl,rb]=await Promise.all([
-    txt(F.latest,true),
+  setProductLoadState('idle','빠른 화면 불러오는 중…');
+
+  const [b,s,m,rb]=await Promise.all([
     txt(F.brands,true),
     txt(F.summary,true),
     jsn(F.manifest,true),
-    txt(F.catalog,true),
-    txt(F.raw,true),
-    txt(F.watchlist,true),
     txt(F.registeredBrands,true)
   ]);
 
-  const cal=p?csvParse(p):[];
   brands=b?csvParse(b):[];
   summary=s?csvParse(s):[];
   manifest=m||{};
+  registeredBrands=(rb||'').split(/\r?\n/).map(x=>x.trim()).filter(x=>x && !x.startsWith('#'));
+
+  products=[];
+  productsLoaded=false;
+  productsLoading=false;
+  productLoadPromise=null;
+  currentCatalogMap=new Map();
+  brandProductCountCache=new Map();
+  latestRawDate='';
+  productPage=1;
+  invalidateProductView();
+
+  renderShell();
+
+  const finalized=manifest.latest_finalized_date||latestDate(summary)||latestDate(brands)||'-';
+  document.getElementById('updated').textContent=
+    `최종 캘린더 날짜 ${finalized} · 빠른 화면 로드 완료 · 상품 상세 데이터는 검색/스크롤 시 로드 · UI v9.28`;
+  setProductLoadState('idle','빠른 화면 완료 · 상품 데이터는 필요 시 로드');
+ }catch(e){
+  er.textContent='초기 데이터 로드 실패: '+e.message;
+  er.style.display='block';
+  setProductLoadState('idle','초기 로드 실패');
+ }
+}
+
+async function loadProductsHeavy(reason='manual',force=false){
+ if(productsLoading)return productLoadPromise;
+ if(productsLoaded && !force)return true;
+
+ productsLoading=true;
+ setProductLoadState('loading',`상품 데이터 불러오는 중${reason==='search'?' · 검색 준비':''}…`);
+ renderProducts();
+
+ productLoadPromise=(async()=>{
+  const [p,c,rw,wl]=await Promise.all([
+    txt(F.latest,true),
+    txt(F.catalog,true),
+    txt(F.raw,true),
+    txt(F.watchlist,true)
+  ]);
+
+  const cal=p?csvParse(p):[];
   const catalog=c?csvParse(c):[];
   const raw=rw?csvParse(rw):[];
   const watch=(wl||'').split(/\r?\n/).map(x=>x.trim()).filter(x=>x && !x.startsWith('#'));
-  registeredBrands=(rb||'').split(/\r?\n/).map(x=>x.trim()).filter(x=>x && !x.startsWith('#'));
 
   latestRawDate=latestDate(raw);
 
@@ -963,13 +1236,13 @@ async function loadAll(){
   // 1) 캘린더 확정 데이터
   for(const x of cal){
     const g=String(x.goods_no||'').trim();
-    if(g) merged.set(g,{...x});
+    if(g)merged.set(g,{...x});
   }
 
-  // 2) 오늘/최근 slot에서 실제로 수집된 raw 데이터
+  // 2) 오늘/최근 slot raw
   for(const rr of raw){
     const g=String(rr.goods_no||'').trim();
-    if(!g) continue;
+    if(!g)continue;
     const cc=catMap.get(g)||{};
     const old=merged.get(g)||{};
     merged.set(g,{
@@ -1003,10 +1276,10 @@ async function loadAll(){
     });
   }
 
-  // 3) catalog에 발견된 전체 상품
+  // 3) catalog 전체
   for(const cc of catalog){
     const g=String(cc.goods_no||'').trim();
-    if(!g) continue;
+    if(!g)continue;
     const rr=rawMap.get(g)||{};
     const old=merged.get(g)||{};
     merged.set(g,{
@@ -1040,76 +1313,97 @@ async function loadAll(){
     });
   }
 
-  // 4) catalog/raw에도 아직 없는 기존 watchlist 상품번호까지 검색 가능하게 함
+  // 4) watchlist-only
   for(const g0 of watch){
     const g=String(g0).trim();
-    if(!g || merged.has(g)) continue;
+    if(!g||merged.has(g))continue;
     merged.set(g,{
-      date:'',
-      brand_name:'',
-      goods_no:g,
-      product_name:'(상품정보 수집 대기)',
-      estimated_sales:'',
-      estimated_gmv:'',
-      display_price:'',
-      previous_display_price:'',
-      price_change_detected:'0',
-      price_change_amount:'',
-      price_change_pct:'',
-      coverage_pct:'0',
-      calendar_complete:'0',
-      confidence:'queued',
-      history_bucket:'',
-      previous_product_name:'',
-      product_name_changed_at:'',
-      product_name_change_count:'0',
-      product_name_history:'',
-      purchase_total:'',
-      raw_date:'',
-      last_checked_at:'',
-      raw_collected:'0',
-      raw_collected_today:'0',
-      raw_daily_sales:'',
-      raw_daily_estimated_gmv:''
+      date:'',brand_name:'',goods_no:g,product_name:'(상품정보 수집 대기)',
+      estimated_sales:'',estimated_gmv:'',display_price:'',previous_display_price:'',
+      price_change_detected:'0',price_change_amount:'',price_change_pct:'',
+      coverage_pct:'0',calendar_complete:'0',confidence:'queued',history_bucket:'',
+      previous_product_name:'',product_name_changed_at:'',product_name_change_count:'0',
+      product_name_history:'',purchase_total:'',raw_date:'',last_checked_at:'',
+      raw_collected:'0',raw_collected_today:'0',raw_daily_sales:'',raw_daily_estimated_gmv:''
     });
   }
 
   products=[...merged.values()];
-  populate();
-  renderAll();
-  renderBrandStatus();
-  renderDataDiagnostics(catMap);
+  currentCatalogMap=catMap;
+  productsLoaded=true;
+  productsLoading=false;
+  productPage=1;
+  invalidateProductView();
+  renderFull();
 
   const finalized=manifest.latest_finalized_date||latestDate(cal)||'-';
-  const calCount=cal.length;
-  const catalogCount=catalog.length;
-  const latestRawCount=raw.filter(r=>r.date===latestRawDate && r.purchase_total!=='' && r.purchase_total!=null).length;
+  const latestRawCount=raw.filter(r=>r.date===latestRawDate&&r.purchase_total!==''&&r.purchase_total!=null).length;
 
   document.getElementById('updated').textContent=
     `최종 캘린더 날짜 ${finalized} · 검색 가능 ${f(products.length)}개 상품`+
     ` · 판매통계 수집완료(${latestRawDate||'-'}) ${f(latestRawCount)} / ${f(products.length)}`+
-    ` · catalog ${f(catalogCount)}개`+
-    (calCount?` · 캘린더 확정 ${f(calCount)}개`:' · 캘린더 계산 대기')+
-    ` · 최근 3일 자동 재계산(backfill) · UI v9.27`;
- }catch(e){
-  er.textContent='데이터 로드 실패: '+e.message;
-  er.style.display='block';
- }
+    ` · catalog ${f(catalog.length)}개 · 페이지당 ${f(PRODUCT_PAGE_SIZE)}개 렌더링 · UI v9.28`;
+
+  setProductLoadState('ready',`상품 데이터 준비 완료 · ${f(products.length)}개`);
+  return true;
+ })().catch(e=>{
+   productsLoading=false;
+   productLoadPromise=null;
+   setProductLoadState('idle','상품 데이터 로드 실패 · 다시 시도 가능');
+   document.getElementById('err').textContent='상품 데이터 로드 실패: '+e.message;
+   document.getElementById('err').style.display='block';
+   renderProducts();
+   throw e;
+ });
+
+ return productLoadPromise;
 }
 
-document.getElementById('reload').addEventListener('click',loadAll);
+function ensureProductsLoaded(reason='manual'){
+ return loadProductsHeavy(reason,false);
+}
+
+async function reloadDashboard(){
+ const wasLoaded=productsLoaded;
+ await loadShell();
+ if(wasLoaded)await loadProductsHeavy('reload',true);
+}
+
+document.getElementById('reload').addEventListener('click',reloadDashboard);
 document.getElementById('catalogCsv').addEventListener('click',()=>window.open('./'+F.catalog,'_blank'));
 document.getElementById('dailyCsv').addEventListener('click',()=>window.open('./'+F.latest,'_blank'));
 document.getElementById('brandCsv').addEventListener('click',()=>window.open('./'+F.brands,'_blank'));
+
+document.getElementById('loadProductsBtn').addEventListener('click',()=>{
+ if(productsLoaded)loadProductsHeavy('manual',true);
+ else ensureProductsLoaded('manual');
+});
+
 document.getElementById('brandFilter').addEventListener('change',()=>{
   const b=document.getElementById('brandFilter').value;
   const daily=document.getElementById('brandDaily');
   if(daily)daily.value=b;
+  productPage=1;
+  invalidateProductView();
   renderK();
-  renderProducts();
+  if(productsLoaded)renderProducts();
   renderBrandDaily();
 });
-document.getElementById('search').addEventListener('input',renderProducts);
+
+document.getElementById('search').addEventListener('input',()=>{
+  const q=document.getElementById('search').value.trim();
+  productPage=1;
+  invalidateProductView();
+
+  if(!productsLoaded){
+    if(q)ensureProductsLoaded('search');
+    return;
+  }
+
+  clearTimeout(searchDebounceTimer);
+  searchDebounceTimer=setTimeout(renderProducts,180);
+});
+
 document.getElementById('brandDaily').addEventListener('change',renderBrandDaily);
 document.getElementById('productDailyPeriod').addEventListener('change',renderSelectedProductDaily);
 document.getElementById('sortSales').addEventListener('click',()=>setProductSort('estimated_sales'));
@@ -1119,7 +1413,25 @@ document.getElementById('sortRollingGmv')?.addEventListener('click',()=>setProdu
 document.getElementById('brandSortSales')?.addEventListener('click',()=>setBrandRankSort('estimated_sales'));
 document.getElementById('brandSortGmv')?.addEventListener('click',()=>setBrandRankSort('estimated_gmv'));
 document.getElementById('sortPurchase').addEventListener('click',()=>setProductSort('purchase_total'));
-loadAll();
+
+document.getElementById('productPrev').addEventListener('click',()=>{
+ if(productPage>1){productPage--;renderProducts();document.getElementById('productTableSection').scrollIntoView({behavior:'smooth',block:'start'});}
+});
+document.getElementById('productNext').addEventListener('click',()=>{
+ const total=Math.max(1,Math.ceil(productViewRows().length/PRODUCT_PAGE_SIZE));
+ if(productPage<total){productPage++;renderProducts();document.getElementById('productTableSection').scrollIntoView({behavior:'smooth',block:'start'});}
+});
+
+// 상품 영역에 가까이 스크롤하면 그때 대용량 CSV를 로드한다.
+const productObserver=new IntersectionObserver(entries=>{
+ if(entries.some(e=>e.isIntersecting)&&!productsLoaded&&!productsLoading){
+   ensureProductsLoaded('scroll');
+ }
+},{rootMargin:'300px 0px'});
+productObserver.observe(document.getElementById('productTableSection'));
+
+loadShell();
+
 </script>
 </body>
 </html>
