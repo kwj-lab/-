@@ -1,0 +1,3822 @@
+# -*- coding: utf-8 -*-
+"""
+Musinsa Distributed Collector v9
+================================
+등록 브랜드 수백 개 / 상품코드 수만~10만+ 규모를 위한 분산 수집기.
+
+핵심 구조
+---------
+- 전체 goodsNo를 8개 고정 시간대(slot 0~7)에 균등 배정
+- 같은 goodsNo는 매일 같은 slot에서 조회 -> 거의 24시간 간격 비교
+- GitHub Actions가 하루 8회(3시간 간격) 실행
+- 각 실행은 해당 slot의 상품만 조회
+- slot 안에서도 4~12개 shard로 자동 분산
+- GitHub collect job 동시 실행은 최대 4개, shard당 worker 2개
+  -> 평상시 최대 약 8개 stat 요청 병렬
+- 429/403/5xx는 우회하지 않고 감속(backoff) 후 재시도
+- 브랜드 신규상품 탐색도 브랜드를 8 slot으로 고정 분산
+- 매일 해당 slot의 브랜드만 quick discovery
+- 일요일에는 해당 slot 브랜드 full discovery
+- 새 브랜드는 첫 담당 slot 실행 때 full discovery
+
+데이터
+------
+data/slots/slot-N/YYYY-MM-DD.csv.gz
+    해당 slot 상품의 일별 핵심 스냅샷
+
+data/latest_slots/slot-N.csv.gz
+    각 slot의 최신 계산 결과
+
+data/daily/YYYY-MM-DD.csv.gz
+    8개 slot이 모두 끝난 날 생성되는 전체 일별 compact snapshot
+
+musinsa_daily_product_sales.csv
+    모든 slot의 최신 상품 계산 결과를 합친 대시보드용 파일
+
+musinsa_daily_brand_sales.csv
+    날짜별 브랜드 합계. 하루 중에는 진행 중(partial), 마지막 slot 후 완성.
+
+주의
+----
+purchaseTotal은 공개 PDP 통계 API의 누적 구매수입니다.
+v8 호환 24시간 구간 수치는 내부 원본/복구용으로 유지합니다.
+v9 대시보드의 핵심 지표는 KST 00:00~24:00 캘린더 날짜 기준 추정치입니다.
+관측 시점 사이의 누적 증가량을 시간 비율로 날짜에 배분하므로 실제 주문수/결제매출과 다를 수 있습니다.
+"""
+
+import argparse
+import csv
+import gzip
+import hashlib
+import html as html_lib
+import json
+import os
+import random
+import re
+import sys
+import threading
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+import unicodedata
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timedelta
+from pathlib import Path
+from queue import Empty, Queue
+from zoneinfo import ZoneInfo
+
+KST = ZoneInfo("Asia/Seoul")
+BASE_DIR = Path(__file__).resolve().parent
+
+BRANDS_FILE = BASE_DIR / "musinsa_brands.txt"
+WATCHLIST_FILE = BASE_DIR / "musinsa_watchlist.txt"
+CATALOG_FILE = BASE_DIR / "musinsa_catalog.csv"
+NEW_PRODUCTS_FILE = BASE_DIR / "musinsa_new_products.csv"
+
+LATEST_PRODUCT_FILE = BASE_DIR / "musinsa_daily_product_sales.csv"
+BRAND_HISTORY_FILE = BASE_DIR / "musinsa_daily_brand_sales.csv"
+SUMMARY_FILE = BASE_DIR / "musinsa_daily_summary.csv"
+
+SLOT_DIR = BASE_DIR / "data" / "slots"
+LATEST_SLOT_DIR = BASE_DIR / "data" / "latest_slots"
+DAILY_DIR = BASE_DIR / "data" / "daily"
+HISTORY_MANIFEST_FILE = BASE_DIR / "data" / "history_manifest.json"
+RECOVERY_DIR = BASE_DIR / "data" / "recovery"
+COVERAGE_DIR = BASE_DIR / "data" / "coverage"
+COVERAGE_LATEST_FILE = COVERAGE_DIR / "latest.json"
+
+# v9 calendar-day analytics
+CALENDAR_DIR = BASE_DIR / "data" / "calendar"
+CALENDAR_HISTORY_DIR = CALENDAR_DIR / "history"
+CALENDAR_MANIFEST_FILE = CALENDAR_DIR / "calendar_manifest.json"
+CALENDAR_LATEST_PRODUCT_FILE = BASE_DIR / "musinsa_calendar_latest_products.csv"
+CALENDAR_BRAND_FILE = BASE_DIR / "musinsa_calendar_brand_daily.csv"
+CALENDAR_SUMMARY_FILE = BASE_DIR / "musinsa_calendar_summary.csv"
+CALENDAR_HISTORY_BUCKETS = 64
+
+# Adaptive high-frequency observations used only for calendar-day estimation.
+# Baseline daily snapshots remain unchanged; extra observations are archived here.
+OBSERVATION_DIR = BASE_DIR / "data" / "observations"
+ADAPTIVE_REPORT_DIR = BASE_DIR / "data" / "adaptive"
+
+SLOT_COUNT = 8
+DISCOVERY_WORKERS = int(os.environ.get("MUSINSA_DISCOVERY_WORKERS", "2"))
+SHARD_WORKERS = int(os.environ.get("MUSINSA_SHARD_WORKERS", "2"))
+RECOVERY_WORKERS = int(os.environ.get("MUSINSA_RECOVERY_WORKERS", "2"))
+INLINE_RETRY_MAX = int(os.environ.get("MUSINSA_INLINE_RETRY_MAX", "300"))
+COLLECT_BUDGET_SECONDS = int(os.environ.get("MUSINSA_COLLECT_BUDGET_SECONDS", "4800"))
+REQUEST_MIN_INTERVAL = float(os.environ.get("MUSINSA_REQUEST_MIN_INTERVAL", "0.10"))
+REQUEST_MAX_INTERVAL = float(os.environ.get("MUSINSA_REQUEST_MAX_INTERVAL", "3.0"))
+MAX_SEARCH_PAGES = int(os.environ.get("MUSINSA_MAX_SEARCH_PAGES", "300"))
+QUICK_SEARCH_MAX_PAGES = int(os.environ.get("MUSINSA_QUICK_SEARCH_MAX_PAGES", "40"))
+
+# Search-keyword overrides for brands whose registered Korean name is too short or
+# too generic for Musinsa keyword search.  The catalog still stores the original
+# registered name as the canonical brand_name; this only changes the discovery query.
+#
+# Examples: registered brand "음" / "리" collide with extremely broad Korean searches,
+# while their Latin identifiers "UMM" / "LEE" return the intended brands near
+# the top of results.
+BRAND_SEARCH_KEYWORDS = {
+    "음": "UMM",
+    "리": "LEE",
+}
+
+# A brand with only a handful of catalog goods is treated as an incomplete seed.
+# This prevents a partial first discovery (e.g. 1 product) from permanently switching
+# the brand into quick daily scans before the full catalog has ever been discovered.
+MIN_BRAND_SEED_GOODS = int(os.environ.get("MUSINSA_MIN_BRAND_SEED_GOODS", "5"))
+QUICK_KNOWN_STOP_PAGES = int(os.environ.get("MUSINSA_QUICK_KNOWN_STOP_PAGES", "3"))
+
+# Adaptive sampling thresholds (rolling 24h / 7d average sales).
+# 0~2/day: baseline only (~24h)
+# 3~20/day: baseline + two extra observations (~9h / ~18h offsets)
+# 21+/day: observation in every 3h clock block
+#
+# Midnight anchor:
+# products scoring >= 3/day get one additional observation around 00:40 KST
+# (except base slot 0, which already has a ~00:15 primary observation).
+ADAPTIVE_MEDIUM_MIN = float(os.environ.get("MUSINSA_ADAPTIVE_MEDIUM_MIN", "3"))
+ADAPTIVE_HIGH_MIN = float(os.environ.get("MUSINSA_ADAPTIVE_HIGH_MIN", "21"))
+ADAPTIVE_MAX_PER_RUN = int(os.environ.get("MUSINSA_ADAPTIVE_MAX_PER_RUN", "15000"))
+
+# Bulk-safe new-product sampling:
+# - first observation is only a baseline
+# - a newly discovered product gets ONE lightweight probe about 6h after its base slot
+# - only products that actually move after the baseline are promoted to 9h/3h sampling
+# - probe traffic is separately capped so hundreds of newly added brands cannot flood Actions/API
+NEW_PRODUCT_PROBATION_HOURS = int(os.environ.get("MUSINSA_NEW_PRODUCT_PROBATION_HOURS", "48"))
+NEW_PRODUCT_PROBE_OFFSET = int(os.environ.get("MUSINSA_NEW_PRODUCT_PROBE_OFFSET", "2")) % SLOT_COUNT
+NEW_PRODUCT_PROBE_MAX_PER_RUN = int(
+    os.environ.get("MUSINSA_NEW_PRODUCT_PROBE_MAX_PER_RUN", "3000")
+)
+NEW_PRODUCT_PROBE_LOOKBACK_DAYS = int(
+    os.environ.get("MUSINSA_NEW_PRODUCT_PROBE_LOOKBACK_DAYS", "3")
+)
+
+# First-observation lifecycle guard.
+# A newly discovered/reactivated goodsNo can sometimes return a stale/reset purchaseTotal
+# at the first observation and then jump to its historical cumulative value.
+# We never decide this from review_count or from the literal value "0" alone.
+INITIAL_JUMP_MIN = int(os.environ.get("MUSINSA_INITIAL_JUMP_MIN", "100"))
+INITIAL_JUMP_FIRST_SEEN_WINDOW_HOURS = float(
+    os.environ.get("MUSINSA_INITIAL_JUMP_FIRST_SEEN_WINDOW_HOURS", "12")
+)
+INITIAL_JUMP_PLATEAU_HOURS = float(
+    os.environ.get("MUSINSA_INITIAL_JUMP_PLATEAU_HOURS", "12")
+)
+INITIAL_JUMP_PLATEAU_CONFIRMATIONS = int(
+    os.environ.get("MUSINSA_INITIAL_JUMP_PLATEAU_CONFIRMATIONS", "3")
+)
+INITIAL_JUMP_GENUINE_MIN_FOLLOW = int(
+    os.environ.get("MUSINSA_INITIAL_JUMP_GENUINE_MIN_FOLLOW", "20")
+)
+INITIAL_JUMP_GENUINE_FOLLOW_RATIO = float(
+    os.environ.get("MUSINSA_INITIAL_JUMP_GENUINE_FOLLOW_RATIO", "0.10")
+)
+
+# Mid-stream positive rebase guard.
+# Some long-tracked goodsNo values can suddenly jump from a normal cumulative
+# counter into a much larger cumulative regime (e.g. +16,871 at once), then
+# resume at the old low daily pace.  We must not count that boundary as sales.
+#
+# This is deliberately conservative:
+# - candidate must be a very large absolute jump
+# - candidate must dwarf the product's own recent observed pace
+# - until follow-up evidence arrives, only that disputed interval is excluded
+# - sustained strong growth after the jump restores it as genuine
+MIDSTREAM_JUMP_MIN = int(
+    os.environ.get("MUSINSA_MIDSTREAM_JUMP_MIN", "500")
+)
+MIDSTREAM_JUMP_PRIOR_INTERVALS = int(
+    os.environ.get("MUSINSA_MIDSTREAM_JUMP_PRIOR_INTERVALS", "3")
+)
+MIDSTREAM_JUMP_PRIOR_MULTIPLIER = float(
+    os.environ.get("MUSINSA_MIDSTREAM_JUMP_PRIOR_MULTIPLIER", "50")
+)
+MIDSTREAM_JUMP_CONFIRM_HOURS = float(
+    os.environ.get("MUSINSA_MIDSTREAM_JUMP_CONFIRM_HOURS", "12")
+)
+MIDSTREAM_JUMP_CONFIRMATIONS = int(
+    os.environ.get("MUSINSA_MIDSTREAM_JUMP_CONFIRMATIONS", "3")
+)
+MIDSTREAM_JUMP_PLATEAU_RATIO = float(
+    os.environ.get("MUSINSA_MIDSTREAM_JUMP_PLATEAU_RATIO", "0.02")
+)
+MIDSTREAM_JUMP_GENUINE_RATIO = float(
+    os.environ.get("MUSINSA_MIDSTREAM_JUMP_GENUINE_RATIO", "0.10")
+)
+MIDSTREAM_JUMP_GENUINE_MIN_FOLLOW = int(
+    os.environ.get("MUSINSA_MIDSTREAM_JUMP_GENUINE_MIN_FOLLOW", "100")
+)
+
+# Downward-reset recovery tolerance.
+# purchaseTotal can recover to almost the same historical level but a few units
+# lower (e.g. 46996 -> 0 -> 46994) because Musinsa may revise/cancel counts.
+# Such a near-recovery must never be interpreted as 0 -> 46994 new sales.
+COUNTER_RECOVERY_TOLERANCE_MIN = int(
+    os.environ.get("MUSINSA_COUNTER_RECOVERY_TOLERANCE_MIN", "10")
+)
+COUNTER_RECOVERY_TOLERANCE_RATIO = float(
+    os.environ.get("MUSINSA_COUNTER_RECOVERY_TOLERANCE_RATIO", "0.01")
+)
+
+MIDNIGHT_ANCHOR_MIN = float(os.environ.get("MUSINSA_MIDNIGHT_ANCHOR_MIN", "3"))
+MIDNIGHT_ANCHOR_MAX_PER_RUN = int(os.environ.get("MUSINSA_MIDNIGHT_ANCHOR_MAX_PER_RUN", "15000"))
+MIDNIGHT_REPORT_DIR = BASE_DIR / "data" / "anchor"
+
+USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/151.0.0.0 Safari/537.36"
+)
+
+CATALOG_FIELDS = [
+    "goods_no", "brand_name", "product_name",
+    "previous_product_name", "product_name_changed_at",
+    "product_name_change_count", "product_name_history",
+    "normal_price", "current_price", "sale_rate", "review_count", "rating",
+    "availability", "first_seen_at", "last_seen_at", "product_url",
+]
+RAW_FIELDS = [
+    "checked_at", "goods_no", "brand_name", "product_name",
+    "purchase_total", "page_view_total", "normal_price", "current_price",
+    "sale_rate", "review_count", "rating", "availability",
+    "simple_gmv", "product_url", "errors",
+]
+COMPACT_FIELDS = [
+    "date", "slot", "checked_at", "goods_no", "brand_name", "product_name",
+    "purchase_total", "page_view_total", "current_price", "normal_price",
+    "sale_rate", "review_count", "rating", "availability",
+]
+ADAPTIVE_OBS_FIELDS = COMPACT_FIELDS + [
+    "sample_kind", "sampling_tier", "sampling_score", "base_slot", "clock_slot",
+]
+LATEST_FIELDS = [
+    "date", "slot", "checked_at", "brand_name", "goods_no", "product_name",
+    "purchase_total", "daily_sales", "normal_price", "current_price", "sale_rate",
+    "daily_estimated_gmv", "simple_gmv",
+    "page_view_total", "daily_page_view_increase",
+    "review_count", "daily_review_increase",
+    "like_count", "daily_like_increase",
+    "sales_7d", "sales_7d_avg_per_day", "estimated_gmv_7d",
+    "sales_30d", "sales_30d_avg_per_day", "estimated_gmv_30d",
+    "availability", "product_url", "errors",
+]
+BRAND_FIELDS = [
+    "date", "checked_at", "brand_name", "product_count",
+    "daily_baseline_product_count", "purchase_total_sum", "simple_gmv_sum",
+    "daily_sales_sum", "daily_estimated_gmv_sum",
+    "daily_page_view_increase_sum", "daily_review_increase_sum",
+    "daily_like_increase_sum", "sales_7d_sum", "sales_7d_avg_per_day",
+    "estimated_gmv_7d", "sales_30d_sum", "sales_30d_avg_per_day",
+    "estimated_gmv_30d", "products_with_7d_baseline",
+    "products_with_30d_baseline", "new_products",
+]
+SUMMARY_FIELDS = [
+    "checked_at", "date", "product_count", "daily_baseline_product_count",
+    "purchase_total_sum", "simple_gmv_sum", "daily_sales_sum",
+    "daily_estimated_gmv_sum", "sales_7d_sum", "sales_30d_sum",
+    "new_products",
+]
+NEW_PRODUCT_FIELDS = [
+    "first_seen_at", "brand_name", "goods_no", "product_name",
+    "normal_price", "current_price", "sale_rate",
+]
+
+FAILURE_FIELDS = [
+    "date", "slot", "goods_no", "brand_name", "product_name",
+    "first_failed_at", "last_failed_at", "attempts", "last_error",
+    "current_price", "product_url",
+]
+
+CALENDAR_PRODUCT_FIELDS = [
+    "date", "brand_name", "goods_no", "product_name",
+    "estimated_sales", "estimated_gmv", "estimated_avg_price",
+    "display_price", "previous_display_price",
+    "price_change_detected", "price_change_amount", "price_change_pct",
+    "coverage_pct", "calendar_complete", "confidence",
+    "max_interval_hours", "observation_count", "contributing_intervals",
+    "initial_delta_status", "initial_delta_value",
+    "history_bucket", "product_url",
+]
+CALENDAR_BRAND_FIELDS = [
+    "date", "checked_at", "brand_name",
+    "product_count", "complete_product_count", "product_coverage_pct",
+    "average_time_coverage_pct",
+    "estimated_sales", "estimated_gmv", "price_change_products",
+    "high_confidence_products", "medium_confidence_products", "low_confidence_products",
+]
+CALENDAR_SUMMARY_FIELDS = [
+    "date", "checked_at", "brand_count", "product_count",
+    "complete_product_count", "product_coverage_pct", "average_time_coverage_pct",
+    "estimated_sales", "estimated_gmv", "price_change_products",
+]
+
+
+def now_kst():
+    return datetime.now(KST)
+
+
+def to_int(value):
+    if value is None or value == "":
+        return None
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, (int, float)):
+        return int(value)
+    s = re.sub(r"[^\d.-]", "", str(value))
+    if not s:
+        return None
+    try:
+        return int(float(s))
+    except Exception:
+        return None
+
+
+def goods_slot(goods_no):
+    """같은 goodsNo는 영구적으로 같은 0~7 slot에 배정."""
+    s = str(goods_no).strip()
+    if s.isdigit():
+        return int(s) % SLOT_COUNT
+    digest = hashlib.sha1(s.encode("utf-8")).digest()
+    return int.from_bytes(digest[:4], "big") % SLOT_COUNT
+
+
+def brand_slot(brand_name):
+    """Python hash() 대신 SHA1을 써서 실행마다 동일한 slot 유지."""
+    digest = hashlib.sha1(str(brand_name).strip().casefold().encode("utf-8")).digest()
+    return int.from_bytes(digest[:4], "big") % SLOT_COUNT
+
+
+def effective_goods_slot(goods_no, catalog_row=None):
+    """브랜드가 확인된 상품은 브랜드와 같은 slot에 배정합니다."""
+    brand = str((catalog_row or {}).get("brand_name") or "").strip()
+    if brand:
+        return brand_slot(brand)
+    return goods_slot(goods_no)
+
+
+def recommended_slot_shards(product_count):
+    n = max(0, int(product_count or 0))
+    if n <= 5000:
+        return 4
+    if n <= 10000:
+        return 6
+    if n <= 20000:
+        return 8
+    return 12
+
+
+def read_lines(path):
+    path = Path(path)
+    if not path.exists():
+        return []
+    out, seen = [], set()
+    for line in path.read_text(encoding="utf-8-sig", errors="ignore").splitlines():
+        v = line.strip()
+        if v and not v.startswith("#") and v not in seen:
+            out.append(v)
+            seen.add(v)
+    return out
+
+
+def write_lines(path, values):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    out, seen = [], set()
+    for x in values:
+        v = str(x).strip()
+        if v and not v.startswith("#") and v not in seen:
+            out.append(v)
+            seen.add(v)
+    path.write_text("\n".join(out) + ("\n" if out else ""), encoding="utf-8")
+
+
+def read_csv(path):
+    path = Path(path)
+    if not path.exists():
+        return []
+    try:
+        if path.suffix.lower() == ".gz":
+            with gzip.open(path, "rt", encoding="utf-8-sig", newline="") as f:
+                return list(csv.DictReader(f))
+        with path.open("r", encoding="utf-8-sig", newline="") as f:
+            return list(csv.DictReader(f))
+    except Exception:
+        return []
+
+
+def write_csv(path, rows, fields):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.suffix.lower() == ".gz":
+        with gzip.open(path, "wt", encoding="utf-8-sig", newline="", compresslevel=6) as f:
+            w = csv.DictWriter(f, fieldnames=fields)
+            w.writeheader()
+            for row in rows:
+                w.writerow({k: row.get(k, "") for k in fields})
+        return
+    with path.open("w", encoding="utf-8-sig", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=fields)
+        w.writeheader()
+        for row in rows:
+            w.writerow({k: row.get(k, "") for k in fields})
+
+
+class AdaptiveThrottle:
+    """프로세스 전체의 동시성 + 요청 간격을 함께 조절합니다.
+
+    primary는 하나의 Python process에서 최대 8 worker를 사용합니다.
+    429/403이 오면 허용 동시성을 8 -> 4 -> 2 -> 1 식으로 즉시 낮추고,
+    성공이 충분히 이어지면 1 -> 2 -> 4 -> 8 식으로 천천히 복귀합니다.
+    """
+    def __init__(self, base_interval=0.10, max_interval=3.0, max_concurrency=8):
+        self.base = max(0.0, float(base_interval))
+        self.maximum = max(self.base, float(max_interval))
+        self.interval = self.base
+        self.max_concurrency = max(1, int(max_concurrency))
+        self.limit = self.max_concurrency
+        self.in_flight = 0
+        self.next_at = 0.0
+        self.pause_until = 0.0
+        self.penalty = 0
+        self.success_streak = 0
+        self.cond = threading.Condition()
+
+    def acquire(self):
+        while True:
+            with self.cond:
+                now = time.monotonic()
+                time_wait = max(self.pause_until - now, self.next_at - now, 0.0)
+                capacity = self.in_flight < self.limit
+                if capacity and time_wait <= 0:
+                    self.in_flight += 1
+                    self.next_at = now + self.interval
+                    return
+                wait = max(0.02, min(time_wait if time_wait > 0 else 0.20, 5.0))
+                self.cond.wait(timeout=wait)
+
+    def _release(self):
+        self.in_flight = max(0, self.in_flight - 1)
+        self.cond.notify_all()
+
+    def success(self):
+        with self.cond:
+            self._release()
+            self.success_streak += 1
+            if self.success_streak >= 80:
+                self.success_streak = 0
+                self.penalty = max(0, self.penalty - 1)
+                if self.interval > self.base:
+                    self.interval = max(self.base, self.interval * 0.72)
+                if self.limit < self.max_concurrency:
+                    self.limit = min(self.max_concurrency, max(self.limit + 1, self.limit * 2))
+            self.cond.notify_all()
+
+    def error(self, status=None, retry_after=None):
+        with self.cond:
+            self._release()
+            self.success_streak = 0
+            now = time.monotonic()
+            if status == 429:
+                self.penalty = min(7, self.penalty + 1)
+                self.limit = max(1, self.limit // 2)
+                self.interval = min(self.maximum, max(0.5, self.interval * 2.0))
+                pause = min(120.0, 15.0 * (2 ** max(0, self.penalty - 1)))
+            elif status == 403:
+                self.penalty = min(7, self.penalty + 1)
+                self.limit = max(1, self.limit // 2)
+                self.interval = min(self.maximum, max(0.5, self.interval * 1.8))
+                pause = min(90.0, 10.0 * (2 ** max(0, self.penalty - 1)))
+            elif status in (500, 502, 503, 504):
+                self.limit = max(1, self.limit - 1)
+                self.interval = min(self.maximum, max(0.25, self.interval * 1.35))
+                pause = min(30.0, 3.0 * (2 ** min(3, self.penalty)))
+            else:
+                self.interval = min(self.maximum, max(self.base, self.interval * 1.15))
+                pause = 2.0
+            if retry_after is not None:
+                try:
+                    pause = max(pause, float(retry_after))
+                except Exception:
+                    pass
+            self.pause_until = max(self.pause_until, now + pause + random.uniform(0.2, 1.5))
+            self.cond.notify_all()
+            return pause
+
+    def recovery_mode(self):
+        with self.cond:
+            self.limit = min(self.limit, max(1, min(2, self.max_concurrency)))
+            self.interval = min(self.maximum, max(self.interval, 0.40))
+            self.pause_until = max(self.pause_until, time.monotonic() + random.uniform(1.0, 2.5))
+            self.cond.notify_all()
+
+    def state(self):
+        with self.cond:
+            return {
+                "limit": self.limit,
+                "max_concurrency": self.max_concurrency,
+                "interval": round(self.interval, 3),
+                "penalty": self.penalty,
+            }
+
+
+THROTTLE = AdaptiveThrottle(REQUEST_MIN_INTERVAL, REQUEST_MAX_INTERVAL, SHARD_WORKERS)
+
+def http_get(url, timeout=20, retries=4, referer="https://www.musinsa.com/"):
+    """서버 제한 신호를 존중하는 적응형 HTTP GET."""
+    last = None
+    for attempt in range(retries + 1):
+        THROTTLE.acquire()
+        try:
+            req = urllib.request.Request(
+                url,
+                headers={
+                    "User-Agent": USER_AGENT,
+                    "Accept": "application/json,text/html,application/xhtml+xml,*/*",
+                    "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8",
+                    "Referer": referer,
+                    "Cache-Control": "no-cache",
+                    "X-Musinsa-App": "MusinsaWeb",
+                },
+            )
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                raw = resp.read()
+                charset = resp.headers.get_content_charset() or "utf-8"
+                THROTTLE.success()
+                return raw.decode(charset, errors="replace")
+        except urllib.error.HTTPError as e:
+            last = e
+            retry_after = None
+            try:
+                retry_after = e.headers.get("Retry-After") if e.headers else None
+            except Exception:
+                pass
+            THROTTLE.error(e.code, retry_after)
+            print(
+                f"[adaptive-backoff] HTTP {e.code}; state={THROTTLE.state()}; "
+                f"attempt={attempt + 1}/{retries + 1}",
+                file=sys.stderr,
+            )
+            if attempt >= retries:
+                break
+        except Exception as e:
+            last = e
+            THROTTLE.error(None, None)
+            if attempt >= retries:
+                break
+    raise last
+
+def search_json(url, brand_name):
+    referer = (
+        "https://www.musinsa.com/search/musinsa/integration?type=popular&q="
+        + urllib.parse.quote(brand_name)
+    )
+    return json.loads(http_get(url, referer=referer))
+
+
+def _extract_brand_names(item):
+    """
+    검색 API가 동일 브랜드를 한글/영문으로 동시에 내려줄 수 있으므로
+    첫 번째 필드 하나만 쓰지 않고 가능한 브랜드 표기를 모두 수집한다.
+    예: 굿라이프웍스 / GOOD LIFE WORKS / GOODLIFEWORKS
+    """
+    candidates = [
+        item.get("brandName"),
+        item.get("brandKorName"),
+        item.get("brandKoreanName"),
+        item.get("brand"),
+    ]
+    out = []
+    seen = set()
+
+    def add(v):
+        if v is None:
+            return
+        v = str(v).strip()
+        if not v:
+            return
+        k = unicodedata.normalize("NFKC", v).casefold()
+        if k in seen:
+            return
+        seen.add(k)
+        out.append(v)
+
+    for value in candidates:
+        if isinstance(value, dict):
+            for key in (
+                "name", "brandName", "korName", "koreanName",
+                "engName", "englishName"
+            ):
+                add(value.get(key))
+        else:
+            add(value)
+
+    return out
+
+
+def _extract_brand_name(item):
+    names = _extract_brand_names(item)
+    return names[0] if names else ""
+
+
+def _brand_keys(value):
+    """
+    브랜드 표기 흔들림을 안전하게 흡수합니다.
+    예:
+      디미트리블랙
+      디미트리 블랙
+      디미트리블랙(DIMITRI BLACK)
+    는 같은 브랜드로 인식합니다.
+
+    prefix/fuzzy 매칭은 하지 않아 다른 브랜드가 섞이는 위험을 줄입니다.
+    """
+    s = unicodedata.normalize("NFKC", str(value or "")).strip().casefold()
+    if not s:
+        return set()
+
+    keys = set()
+
+    compact = re.sub(r"[^0-9a-z가-힣]+", "", s)
+    if compact:
+        keys.add(compact)
+
+    korean = "".join(re.findall(r"[가-힣]+", s))
+    if korean:
+        keys.add(korean)
+
+    latin = "".join(re.findall(r"[a-z0-9]+", s))
+    if latin:
+        keys.add(latin)
+
+    base = re.sub(r"\([^)]*\)", "", s)
+    base_compact = re.sub(r"[^0-9a-z가-힣]+", "", base)
+    if base_compact:
+        keys.add(base_compact)
+
+    for part in re.findall(r"\(([^)]*)\)", s):
+        p = re.sub(r"[^0-9a-z가-힣]+", "", part)
+        if p:
+            keys.add(p)
+
+    return keys
+
+
+def _brand_matches(requested, candidate):
+    a = _brand_keys(requested)
+    b = _brand_keys(candidate)
+    return bool(a and b and (a & b))
+
+
+
+def _normalize_product_name(value):
+    """상품명 변경 비교용 정규화. 공백/유니코드 표기 흔들림만 무시합니다."""
+    s = unicodedata.normalize("NFKC", str(value or "")).strip()
+    s = re.sub(r"\s+", " ", s)
+    return s
+
+
+def _load_product_name_history(value):
+    if not value:
+        return []
+    try:
+        data = json.loads(str(value))
+        if isinstance(data, list):
+            out = []
+            for x in data:
+                if isinstance(x, dict):
+                    out.append({
+                        "detected_at": str(x.get("detected_at") or ""),
+                        "old": str(x.get("old") or ""),
+                        "new": str(x.get("new") or ""),
+                    })
+            return out[-50:]
+    except Exception:
+        pass
+    return []
+
+
+def _update_product_name_tracking(old, incoming_name, detected_at):
+    old_name = str((old or {}).get("product_name") or "").strip()
+    new_name = str(incoming_name or "").strip() or old_name
+
+    previous_name = str((old or {}).get("previous_product_name") or "")
+    changed_at = str((old or {}).get("product_name_changed_at") or "")
+    change_count = to_int((old or {}).get("product_name_change_count")) or 0
+    history = _load_product_name_history((old or {}).get("product_name_history"))
+
+    changed = bool(
+        old_name and new_name
+        and _normalize_product_name(old_name) != _normalize_product_name(new_name)
+    )
+
+    if changed:
+        previous_name = old_name
+        changed_at = str(detected_at)
+        change_count += 1
+        history.append({
+            "detected_at": str(detected_at),
+            "old": old_name,
+            "new": new_name,
+        })
+        history = history[-50:]
+
+    history_json = (
+        json.dumps(history, ensure_ascii=False, separators=(",", ":"))
+        if history else ""
+    )
+    return new_name, previous_name, changed_at, change_count, history_json, changed
+
+
+def search_brand_products(brand_name, known_goods=None, exhaustive=False):
+    """
+    무신사 검색결과에서 요청 브랜드의 상품을 수집합니다.
+
+    핵심 수정:
+    - count API의 total 값을 '하드 페이지 제한'으로 사용하지 않습니다.
+      일부 검색에서 count가 100처럼 제한되어도 exhaustive 모드는 실제 결과가
+      끝날 때까지 계속 pagination 합니다.
+    - 브랜드 표기 공백/괄호/한영 병기 차이를 정규화해 매칭합니다.
+    - 같은 페이지가 반복되거나 해당 브랜드 결과가 연속해서 사라지면 안전 종료합니다.
+    """
+    brand_name = brand_name.strip()
+    if not brand_name:
+        return []
+
+    known_goods = set(str(x) for x in (known_goods or set()))
+
+    # Some registered names are poor search terms (e.g. one-syllable/common words).
+    # Use a stable search alias when configured, but keep brand_name itself as the
+    # canonical value written to the catalog.
+    search_name = BRAND_SEARCH_KEYWORDS.get(brand_name, brand_name).strip() or brand_name
+    accepted_brand_names = [brand_name]
+    if search_name.casefold() != brand_name.casefold():
+        accepted_brand_names.append(search_name)
+
+    keyword = urllib.parse.quote(search_name)
+
+    # 참고용 count. 페이지 제한에는 사용하지 않습니다.
+    count_url = (
+        "https://api.musinsa.com/api2/sc/v2/search/tab/count"
+        f"?gf=A&keyword={keyword}&sendLog=true"
+    )
+    try:
+        count_data = search_json(count_url, search_name)
+        reported_total = to_int(
+            ((((count_data or {}).get("data") or {}).get("goods") or {}).get("all"))
+        ) or 0
+    except Exception:
+        reported_total = 0
+
+    page_size = 60
+
+    if exhaustive:
+        page_limit = MAX_SEARCH_PAGES
+    else:
+        # 기존 catalog 상품을 모두 다시 볼 수 있을 만큼의 페이지는 최소 확보
+        known_pages = ((len(known_goods) + page_size - 1) // page_size) + 5 if known_goods else 0
+        page_limit = min(MAX_SEARCH_PAGES, max(QUICK_SEARCH_MAX_PAGES, known_pages))
+
+    results = []
+    seen_exact = set()
+    seen_any = set()
+    seen_known = set()
+
+    no_exact_streak = 0
+    repeated_page_streak = 0
+
+    for page in range(1, page_limit + 1):
+        url = (
+            "https://api.musinsa.com/api2/dp/v1/plp/goods"
+            f"?gf=A&keyword={keyword}&sortCode=NEW&page={page}&size={page_size}&caller=SEARCH"
+        )
+
+        try:
+            data = search_json(url, search_name)
+        except Exception as e:
+            print(
+                f"[search] {brand_name} query={search_name!r} page {page}: {e}",
+                file=sys.stderr,
+            )
+            continue
+
+        items = (((data or {}).get("data") or {}).get("list") or [])
+        if not isinstance(items, list) or not items:
+            break
+
+        page_any_new = 0
+        page_exact = 0
+
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+
+            goods_no = str(item.get("goodsNo") or "").strip()
+            if not goods_no:
+                continue
+
+            if goods_no not in seen_any:
+                seen_any.add(goods_no)
+                page_any_new += 1
+
+            item_brands = _extract_brand_names(item)
+            matched_brand = next(
+                (
+                    b
+                    for b in item_brands
+                    if any(_brand_matches(name, b) for name in accepted_brand_names)
+                ),
+                None,
+            )
+            if matched_brand is None:
+                continue
+
+            # catalog에는 등록 브랜드명을 canonical name으로 저장한다.
+            # 그러면 한글 등록명과 영문 API명이 섞여도 다음 discovery에서
+            # known_by_brand가 끊기지 않는다.
+            item_brand = brand_name
+
+            if goods_no in seen_exact:
+                continue
+
+            seen_exact.add(goods_no)
+            page_exact += 1
+
+            if goods_no in known_goods:
+                seen_known.add(goods_no)
+
+            current_price = to_int(item.get("finalPrice"))
+            if current_price is None:
+                current_price = to_int(item.get("price"))
+
+            results.append({
+                "goods_no": goods_no,
+                "brand_name": item_brand or brand_name,
+                "product_name": item.get("goodsName") or "",
+                "normal_price": to_int(item.get("normalPrice")),
+                "current_price": current_price,
+                "sale_rate": (
+                    to_int(item.get("finalDiscount"))
+                    if to_int(item.get("finalDiscount")) is not None
+                    else to_int(item.get("saleRate"))
+                ),
+                "review_count": to_int(item.get("reviewCount")),
+                "rating": item.get("reviewScore"),
+                "availability": "OutOfStock" if item.get("isSoldOut") else "InStock",
+                "product_url": f"https://www.musinsa.com/products/{goods_no}",
+            })
+
+        if page_any_new == 0:
+            repeated_page_streak += 1
+        else:
+            repeated_page_streak = 0
+
+        if page_exact == 0:
+            no_exact_streak += 1
+        else:
+            no_exact_streak = 0
+
+        # API가 같은 페이지를 반복하기 시작하면 무한 loop 방지
+        if repeated_page_streak >= 2:
+            break
+
+        if exhaustive:
+            # 관련없는 검색결과만 연속으로 나오는 구간까지 도달하면 종료
+            if no_exact_streak >= 3:
+                break
+        else:
+            # 기존 상품을 모두 확인했으면 daily price refresh 목적 달성
+            if known_goods and len(seen_known) >= len(known_goods):
+                break
+            if not known_goods and no_exact_streak >= QUICK_KNOWN_STOP_PAGES:
+                break
+
+        time.sleep(0.15 + random.uniform(0.03, 0.12))
+
+    print(
+        f"[brand-search] {brand_name}: query={search_name!r}, "
+        f"reported_total={reported_total}, matched={len(results)}, pages_scanned={page}",
+        file=sys.stderr,
+    )
+    return results
+def discover_slot(state_dir, slot, force_full=False):
+    state_dir = Path(state_dir)
+    state_dir.mkdir(parents=True, exist_ok=True)
+    slot = int(slot)
+    snapshot_date = now_kst().date()
+
+    (state_dir / "snapshot_date.txt").write_text(snapshot_date.isoformat() + "\n", encoding="utf-8")
+    (state_dir / "slot.txt").write_text(str(slot) + "\n", encoding="utf-8")
+
+    brands = read_lines(BRANDS_FILE)
+    assigned_brands = [b for b in brands if brand_slot(b) == slot]
+    existing_watchlist = read_lines(WATCHLIST_FILE)
+
+    catalog_rows = read_csv(CATALOG_FILE)
+    catalog = {str(r.get("goods_no") or ""): dict(r) for r in catalog_rows if r.get("goods_no")}
+
+    # watchlist-only 상품은 담당 기본 slot에서 하루 1회 자동 catalog 복구 시도.
+    repaired_catalog, unresolved_catalog = repair_missing_catalog(
+        existing_watchlist, catalog, only_slot=slot, max_products=50
+    )
+    if repaired_catalog:
+        print(
+            f"[catalog-repair] slot={slot} repaired={len(repaired_catalog)} "
+            f"unresolved={len(unresolved_catalog)}",
+            file=sys.stderr,
+        )
+
+    existing_goods = set(catalog)
+
+    known_by_brand = {}
+    for g, row in catalog.items():
+        raw_brand = str(row.get("brand_name") or "").strip()
+        if not raw_brand:
+            continue
+
+        # exact key
+        known_by_brand.setdefault(raw_brand.casefold(), set()).add(g)
+
+        # 등록 브랜드와 alias가 일치하면 등록명 key에도 연결.
+        # 기존 catalog에 GOODLIFEWORKS로 저장돼 있고 brands.txt에는
+        # 굿라이프웍스로 등록된 경우 같은 브랜드의 기존 상품으로 인식한다.
+        for registered in brands:
+            if _brand_matches(registered, raw_brand):
+                known_by_brand.setdefault(registered.casefold(), set()).add(g)
+
+    weekly_full = snapshot_date.weekday() == 6  # Sunday KST
+    ts = now_kst().isoformat(timespec="seconds")
+
+    found = {}
+    modes = {}
+
+    if assigned_brands:
+        with ThreadPoolExecutor(max_workers=max(1, DISCOVERY_WORKERS)) as executor:
+            futures = {}
+            for brand in assigned_brands:
+                known = known_by_brand.get(brand.casefold(), set())
+
+                # 0~MIN_BRAND_SEED_GOODS-1개처럼 비정상적으로 작은 catalog seed는
+                # "초기 discovery가 끝난 브랜드"로 보지 않는다.
+                # 첫 검색이 일부 결과만 반환해 1개만 들어온 경우에도 다음 담당 slot에서
+                # 자동 exhaustive scan을 다시 수행해 catalog를 스스로 복구한다.
+                incomplete_seed = len(known) < max(1, MIN_BRAND_SEED_GOODS)
+                exhaustive = bool(force_full or weekly_full or incomplete_seed)
+
+                if force_full:
+                    modes[brand] = "forced_exhaustive"
+                elif weekly_full:
+                    modes[brand] = "weekly_exhaustive"
+                elif incomplete_seed:
+                    modes[brand] = f"seed_repair_exhaustive({len(known)})"
+                else:
+                    modes[brand] = "daily_price_scan"
+
+                futures[executor.submit(search_brand_products, brand, known, exhaustive)] = brand
+
+            for fut in as_completed(futures):
+                brand = futures[fut]
+                try:
+                    found[brand] = fut.result()
+                except Exception as e:
+                    print(f"[discover] {brand}: {e}", file=sys.stderr)
+                    found[brand] = []
+
+    new_rows = []
+    for brand in assigned_brands:
+        for p in found.get(brand, []):
+            g = str(p["goods_no"])
+            old = catalog.get(g, {})
+            (
+                tracked_name,
+                previous_name,
+                name_changed_at,
+                name_change_count,
+                name_history_json,
+                name_changed,
+            ) = _update_product_name_tracking(old, p.get("product_name"), ts)
+
+            row = {
+                "goods_no": g,
+                "brand_name": p.get("brand_name") or old.get("brand_name") or "",
+                "product_name": tracked_name,
+                "previous_product_name": previous_name,
+                "product_name_changed_at": name_changed_at,
+                "product_name_change_count": name_change_count,
+                "product_name_history": name_history_json,
+                "normal_price": p.get("normal_price") if p.get("normal_price") is not None else old.get("normal_price", ""),
+                "current_price": p.get("current_price") if p.get("current_price") is not None else old.get("current_price", ""),
+                "sale_rate": p.get("sale_rate") if p.get("sale_rate") is not None else old.get("sale_rate", ""),
+                "review_count": p.get("review_count") if p.get("review_count") is not None else old.get("review_count", ""),
+                "rating": p.get("rating") if p.get("rating") not in (None, "") else old.get("rating", ""),
+                "availability": p.get("availability") or old.get("availability") or "",
+                "first_seen_at": old.get("first_seen_at") or ts,
+                "last_seen_at": ts,
+                "product_url": p.get("product_url") or old.get("product_url") or f"https://www.musinsa.com/products/{g}",
+            }
+            if name_changed:
+                print(
+                    f"[product-name-change] goodsNo={g} "
+                    f"{old.get('product_name')!r} -> {tracked_name!r} at {ts}",
+                    file=sys.stderr,
+                )
+            catalog[g] = row
+            if g not in existing_goods:
+                new_rows.append({
+                    "first_seen_at": ts,
+                    "brand_name": row["brand_name"],
+                    "goods_no": g,
+                    "product_name": row["product_name"],
+                    "normal_price": row["normal_price"],
+                    "current_price": row["current_price"],
+                    "sale_rate": row["sale_rate"],
+                })
+                existing_goods.add(g)
+
+    watchlist = []
+    seen = set()
+    for g in existing_watchlist + list(catalog.keys()):
+        g = str(g).strip()
+        if g and g not in seen:
+            watchlist.append(g)
+            seen.add(g)
+    watchlist.sort(key=lambda x: int(x) if x.isdigit() else 10**30)
+
+    catalog_sorted = [
+        catalog[g] for g in sorted(catalog, key=lambda x: int(x) if str(x).isdigit() else 10**30)
+    ]
+    slot_goods = [g for g in watchlist if effective_goods_slot(g, catalog.get(g)) == slot]
+    shard_count = recommended_slot_shards(len(slot_goods))
+
+    write_lines(state_dir / "musinsa_watchlist.txt", watchlist)
+    write_csv(state_dir / "musinsa_catalog.csv", catalog_sorted, CATALOG_FIELDS)
+    write_csv(state_dir / "new_products_delta.csv", new_rows, NEW_PRODUCT_FIELDS)
+
+    stats = {
+        "checked_at": ts,
+        "snapshot_date": snapshot_date.isoformat(),
+        "slot": slot,
+        "registered_brands": len(brands),
+        "assigned_brands": len(assigned_brands),
+        "watchlist_count": len(watchlist),
+        "slot_goods_count": len(slot_goods),
+        "recommended_shards": shard_count,
+        "new_products": len(new_rows),
+        "weekly_full": weekly_full,
+        "daily_price_refresh": True,
+        "scan_modes": modes,
+        "found_by_brand": {b: len(found.get(b, [])) for b in assigned_brands},
+        "catalog_repaired": len(repaired_catalog),
+        "catalog_unresolved": len(unresolved_catalog),
+    }
+    (state_dir / "discovery_stats.json").write_text(
+        json.dumps(stats, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    print(json.dumps(stats, ensure_ascii=False))
+    return 0
+
+
+def fetch_stat(goods_no, retries=2):
+    time.sleep(random.uniform(0.02, 0.12))
+    url = f"https://goods-detail.musinsa.com/api2/goods/{goods_no}/stat"
+    obj = json.loads(http_get(url, retries=retries))
+    if isinstance(obj, dict) and "data" in obj:
+        obj = obj.get("data")
+    if not isinstance(obj, dict):
+        raise ValueError("invalid stat response")
+    return to_int(obj.get("purchaseTotal")), to_int(obj.get("pageViewTotal"))
+
+def extract_script(html, attr_pattern):
+    pattern = re.compile(rf"<script[^>]*{attr_pattern}[^>]*>(.*?)</script>", re.I | re.S)
+    m = pattern.search(html)
+    return html_lib.unescape(m.group(1).strip()) if m else None
+
+
+def _meta_content(page, key, value):
+    patterns = [
+        rf'<meta[^>]+{key}=["\']{re.escape(value)}["\'][^>]+content=["\']([^"\']+)["\']',
+        rf'<meta[^>]+content=["\']([^"\']+)["\'][^>]+{key}=["\']{re.escape(value)}["\']',
+    ]
+    for pattern in patterns:
+        m = re.search(pattern, page, re.I)
+        if m:
+            return html_lib.unescape(m.group(1)).strip()
+    return ""
+
+
+def _clean_musinsa_page_title(value):
+    title = html_lib.unescape(str(value or "")).strip()
+    title = re.sub(r"\s*-\s*사이즈\s*&\s*후기\s*\|\s*무신사\s*$", "", title, flags=re.I)
+    title = re.sub(r"\s*\|\s*무신사\s*$", "", title, flags=re.I)
+    return title.strip()
+
+
+def _split_brand_product_from_title(title):
+    """
+    무신사 title 예:
+      키뮤어(KIIMUIR) 써머 세미와이드 슬랙스_딥브라운
+    -> brand=키뮤어(KIIMUIR), product=써머 세미와이드 슬랙스_딥브라운
+    """
+    title = _clean_musinsa_page_title(title)
+    if not title:
+        return "", ""
+
+    # 한글/영문 병기 브랜드가 괄호로 끝나는 일반적인 형태.
+    m = re.match(r"^(.+?\([^)]{1,80}\))\s+(.+)$", title)
+    if m:
+        return m.group(1).strip(), m.group(2).strip()
+
+    return "", title
+
+
+def fallback_metadata(goods_no):
+    result = {
+        "goods_no": str(goods_no), "brand_name": "", "product_name": "",
+        "normal_price": None, "current_price": None, "sale_rate": None,
+        "review_count": None, "rating": None, "availability": "",
+        "product_url": f"https://www.musinsa.com/products/{goods_no}",
+    }
+
+    try:
+        page = http_get(result["product_url"], retries=2)
+
+        # 1) JSON-LD 우선
+        raw = extract_script(page, r'type=["\']application/ld\+json["\']')
+        if raw:
+            try:
+                obj = json.loads(raw)
+                candidates = obj if isinstance(obj, list) else [obj]
+                product = None
+                for x in candidates:
+                    if isinstance(x, dict) and x.get("@type") == "Product":
+                        product = x
+                        break
+                    if isinstance(x, dict) and isinstance(x.get("@graph"), list):
+                        for y in x["@graph"]:
+                            if isinstance(y, dict) and y.get("@type") == "Product":
+                                product = y
+                                break
+                        if product:
+                            break
+
+                if product:
+                    result["product_name"] = str(product.get("name") or "").strip()
+                    brand = product.get("brand")
+                    if isinstance(brand, dict):
+                        result["brand_name"] = str(brand.get("name") or "").strip()
+                    elif brand:
+                        result["brand_name"] = str(brand).strip()
+
+                    offers = product.get("offers")
+                    if isinstance(offers, list) and offers:
+                        offers = offers[0]
+                    if isinstance(offers, dict):
+                        result["current_price"] = to_int(offers.get("price"))
+                        result["normal_price"] = result["current_price"]
+            except Exception:
+                pass
+
+        # 2) JSON-LD가 비어 있으면 OpenGraph/title fallback
+        page_title = (
+            _meta_content(page, "property", "og:title")
+            or _meta_content(page, "name", "title")
+        )
+        if not page_title:
+            m = re.search(r"<title[^>]*>(.*?)</title>", page, re.I | re.S)
+            if m:
+                page_title = re.sub(r"\s+", " ", html_lib.unescape(m.group(1))).strip()
+
+        title_brand, title_product = _split_brand_product_from_title(page_title)
+
+        if not result["product_name"] and title_product:
+            result["product_name"] = title_product
+
+        if not result["brand_name"] and title_brand:
+            result["brand_name"] = title_brand
+
+        # 가격 meta fallback
+        if result["current_price"] is None:
+            for prop in ("product:price:amount", "og:price:amount"):
+                v = _meta_content(page, "property", prop)
+                if v:
+                    result["current_price"] = to_int(v)
+                    if result["current_price"] is not None:
+                        result["normal_price"] = result["current_price"]
+                        break
+
+    except Exception:
+        pass
+
+    return result
+
+
+
+def catalog_row_from_metadata(meta, old=None, detected_at=None):
+    old = dict(old or {})
+    meta = dict(meta or {})
+    ts = detected_at or now_kst().isoformat(timespec="seconds")
+    g = str(meta.get("goods_no") or old.get("goods_no") or "").strip()
+    if not g:
+        return None
+
+    product_name = str(meta.get("product_name") or old.get("product_name") or "").strip()
+    brand_name = str(meta.get("brand_name") or old.get("brand_name") or "").strip()
+
+    if not product_name and not brand_name:
+        return None
+
+    tracked_name, previous_name, changed_at, change_count, history_json, _ = (
+        _update_product_name_tracking(old, product_name, ts)
+    )
+
+    return {
+        "goods_no": g,
+        "brand_name": brand_name,
+        "product_name": tracked_name,
+        "previous_product_name": previous_name,
+        "product_name_changed_at": changed_at,
+        "product_name_change_count": change_count,
+        "product_name_history": history_json,
+        "normal_price": (
+            meta.get("normal_price")
+            if meta.get("normal_price") is not None
+            else old.get("normal_price", "")
+        ),
+        "current_price": (
+            meta.get("current_price")
+            if meta.get("current_price") is not None
+            else old.get("current_price", "")
+        ),
+        "sale_rate": (
+            meta.get("sale_rate")
+            if meta.get("sale_rate") is not None
+            else old.get("sale_rate", "")
+        ),
+        "review_count": (
+            meta.get("review_count")
+            if meta.get("review_count") is not None
+            else old.get("review_count", "")
+        ),
+        "rating": meta.get("rating") or old.get("rating") or "",
+        "availability": meta.get("availability") or old.get("availability") or "",
+        "first_seen_at": old.get("first_seen_at") or ts,
+        "last_seen_at": ts,
+        "product_url": (
+            meta.get("product_url")
+            or old.get("product_url")
+            or f"https://www.musinsa.com/products/{g}"
+        ),
+    }
+
+
+def repair_missing_catalog(watchlist, catalog, only_slot=None, max_products=50):
+    """
+    watchlist에는 있지만 catalog에는 없는 goodsNo의 상품 메타데이터를 자동 복구합니다.
+
+    only_slot이 있으면 goodsNo 기본 hash slot 기준으로 해당 slot 후보만 시도해
+    동일 상품을 하루 8번 반복 조회하지 않도록 합니다.
+    """
+    candidates = []
+    for g in watchlist:
+        g = str(g).strip()
+        if not g or g in catalog:
+            continue
+        if only_slot is not None and goods_slot(g) != int(only_slot):
+            continue
+        candidates.append(g)
+
+    if max_products and max_products > 0:
+        candidates = candidates[:int(max_products)]
+
+    repaired = []
+    unresolved = []
+
+    for g in candidates:
+        meta = fallback_metadata(g)
+
+        # stat은 살아 있는데 페이지 메타가 빈 경우도 있으므로
+        # 빈 데이터를 억지로 catalog에 넣지는 않습니다.
+        row = catalog_row_from_metadata(meta)
+        if row and (row.get("brand_name") or row.get("product_name")):
+            catalog[g] = row
+            repaired.append({
+                "goods_no": g,
+                "brand_name": row.get("brand_name") or "",
+                "product_name": row.get("product_name") or "",
+            })
+        else:
+            unresolved.append(g)
+
+    return repaired, unresolved
+
+
+def repair_catalog_command(max_products=200):
+    watchlist = read_lines(WATCHLIST_FILE)
+    catalog_rows = read_csv(CATALOG_FILE)
+    catalog = {
+        str(r.get("goods_no") or ""): dict(r)
+        for r in catalog_rows
+        if r.get("goods_no")
+    }
+
+    missing_before = [g for g in watchlist if str(g) not in catalog]
+
+    repaired, unresolved = repair_missing_catalog(
+        watchlist, catalog, only_slot=None, max_products=max_products
+    )
+
+    catalog_sorted = [
+        catalog[g]
+        for g in sorted(
+            catalog,
+            key=lambda x: int(x) if str(x).isdigit() else 10**30
+        )
+    ]
+    write_csv(CATALOG_FILE, catalog_sorted, CATALOG_FIELDS)
+
+    missing_after = [g for g in watchlist if str(g) not in catalog]
+
+    report = {
+        "checked_at": now_kst().isoformat(timespec="seconds"),
+        "missing_before": len(missing_before),
+        "repaired": len(repaired),
+        "missing_after": len(missing_after),
+        "repaired_products": repaired,
+        "unresolved_sample": unresolved[:100],
+    }
+
+    report_dir = BASE_DIR / "data" / "catalog_repair"
+    report_dir.mkdir(parents=True, exist_ok=True)
+    report_path = report_dir / f"{now_kst().date().isoformat()}.json"
+    report_path.write_text(
+        json.dumps(report, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    print(json.dumps(report, ensure_ascii=False))
+    return 0
+
+def collect_one(goods_no, catalog_row, retries=2):
+    meta = dict(catalog_row or {}) if catalog_row else fallback_metadata(goods_no)
+    errors = []
+    purchase_total = page_view_total = None
+    try:
+        purchase_total, page_view_total = fetch_stat(goods_no, retries=retries)
+    except Exception as e:
+        errors.append(f"stat: {e}")
+
+    price = to_int(meta.get("current_price"))
+    return {
+        "checked_at": now_kst().isoformat(timespec="seconds"),
+        "goods_no": str(goods_no),
+        "brand_name": meta.get("brand_name") or "",
+        "product_name": meta.get("product_name") or "",
+        "purchase_total": purchase_total,
+        "page_view_total": page_view_total,
+        "normal_price": to_int(meta.get("normal_price")),
+        "current_price": price,
+        "sale_rate": to_int(meta.get("sale_rate")),
+        "review_count": to_int(meta.get("review_count")),
+        "rating": meta.get("rating") or "",
+        "availability": meta.get("availability") or "",
+        "simple_gmv": purchase_total * price if purchase_total is not None and price is not None else None,
+        "product_url": meta.get("product_url") or f"https://www.musinsa.com/products/{goods_no}",
+        "errors": "; ".join(errors),
+    }
+
+def collect_slot_shard(state_dir, slot, shard_index, shard_count, output):
+    state_dir = Path(state_dir)
+    slot, shard_index, shard_count = int(slot), int(shard_index), int(shard_count)
+
+    watchlist = read_lines(state_dir / "musinsa_watchlist.txt")
+    catalog_rows = read_csv(state_dir / "musinsa_catalog.csv")
+    catalog = {str(r.get("goods_no") or ""): r for r in catalog_rows if r.get("goods_no")}
+
+    slot_goods = [g for g in watchlist if effective_goods_slot(g, catalog.get(g)) == slot]
+    selected = [g for i, g in enumerate(slot_goods) if i % shard_count == shard_index]
+    deadline = time.monotonic() + max(300, COLLECT_BUDGET_SECONDS)
+
+    work = Queue()
+    for g in selected:
+        work.put(g)
+    rows = []
+    rows_lock = threading.Lock()
+
+    def worker():
+        while time.monotonic() < deadline:
+            try:
+                g = work.get_nowait()
+            except Empty:
+                return
+            try:
+                r = collect_one(g, catalog.get(g), 2)
+            except Exception as e:
+                r = synthetic_failed_row(g, catalog.get(g), str(e))
+            with rows_lock:
+                rows.append(r)
+            work.task_done()
+
+    worker_count = max(1, SHARD_WORKERS)
+    with ThreadPoolExecutor(max_workers=worker_count) as executor:
+        futures = [executor.submit(worker) for _ in range(worker_count)]
+        for fut in futures:
+            try:
+                fut.result()
+            except Exception as e:
+                print(f"[worker-error] {e}", file=sys.stderr)
+
+    by_goods = {str(r.get("goods_no") or ""): r for r in rows}
+    failed = [g for g, r in by_goods.items() if to_int(r.get("purchase_total")) is None]
+
+    # 종료 예산이 충분할 때만 실패 소수를 동일 실행에서 느린 2차 재시도.
+    time_left = deadline - time.monotonic()
+    inline = failed[:max(0, INLINE_RETRY_MAX)] if time_left > 180 else []
+    if inline:
+        THROTTLE.recovery_mode()
+        print(f"[inline-retry] failed={len(failed)} retry_now={len(inline)} time_left={time_left:.0f}s")
+        for g in inline:
+            if time.monotonic() >= deadline - 60:
+                break
+            retry_row = collect_one(g, catalog.get(g), retries=3)
+            if to_int(retry_row.get("purchase_total")) is not None:
+                by_goods[g] = retry_row
+            else:
+                old = by_goods[g]
+                old["checked_at"] = retry_row.get("checked_at") or old.get("checked_at")
+                old["errors"] = retry_row.get("errors") or old.get("errors")
+
+    rows = list(by_goods.values())
+    rows.sort(key=lambda r: int(r["goods_no"]) if str(r.get("goods_no", "")).isdigit() else 10**30)
+    write_csv(output, rows, RAW_FIELDS)
+    failures = sum(1 for r in rows if to_int(r.get("purchase_total")) is None)
+    not_attempted = max(0, len(selected) - len(rows))
+    print(json.dumps({
+        "slot": slot, "products_expected_in_job": len(selected),
+        "rows_written": len(rows), "failures_after_inline_retry": failures,
+        "not_attempted_before_budget": not_attempted,
+        "adaptive_state": THROTTLE.state(),
+    }, ensure_ascii=False))
+    return 0
+
+
+
+def adaptive_sales_score(row):
+    """Stable sales-speed score used for sampling tier selection.
+
+    Prefer the latest same-slot ~24h delta, but keep the 7d average as a
+    stabilizer so a single quiet day does not immediately demote a fast seller.
+    Negative/reset deltas are treated as zero.
+    """
+    vals = []
+    for key in ("daily_sales", "sales_7d_avg_per_day"):
+        v = to_float(row.get(key))
+        if v is not None:
+            vals.append(max(0.0, v))
+    return max(vals) if vals else 0.0
+
+
+def adaptive_sampling_tier(row):
+    score = adaptive_sales_score(row)
+    if score >= ADAPTIVE_HIGH_MIN:
+        return "3h", score
+    if score >= ADAPTIVE_MEDIUM_MIN:
+        return "9h", score
+    return "24h", score
+
+
+def product_in_probation(catalog_row, when=None):
+    """Lifecycle observation window for a newly discovered/reactivated item."""
+    if not catalog_row:
+        return False
+    first = parse_kst_datetime(catalog_row.get("first_seen_at"))
+    if first is None:
+        return False
+    now = when or now_kst()
+    age_h = (now - first).total_seconds() / 3600.0
+    return 0 <= age_h <= max(1, NEW_PRODUCT_PROBATION_HOURS)
+
+
+def load_recent_extra_observations(goods_set, lookback_days=None):
+    """Load only recent extra observations for the requested goodsNos.
+
+    This scans data/observations, not the full 90k+ primary snapshots, so the
+    adaptive selector can cheaply tell whether a new item has already received
+    its one probe and whether purchaseTotal moved after the latest primary.
+    """
+    wanted = {str(g) for g in goods_set if str(g)}
+    if not wanted:
+        return {}
+
+    days = max(
+        1,
+        int(
+            NEW_PRODUCT_PROBE_LOOKBACK_DAYS
+            if lookback_days in (None, 0)
+            else lookback_days
+        ),
+    )
+    today = now_kst().date()
+    out = {}
+
+    for back in range(days):
+        folder = OBSERVATION_DIR / (today - timedelta(days=back)).isoformat()
+        if not folder.exists():
+            continue
+
+        paths = sorted(list(folder.glob("*.csv.gz")) + list(folder.glob("*.csv")))
+        for path in paths:
+            for row in read_csv(path):
+                g = str(row.get("goods_no") or "").strip()
+                if g not in wanted:
+                    continue
+                checked = parse_kst_datetime(row.get("checked_at"))
+                p = to_int(row.get("purchase_total"))
+                if checked is None or p is None:
+                    continue
+                copied = dict(row)
+                copied["_checked_dt"] = checked
+                out.setdefault(g, []).append(copied)
+
+    for rows in out.values():
+        rows.sort(key=lambda r: r["_checked_dt"])
+    return out
+
+
+def probation_has_probe(catalog_row, extra_rows):
+    """Whether at least one extra observation exists after first_seen."""
+    first = _catalog_first_seen(catalog_row)
+    if first is None:
+        return False
+    return any(
+        (r.get("_checked_dt") or parse_kst_datetime(r.get("checked_at"))) >= first
+        for r in (extra_rows or [])
+    )
+
+
+def probation_activity_score(latest_primary_row, extra_rows):
+    """Observed sales pace after the latest primary baseline.
+
+    No review-count inference and no assumed launch time.  We compare an actual
+    primary purchaseTotal with a later observed purchaseTotal.  A positive delta
+    is annualized only for sampling-tier selection; calendar sales remain based
+    on the original observation intervals.
+    """
+    if not latest_primary_row:
+        return 0.0
+
+    base_p = to_int(latest_primary_row.get("purchase_total"))
+    base_t = parse_kst_datetime(latest_primary_row.get("checked_at"))
+    if base_p is None or base_t is None:
+        return 0.0
+
+    later = []
+    for r in extra_rows or []:
+        t = r.get("_checked_dt") or parse_kst_datetime(r.get("checked_at"))
+        p = to_int(r.get("purchase_total"))
+        if t is None or p is None or t <= base_t:
+            continue
+        later.append((t, p))
+
+    if not later:
+        return 0.0
+
+    t1, p1 = max(later, key=lambda x: x[0])
+    delta = p1 - base_p
+    hours = (t1 - base_t).total_seconds() / 3600.0
+    if delta <= 0 or hours <= 0:
+        return 0.0
+
+    return max(0.0, delta * 24.0 / hours)
+
+
+def calendar_sampling_score(calendar_row):
+    """Use the latest finalized calendar estimate as a stabilizer after day 1."""
+    if not calendar_row:
+        return 0.0
+    v = to_float(calendar_row.get("estimated_sales"))
+    return max(0.0, v) if v is not None else 0.0
+
+
+def tier_for_score(score):
+    score = max(0.0, float(score or 0.0))
+    if score >= ADAPTIVE_HIGH_MIN:
+        return "3h"
+    if score >= ADAPTIVE_MEDIUM_MIN:
+        return "9h"
+    return "24h"
+
+
+def adaptive_due(base_slot, clock_slot, tier):
+    """Return True when an extra observation is due in this 3h clock block."""
+    offset = (int(clock_slot) - int(base_slot)) % SLOT_COUNT
+    if tier == "probe_6h":
+        return offset == NEW_PRODUCT_PROBE_OFFSET
+    if tier == "9h":
+        return offset in (3, 6)
+    if tier == "3h":
+        return offset in (1, 2, 3, 4, 5, 6, 7)
+    return False
+
+def _adaptive_run_token(clock_slot):
+    stamp = now_kst().strftime("%H%M%S")
+    run_id = re.sub(r"[^0-9A-Za-z_.-]+", "-", os.environ.get("GITHUB_RUN_ID", "local"))
+    return f"clock-{int(clock_slot)}-{stamp}-{run_id}"
+
+
+def save_adaptive_observations(raw_rows, meta_by_goods, clock_slot):
+    """Archive successful extra observations without overwriting daily baseline snapshots."""
+    grouped = {}
+    for r in raw_rows:
+        if to_int(r.get("purchase_total")) is None:
+            continue
+        checked = parse_kst_datetime(r.get("checked_at")) or now_kst()
+        d = checked.date().isoformat()
+        g = str(r.get("goods_no") or "")
+        meta = meta_by_goods.get(g, {})
+        row = compact_from_raw(r, checked.date(), meta.get("base_slot", 0))
+        row.update({
+            "sample_kind": "adaptive",
+            "sampling_tier": meta.get("tier", ""),
+            "sampling_score": round(float(meta.get("score") or 0.0), 2),
+            "base_slot": meta.get("base_slot", ""),
+            "clock_slot": int(clock_slot),
+        })
+        grouped.setdefault(d, []).append(row)
+
+    token = _adaptive_run_token(clock_slot)
+    paths = []
+    for date_text, rows in grouped.items():
+        folder = OBSERVATION_DIR / date_text
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / f"adaptive-{token}.csv.gz"
+        rows.sort(key=lambda x: int(x["goods_no"]) if str(x.get("goods_no", "")).isdigit() else 10**30)
+        write_csv(path, rows, ADAPTIVE_OBS_FIELDS)
+        paths.append(str(path.relative_to(BASE_DIR)))
+    return paths
+
+
+def collect_adaptive(clock_slot, max_products=None, dry_run=False):
+    """Collect extra observations with a bulk-safe discovery policy.
+
+    Existing sellers keep the normal 3h/9h tiers.
+
+    A newly discovered product is NOT automatically sampled every 3h. Instead:
+      1. first primary observation = baseline
+      2. one probe ~6h later (subject to a separate cap)
+      3. if purchaseTotal actually increased, observed pace promotes it to 9h/3h
+      4. latest finalized calendar sales also keeps a proven seller promoted
+
+    This prevents hundreds of newly added brands from turning every newly
+    discovered SKU into a 3-hour polling job.
+    """
+    clock_slot = int(clock_slot)
+    max_products = ADAPTIVE_MAX_PER_RUN if max_products in (None, 0) else int(max_products)
+
+    latest_rows = read_csv(LATEST_PRODUCT_FILE)
+    catalog_rows = read_csv(CATALOG_FILE)
+    calendar_rows = read_csv(CALENDAR_LATEST_PRODUCT_FILE)
+
+    catalog = {
+        str(r.get("goods_no") or ""): r
+        for r in catalog_rows
+        if r.get("goods_no")
+    }
+    calendar = {
+        str(r.get("goods_no") or ""): r
+        for r in calendar_rows
+        if r.get("goods_no")
+    }
+
+    probation_goods = {
+        str(row.get("goods_no") or "").strip()
+        for row in latest_rows
+        if str(row.get("goods_no") or "").strip()
+        and product_in_probation(
+            catalog.get(str(row.get("goods_no") or "").strip())
+        )
+    }
+    recent_extra = load_recent_extra_observations(probation_goods)
+
+    active_due = []
+    probe_due = []
+
+    for row in latest_rows:
+        g = str(row.get("goods_no") or "").strip()
+        if not g:
+            continue
+
+        cat = catalog.get(g)
+        normal_score = adaptive_sales_score(row)
+        cal_score = calendar_sampling_score(calendar.get(g))
+        score = max(normal_score, cal_score)
+
+        probation = g in probation_goods
+        activity_score = (
+            probation_activity_score(row, recent_extra.get(g, []))
+            if probation
+            else 0.0
+        )
+        score = max(score, activity_score)
+        tier = tier_for_score(score)
+
+        base_slot = to_int(row.get("slot"))
+        if base_slot is None or not (0 <= base_slot < SLOT_COUNT):
+            base_slot = effective_goods_slot(g, cat)
+
+        if tier != "24h":
+            if not adaptive_due(base_slot, clock_slot, tier):
+                continue
+            active_due.append({
+                "goods_no": g,
+                "tier": tier,
+                "score": score,
+                "base_slot": base_slot,
+                "reason": "probation_activity" if activity_score >= max(normal_score, cal_score) and activity_score > 0 else "sales_score",
+            })
+            continue
+
+        # Quiet/unknown newly discovered goods get only ONE lightweight probe.
+        if not probation:
+            continue
+        if probation_has_probe(cat, recent_extra.get(g, [])):
+            continue
+        if not adaptive_due(base_slot, clock_slot, "probe_6h"):
+            continue
+
+        probe_due.append({
+            "goods_no": g,
+            "tier": "probe_6h",
+            "score": 0.0,
+            "base_slot": base_slot,
+            "reason": "first_probe",
+        })
+
+    # Proven sellers always have priority over discovery probes.
+    active_due.sort(
+        key=lambda x: (
+            0 if x["tier"] == "3h" else 1,
+            -x["score"],
+            int(x["goods_no"]) if x["goods_no"].isdigit() else 10**30,
+        )
+    )
+
+    selected_active = active_due[:max_products] if max_products > 0 else active_due[:]
+
+    remaining = (
+        max(0, max_products - len(selected_active))
+        if max_products > 0
+        else len(probe_due)
+    )
+    probe_cap = max(0, NEW_PRODUCT_PROBE_MAX_PER_RUN)
+    probe_take = min(remaining, probe_cap) if max_products > 0 else probe_cap
+
+    # Oldest unprobed items first; goodsNo breaks ties deterministically.
+    probe_due.sort(
+        key=lambda x: (
+            _catalog_first_seen(catalog.get(x["goods_no"])) or now_kst(),
+            int(x["goods_no"]) if x["goods_no"].isdigit() else 10**30,
+        )
+    )
+    selected_probe = probe_due[:probe_take]
+
+    selected = selected_active + selected_probe
+    total_due = len(active_due) + len(probe_due)
+
+    stats = {
+        "checked_at": now_kst().isoformat(timespec="seconds"),
+        "clock_slot": clock_slot,
+        "thresholds": {
+            "medium_min": ADAPTIVE_MEDIUM_MIN,
+            "high_min": ADAPTIVE_HIGH_MIN,
+        },
+        "bulk_safe_new_product_policy": {
+            "probation_hours": NEW_PRODUCT_PROBATION_HOURS,
+            "probe_offset_slots": NEW_PRODUCT_PROBE_OFFSET,
+            "probe_approx_hours": NEW_PRODUCT_PROBE_OFFSET * 3,
+            "probe_max_per_run": NEW_PRODUCT_PROBE_MAX_PER_RUN,
+            "blanket_3h_probation": False,
+        },
+        "probation_goods": len(probation_goods),
+        "active_due_before_cap": len(active_due),
+        "probe_due_before_cap": len(probe_due),
+        "due_before_cap": total_due,
+        "selected": len(selected),
+        "selected_probe_6h": len(selected_probe),
+        "selected_3h": sum(1 for x in selected if x["tier"] == "3h"),
+        "selected_9h": sum(1 for x in selected if x["tier"] == "9h"),
+        "deferred_probes": max(0, len(probe_due) - len(selected_probe)),
+        "max_products": max_products,
+        "dry_run": bool(dry_run),
+    }
+
+    if dry_run or not selected:
+        print(json.dumps(stats, ensure_ascii=False))
+        return 0
+
+    meta_by_goods = {x["goods_no"]: x for x in selected}
+    deadline = time.monotonic() + max(300, COLLECT_BUDGET_SECONDS)
+    work = Queue()
+    for x in selected:
+        work.put(x["goods_no"])
+
+    rows = []
+    rows_lock = threading.Lock()
+
+    def worker():
+        while time.monotonic() < deadline:
+            try:
+                g = work.get_nowait()
+            except Empty:
+                return
+            try:
+                r = collect_one(g, catalog.get(g), 2)
+            except Exception as e:
+                r = synthetic_failed_row(g, catalog.get(g), str(e))
+            with rows_lock:
+                rows.append(r)
+            work.task_done()
+
+    with ThreadPoolExecutor(max_workers=max(1, SHARD_WORKERS)) as executor:
+        futures = [executor.submit(worker) for _ in range(max(1, SHARD_WORKERS))]
+        for fut in futures:
+            try:
+                fut.result()
+            except Exception as e:
+                print(f"[adaptive-worker-error] {e}", file=sys.stderr)
+
+    by_goods = {str(r.get("goods_no") or ""): r for r in rows}
+    success_rows = [r for r in by_goods.values() if to_int(r.get("purchase_total")) is not None]
+    failed_goods = [g for g in meta_by_goods if g not in by_goods or to_int(by_goods[g].get("purchase_total")) is None]
+    not_attempted = max(0, len(selected) - len(by_goods))
+
+    paths = save_adaptive_observations(success_rows, meta_by_goods, clock_slot)
+
+    report_date = now_kst().date().isoformat()
+    report_dir = ADAPTIVE_REPORT_DIR / report_date
+    report_dir.mkdir(parents=True, exist_ok=True)
+    token = _adaptive_run_token(clock_slot)
+    stats.update({
+        "success": len(success_rows),
+        "failed_or_unattempted": len(failed_goods),
+        "not_attempted_before_budget": not_attempted,
+        "observation_files": paths,
+        "adaptive_state": THROTTLE.state(),
+        "failed_goods_sample": failed_goods[:100],
+    })
+    (report_dir / f"run-{token}.json").write_text(
+        json.dumps(stats, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    print(json.dumps(stats, ensure_ascii=False))
+    return 0
+
+
+
+def _midnight_anchor_token():
+    stamp = now_kst().strftime("%Y%m%d-%H%M%S")
+    run_id = re.sub(r"[^0-9A-Za-z_.-]+", "-", os.environ.get("GITHUB_RUN_ID", "local"))
+    return f"{stamp}-{run_id}"
+
+
+def save_midnight_anchor_observations(raw_rows, meta_by_goods):
+    """Save the day-boundary observations without touching primary snapshots."""
+    grouped = {}
+    for r in raw_rows:
+        if to_int(r.get("purchase_total")) is None:
+            continue
+        checked = parse_kst_datetime(r.get("checked_at")) or now_kst()
+        date_text = checked.date().isoformat()
+        g = str(r.get("goods_no") or "")
+        meta = meta_by_goods.get(g, {})
+
+        row = compact_from_raw(r, checked.date(), meta.get("base_slot", 0))
+        row.update({
+            "sample_kind": "midnight_anchor",
+            "sampling_tier": meta.get("tier", ""),
+            "sampling_score": round(float(meta.get("score") or 0.0), 2),
+            "base_slot": meta.get("base_slot", ""),
+            "clock_slot": 0,
+        })
+        grouped.setdefault(date_text, []).append(row)
+
+    token = _midnight_anchor_token()
+    paths = []
+    for date_text, rows in grouped.items():
+        folder = OBSERVATION_DIR / date_text
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / f"midnight-anchor-{token}.csv.gz"
+        rows.sort(
+            key=lambda x: int(x["goods_no"])
+            if str(x.get("goods_no", "")).isdigit()
+            else 10**30
+        )
+        write_csv(path, rows, ADAPTIVE_OBS_FIELDS)
+        paths.append(str(path.relative_to(BASE_DIR)))
+    return paths
+
+
+def collect_midnight_anchor(max_products=None, dry_run=False):
+    """Collect an extra observation near the KST day boundary.
+
+    Selection:
+    - sales-speed score >= MIDNIGHT_ANCHOR_MIN (default 3/day)
+    - base slot 0 is skipped because its primary observation is already near 00:15
+    - faster sellers are collected first if the safety cap is reached
+
+    These observations are used only by Calendar Finalizer and never overwrite
+    the normal primary snapshots.
+    """
+    max_products = (
+        MIDNIGHT_ANCHOR_MAX_PER_RUN
+        if max_products in (None, 0)
+        else int(max_products)
+    )
+
+    latest_rows = read_csv(LATEST_PRODUCT_FILE)
+    catalog_rows = read_csv(CATALOG_FILE)
+    catalog = {
+        str(r.get("goods_no") or ""): r
+        for r in catalog_rows
+        if r.get("goods_no")
+    }
+    calendar_rows = read_csv(CALENDAR_LATEST_PRODUCT_FILE)
+    calendar = {
+        str(r.get("goods_no") or ""): r
+        for r in calendar_rows
+        if r.get("goods_no")
+    }
+    probation_goods = {
+        str(row.get("goods_no") or "").strip()
+        for row in latest_rows
+        if str(row.get("goods_no") or "").strip()
+        and product_in_probation(
+            catalog.get(str(row.get("goods_no") or "").strip())
+        )
+    }
+    recent_extra = load_recent_extra_observations(probation_goods)
+
+    selected = []
+    for row in latest_rows:
+        g = str(row.get("goods_no") or "").strip()
+        if not g:
+            continue
+
+        score = adaptive_sales_score(row)
+        cal_row = calendar.get(g)
+        score = max(score, calendar_sampling_score(cal_row))
+        if g in probation_goods:
+            score = max(
+                score,
+                probation_activity_score(row, recent_extra.get(g, [])),
+            )
+        if score < MIDNIGHT_ANCHOR_MIN:
+            continue
+
+        base_slot = to_int(row.get("slot"))
+        if base_slot is None or not (0 <= base_slot < SLOT_COUNT):
+            base_slot = effective_goods_slot(g, catalog.get(g))
+
+        # slot0 primary is already around the day boundary.
+        if base_slot == 0:
+            continue
+
+        tier = tier_for_score(score)
+        selected.append({
+            "goods_no": g,
+            "score": score,
+            "tier": tier,
+            "base_slot": base_slot,
+        })
+
+    selected.sort(
+        key=lambda x: (
+            -x["score"],
+            int(x["goods_no"]) if x["goods_no"].isdigit() else 10**30
+        )
+    )
+    due_before_cap = len(selected)
+    if max_products > 0:
+        selected = selected[:max_products]
+
+    stats = {
+        "checked_at": now_kst().isoformat(timespec="seconds"),
+        "anchor": "KST day-boundary",
+        "threshold_min_sales_per_day": MIDNIGHT_ANCHOR_MIN,
+        "due_before_cap": due_before_cap,
+        "selected": len(selected),
+        "max_products": max_products,
+        "dry_run": bool(dry_run),
+    }
+
+    if dry_run or not selected:
+        print(json.dumps(stats, ensure_ascii=False))
+        return 0
+
+    meta_by_goods = {x["goods_no"]: x for x in selected}
+    deadline = time.monotonic() + max(300, COLLECT_BUDGET_SECONDS)
+    work = Queue()
+    for x in selected:
+        work.put(x["goods_no"])
+
+    rows = []
+    rows_lock = threading.Lock()
+
+    def worker():
+        while time.monotonic() < deadline:
+            try:
+                g = work.get_nowait()
+            except Empty:
+                return
+            try:
+                r = collect_one(g, catalog.get(g), 2)
+            except Exception as e:
+                r = synthetic_failed_row(g, catalog.get(g), str(e))
+            with rows_lock:
+                rows.append(r)
+            work.task_done()
+
+    with ThreadPoolExecutor(max_workers=max(1, SHARD_WORKERS)) as executor:
+        futures = [executor.submit(worker) for _ in range(max(1, SHARD_WORKERS))]
+        for fut in futures:
+            try:
+                fut.result()
+            except Exception as e:
+                print(f"[midnight-anchor-worker-error] {e}", file=sys.stderr)
+
+    by_goods = {str(r.get("goods_no") or ""): r for r in rows}
+    success_rows = [
+        r for r in by_goods.values()
+        if to_int(r.get("purchase_total")) is not None
+    ]
+    failed_goods = [
+        g for g in meta_by_goods
+        if g not in by_goods or to_int(by_goods[g].get("purchase_total")) is None
+    ]
+
+    paths = save_midnight_anchor_observations(success_rows, meta_by_goods)
+
+    report_date = now_kst().date().isoformat()
+    report_dir = MIDNIGHT_REPORT_DIR / report_date
+    report_dir.mkdir(parents=True, exist_ok=True)
+    token = _midnight_anchor_token()
+
+    stats.update({
+        "success": len(success_rows),
+        "failed_or_unattempted": len(failed_goods),
+        "observation_files": paths,
+        "adaptive_state": THROTTLE.state(),
+        "failed_goods_sample": failed_goods[:100],
+    })
+
+    (report_dir / f"run-{token}.json").write_text(
+        json.dumps(stats, ensure_ascii=False, indent=2),
+        encoding="utf-8"
+    )
+    print(json.dumps(stats, ensure_ascii=False))
+    return 0
+
+
+def load_snapshot_any_slot(date_value):
+    """v6→v7 slot 재배치와 과거 기록 호환을 위해 날짜별 8개 slot을 goodsNo로 합칩니다."""
+    out = {}
+    for s in range(SLOT_COUNT):
+        path = SLOT_DIR / f"slot-{s}" / f"{date_value.isoformat()}.csv.gz"
+        if not path.exists():
+            path = SLOT_DIR / f"slot-{s}" / f"{date_value.isoformat()}.csv"
+        for r in read_csv(path):
+            g = str(r.get("goods_no") or "")
+            if g:
+                out[g] = r
+    return out
+
+
+def write_history_manifest():
+    slots = {}
+    for s in range(SLOT_COUNT):
+        dates = []
+        folder = SLOT_DIR / f"slot-{s}"
+        if folder.exists():
+            for p in folder.iterdir():
+                m = re.match(r"(\d{4}-\d{2}-\d{2})\.csv(?:\.gz)?$", p.name)
+                if m:
+                    dates.append(m.group(1))
+        slots[str(s)] = sorted(set(dates))
+    payload = {"updated_at": now_kst().isoformat(timespec="seconds"), "slots": slots}
+    HISTORY_MANIFEST_FILE.parent.mkdir(parents=True, exist_ok=True)
+    HISTORY_MANIFEST_FILE.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+
+
+def metric_delta(cur, baseline, field):
+    cv = to_int(cur.get(field))
+    bv = to_int(baseline.get(field)) if baseline else None
+    if cv is None or bv is None:
+        return None
+
+    delta = cv - bv
+    if delta < 0:
+        return None
+    return delta
+
+
+def purchase_counter_observation_inconsistent(row):
+    """Basic structural validation only.
+
+    review_count is deliberately NOT used as a hard classifier.
+    A launch can legitimately have reviews by the time our first crawler arrives,
+    and a reactivated old item can also have old reviews.  Lifecycle decisions are
+    therefore made from the time-series itself, not from review_count.
+    """
+    p = to_int((row or {}).get("purchase_total"))
+    return p is None or p < 0
+
+
+def guarded_purchase_delta(cur, baseline, older_baselines=()):
+    """Counter-safe rolling delta.
+
+    This function handles historical resets when an older trusted baseline exists.
+    It intentionally does not guess whether a first-ever large jump is genuine.
+    That decision is made by the calendar lifecycle resolver, which has access to
+    multiple observations before/after the jump.
+    """
+    if purchase_counter_observation_inconsistent(cur):
+        return None
+
+    cv = to_int((cur or {}).get("purchase_total"))
+    if cv is None:
+        return None
+
+    candidates = []
+    for row in (baseline,) + tuple(older_baselines or ()):
+        if not row or purchase_counter_observation_inconsistent(row):
+            continue
+        value = to_int(row.get("purchase_total"))
+        if value is not None:
+            candidates.append(value)
+
+    if not candidates:
+        return None
+
+    reference = max(candidates)
+    if cv < reference:
+        return None
+    return cv - reference
+
+
+def _catalog_first_seen(catalog_row):
+    if not catalog_row:
+        return None
+    return parse_kst_datetime(catalog_row.get("first_seen_at"))
+
+
+def _row_dt(row):
+    return row.get("_checked_dt") or parse_kst_datetime(row.get("checked_at"))
+
+
+def _is_true_first_observation(rows, catalog_row):
+    """Whether rows[0] is close enough to catalog.first_seen_at to be the first crawl."""
+    if not rows:
+        return False
+    first_seen = _catalog_first_seen(catalog_row)
+    first_dt = _row_dt(rows[0])
+    if first_seen is None or first_dt is None:
+        return False
+    gap_h = abs((first_dt - first_seen).total_seconds()) / 3600.0
+    return gap_h <= max(1.0, INITIAL_JUMP_FIRST_SEEN_WINDOW_HOURS)
+
+
+def resolve_initial_purchase_jump(rows, catalog_row=None):
+    """Resolve the first large purchaseTotal jump for a newly discovered goodsNo.
+
+    Returns: (rows_with_segments, state, initial_delta)
+
+    state:
+      none      - no special first-jump condition
+      pending   - not enough evidence yet; first jump excluded *for now*
+      genuine   - later observations show continued growth; first jump is restored
+      rebase    - jump behaved like historical cumulative-value restoration; excluded
+
+    Important:
+    - We do NOT use review_count.
+    - We do NOT say "0 means invalid".
+    - The first observed cumulative value is always just a baseline.
+    - A large first jump is only promoted into sales after follow-through evidence.
+    - Finalizer re-runs can later change pending -> genuine and retroactively restore it.
+    """
+    rows = [dict(r) for r in rows]
+    if len(rows) < 2 or not _is_true_first_observation(rows, catalog_row):
+        for r in rows:
+            r.setdefault("_counter_segment", 0)
+        return rows, "none", 0
+
+    v0 = to_int(rows[0].get("purchase_total"))
+    v1 = to_int(rows[1].get("purchase_total"))
+    t0 = _row_dt(rows[0])
+    t1 = _row_dt(rows[1])
+    if v0 is None or v1 is None or t0 is None or t1 is None or t1 <= t0:
+        for r in rows:
+            r.setdefault("_counter_segment", 0)
+        return rows, "none", 0
+
+    jump = v1 - v0
+    if jump < INITIAL_JUMP_MIN:
+        for r in rows:
+            r.setdefault("_counter_segment", 0)
+        return rows, "none", max(0, jump)
+
+    # Evaluate only observations inside the temporary 48h probation window.
+    decision_end = t0 + timedelta(hours=max(6, NEW_PRODUCT_PROBATION_HOURS))
+    future = [r for r in rows[2:] if (_row_dt(r) or decision_end) <= decision_end]
+
+    # Until enough follow-up exists, do not invent a decision.
+    # Mark the first interval as a separate segment so it is excluded from totals,
+    # while every later observed delta remains usable.
+    state = "pending"
+
+    if future:
+        later_values = [to_int(r.get("purchase_total")) for r in future]
+        later_values = [v for v in later_values if v is not None]
+
+        if later_values:
+            # Growth after the disputed jump.
+            highest = max([v1] + later_values)
+            follow_growth = max(0, highest - v1)
+
+            # Count genuine positive steps after v1.
+            prev = v1
+            positive_steps = 0
+            for val in later_values:
+                if val > prev:
+                    positive_steps += 1
+                prev = max(prev, val)
+
+            last_dt = max([_row_dt(r) for r in future if _row_dt(r) is not None], default=t1)
+            elapsed_h = max(0.0, (last_dt - t1).total_seconds() / 3600.0)
+
+            # "genuine" requires material continuing growth, not merely one tiny tick.
+            genuine_follow = max(
+                INITIAL_JUMP_GENUINE_MIN_FOLLOW,
+                int(round(jump * INITIAL_JUMP_GENUINE_FOLLOW_RATIO)),
+            )
+            if follow_growth >= genuine_follow and positive_steps >= 2:
+                state = "genuine"
+
+            # "rebase" requires a long, repeatedly confirmed plateau.
+            # This is what the NAUTICA 0 -> 1906 -> 1906... pattern looks like.
+            plateau_tol = max(5, int(round(jump * 0.01)))
+            if (
+                state != "genuine"
+                and elapsed_h >= INITIAL_JUMP_PLATEAU_HOURS
+                and len(future) >= INITIAL_JUMP_PLATEAU_CONFIRMATIONS
+                and follow_growth <= plateau_tol
+            ):
+                state = "rebase"
+
+    # Genuine => keep one segment, so the first jump is restored.
+    if state == "genuine":
+        for r in rows:
+            r["_counter_segment"] = 0
+        return rows, state, jump
+
+    # Pending/rebase => first observation and all later observations live in
+    # different segments. This excludes only the disputed first jump.
+    rows[0]["_counter_segment"] = 0
+    for r in rows[1:]:
+        r["_counter_segment"] = 1
+    return rows, state, jump
+
+
+
+def _median(values):
+    vals = sorted(float(v) for v in values if v is not None)
+    if not vals:
+        return 0.0
+    n = len(vals)
+    mid = n // 2
+    if n % 2:
+        return vals[mid]
+    return (vals[mid - 1] + vals[mid]) / 2.0
+
+
+def resolve_midstream_purchase_jumps(rows):
+    """Split extreme mid-stream positive counter rebases from real sales.
+
+    Existing `_counter_segment` boundaries are preserved.  Within each segment,
+    an interval is considered a candidate only when all of the following hold:
+
+    1) at least a few trusted prior intervals already exist;
+    2) the positive jump is at least MIDSTREAM_JUMP_MIN;
+    3) the jump is >= MIDSTREAM_JUMP_PRIOR_MULTIPLIER times the product's
+       recent median 24h-normalized observed pace.
+
+    Decision:
+      - pending: candidate is suspicious but follow-up is not sufficient yet.
+                 Exclude only that disputed boundary for now.
+      - rebase:  >= configured hours / confirmations later, post-jump growth
+                 remains tiny relative to the jump. Exclude boundary permanently.
+      - genuine: follow-up growth is large and has >=2 positive steps.
+                 Keep the original segment, restoring the jump.
+
+    The function intentionally uses only the purchaseTotal time-series.  It does
+    not use review_count, product name changes, or brand heuristics as hard rules.
+    """
+    if len(rows) < max(4, MIDSTREAM_JUMP_PRIOR_INTERVALS + 2):
+        return [dict(r) for r in rows], False, []
+
+    out = [dict(r) for r in rows]
+    anomaly = False
+    events = []
+
+    # Work segment by segment because downward-reset and initial-lifecycle
+    # boundaries have already been established.
+    seg_ids = []
+    for r in out:
+        sid = int(r.get("_counter_segment", 0))
+        if sid not in seg_ids:
+            seg_ids.append(sid)
+
+    next_segment_id = max(seg_ids, default=0) + 1
+
+    for sid in list(seg_ids):
+        idxs = [i for i, r in enumerate(out) if int(r.get("_counter_segment", 0)) == sid]
+        if len(idxs) < max(4, MIDSTREAM_JUMP_PRIOR_INTERVALS + 2):
+            continue
+
+        # A segment can theoretically contain more than one schema jump.
+        pos = MIDSTREAM_JUMP_PRIOR_INTERVALS
+        while pos < len(idxs):
+            i_prev = idxs[pos - 1]
+            i_cur = idxs[pos]
+            a, b = out[i_prev], out[i_cur]
+            p0, p1 = to_int(a.get("purchase_total")), to_int(b.get("purchase_total"))
+            t0, t1 = _row_dt(a), _row_dt(b)
+
+            if p0 is None or p1 is None or t0 is None or t1 is None or t1 <= t0:
+                pos += 1
+                continue
+
+            jump = p1 - p0
+            if jump < MIDSTREAM_JUMP_MIN:
+                pos += 1
+                continue
+
+            # Recent trusted pace, normalized to units/day.  This avoids treating
+            # a 3h adaptive interval and a 24h primary interval as comparable raw deltas.
+            prior_rates = []
+            prior_start = max(1, pos - MIDSTREAM_JUMP_PRIOR_INTERVALS)
+            for k in range(prior_start, pos):
+                x0 = out[idxs[k - 1]]
+                x1 = out[idxs[k]]
+                q0, q1 = to_int(x0.get("purchase_total")), to_int(x1.get("purchase_total"))
+                d0, d1 = _row_dt(x0), _row_dt(x1)
+                if q0 is None or q1 is None or d0 is None or d1 is None or d1 <= d0:
+                    continue
+                d = q1 - q0
+                if d < 0:
+                    continue
+                hours = (d1 - d0).total_seconds() / 3600.0
+                if hours > 0:
+                    prior_rates.append(d * 24.0 / hours)
+
+            if len(prior_rates) < max(2, MIDSTREAM_JUMP_PRIOR_INTERVALS - 1):
+                pos += 1
+                continue
+
+            prior_daily = _median(prior_rates)
+            # 1/day historical pace => threshold >= 50; absolute 500 still dominates.
+            # 100/day historical pace => threshold >= 5,000.
+            dynamic_threshold = max(
+                float(MIDSTREAM_JUMP_MIN),
+                prior_daily * MIDSTREAM_JUMP_PRIOR_MULTIPLIER,
+            )
+            if jump < dynamic_threshold:
+                pos += 1
+                continue
+
+            # Examine only later observations in this same current segment.
+            future_idxs = idxs[pos + 1:]
+            future = [out[j] for j in future_idxs]
+            later_values = [to_int(r.get("purchase_total")) for r in future]
+            later_values = [v for v in later_values if v is not None]
+
+            state = "pending"
+            follow_growth = 0
+            positive_steps = 0
+            elapsed_h = 0.0
+
+            if later_values:
+                highest = max([p1] + later_values)
+                follow_growth = max(0, highest - p1)
+
+                prev_val = p1
+                for val in later_values:
+                    if val > prev_val:
+                        positive_steps += 1
+                    prev_val = max(prev_val, val)
+
+                future_dts = [_row_dt(r) for r in future if _row_dt(r) is not None]
+                if future_dts:
+                    elapsed_h = max(
+                        0.0,
+                        (max(future_dts) - t1).total_seconds() / 3600.0,
+                    )
+
+                genuine_follow = max(
+                    MIDSTREAM_JUMP_GENUINE_MIN_FOLLOW,
+                    int(round(jump * MIDSTREAM_JUMP_GENUINE_RATIO)),
+                )
+                if follow_growth >= genuine_follow and positive_steps >= 2:
+                    state = "genuine"
+
+                plateau_tol = max(
+                    10,
+                    int(round(jump * MIDSTREAM_JUMP_PLATEAU_RATIO)),
+                    int(round(prior_daily * max(1.0, elapsed_h / 24.0) * 4.0)),
+                )
+                if (
+                    state != "genuine"
+                    and elapsed_h >= MIDSTREAM_JUMP_CONFIRM_HOURS
+                    and len(future) >= MIDSTREAM_JUMP_CONFIRMATIONS
+                    and follow_growth <= plateau_tol
+                ):
+                    state = "rebase"
+
+            events.append({
+                "index": i_cur,
+                "checked_at": str(b.get("checked_at") or ""),
+                "jump": jump,
+                "prior_daily_median": round(prior_daily, 3),
+                "follow_growth": follow_growth,
+                "positive_steps": positive_steps,
+                "elapsed_hours": round(elapsed_h, 2),
+                "state": state,
+            })
+
+            if state == "genuine":
+                pos += 1
+                continue
+
+            # pending/rebase: split exactly at the disputed boundary.
+            anomaly = True
+            new_sid = next_segment_id
+            next_segment_id += 1
+
+            for j in idxs[pos:]:
+                out[j]["_counter_segment"] = new_sid
+
+            # Continue scanning the newly created right-hand segment.  Rebuild its
+            # index list so subsequent genuine data can still be checked safely.
+            sid = new_sid
+            idxs = [i for i, r in enumerate(out) if int(r.get("_counter_segment", 0)) == sid]
+            pos = MIDSTREAM_JUMP_PRIOR_INTERVALS
+
+    return out, anomaly, events
+
+
+def build_latest_row(raw, prev, b7, b30, today, slot, catalog_row=None):
+    price = to_int(raw.get("current_price"))
+    daily_sales = guarded_purchase_delta(raw, prev, (b7, b30))
+
+    # Mid-stream live guard: rolling 24h has no future observations yet.
+    # If an established product suddenly jumps by an extreme amount while its
+    # older 7d/30d baselines imply a radically lower pace, display unknown rather
+    # than publishing a false five-digit 24h sale. Calendar Finalizer can later
+    # restore a genuine jump after follow-through evidence.
+    if daily_sales is not None and daily_sales >= MIDSTREAM_JUMP_MIN:
+        historical_rates = []
+        raw_dt = parse_kst_datetime((raw or {}).get("checked_at"))
+        for older in (b7, b30):
+            if not older:
+                continue
+            ov = to_int(older.get("purchase_total"))
+            cv = to_int((raw or {}).get("purchase_total"))
+            odt = parse_kst_datetime(older.get("checked_at"))
+            if ov is None or cv is None or odt is None or raw_dt is None or raw_dt <= odt:
+                continue
+            d = cv - ov
+            days = (raw_dt - odt).total_seconds() / 86400.0
+            if d >= 0 and days > 0:
+                historical_rates.append(d / days)
+
+        if historical_rates:
+            hist_daily = min(historical_rates)
+            threshold = max(
+                float(MIDSTREAM_JUMP_MIN),
+                hist_daily * MIDSTREAM_JUMP_PRIOR_MULTIPLIER,
+            )
+            if daily_sales >= threshold:
+                daily_sales = None
+
+    # Rolling 24h has no future observations available at build time.
+    # For a newly discovered item, a large first-day jump with no older baseline
+    # is therefore displayed as unknown instead of a false spike. Calendar Finalizer
+    # can later restore it retroactively after the 48h follow-through is known.
+    raw_checked = parse_kst_datetime(raw.get("checked_at")) or now_kst()
+    first_seen = _catalog_first_seen(catalog_row)
+    prev_checked = parse_kst_datetime((prev or {}).get("checked_at"))
+    first_baseline = (
+        first_seen is not None
+        and prev_checked is not None
+        and abs((prev_checked - first_seen).total_seconds()) / 3600.0
+            <= max(1.0, INITIAL_JUMP_FIRST_SEEN_WINDOW_HOURS)
+    )
+    if (
+        daily_sales is not None
+        and daily_sales >= INITIAL_JUMP_MIN
+        and product_in_probation(catalog_row, raw_checked)
+        and first_baseline
+        and b7 is None
+        and b30 is None
+    ):
+        daily_sales = None
+
+    sales7 = guarded_purchase_delta(raw, b7, (b30,))
+    sales30 = guarded_purchase_delta(raw, b30)
+    views = metric_delta(raw, prev, "page_view_total")
+    reviews = metric_delta(raw, prev, "review_count")
+
+    return {
+        "date": today.isoformat(),
+        "slot": slot,
+        "checked_at": raw.get("checked_at") or now_kst().isoformat(timespec="seconds"),
+        "brand_name": raw.get("brand_name") or "",
+        "goods_no": raw.get("goods_no") or "",
+        "product_name": raw.get("product_name") or "",
+        "purchase_total": to_int(raw.get("purchase_total")),
+        "daily_sales": daily_sales,
+        "normal_price": to_int(raw.get("normal_price")),
+        "current_price": price,
+        "sale_rate": to_int(raw.get("sale_rate")),
+        "daily_estimated_gmv": daily_sales * price if daily_sales is not None and price is not None else None,
+        "simple_gmv": to_int(raw.get("simple_gmv")),
+        "page_view_total": to_int(raw.get("page_view_total")),
+        "daily_page_view_increase": views,
+        "review_count": to_int(raw.get("review_count")),
+        "daily_review_increase": reviews,
+        "like_count": "",
+        "daily_like_increase": "",
+        "sales_7d": sales7,
+        "sales_7d_avg_per_day": round(sales7 / 7, 2) if sales7 is not None else "",
+        "estimated_gmv_7d": sales7 * price if sales7 is not None and price is not None else "",
+        "sales_30d": sales30,
+        "sales_30d_avg_per_day": round(sales30 / 30, 2) if sales30 is not None else "",
+        "estimated_gmv_30d": sales30 * price if sales30 is not None and price is not None else "",
+        "availability": raw.get("availability") or "",
+        "product_url": raw.get("product_url") or "",
+        "errors": raw.get("errors") or "",
+    }
+
+
+def append_new_products(delta):
+    if not delta:
+        return
+    old = read_csv(NEW_PRODUCTS_FILE)
+    by_goods = {str(r.get("goods_no") or ""): r for r in old if r.get("goods_no")}
+    for r in delta:
+        g = str(r.get("goods_no") or "")
+        if g and g not in by_goods:
+            by_goods[g] = r
+    rows = list(by_goods.values())
+    rows.sort(key=lambda r: (str(r.get("first_seen_at") or ""), str(r.get("goods_no") or "")))
+    write_csv(NEW_PRODUCTS_FILE, rows, NEW_PRODUCT_FIELDS)
+
+
+def upsert_rows(path, new_rows, fields, key_func):
+    old = read_csv(path)
+    keys = {key_func(r) for r in new_rows}
+    rows = [r for r in old if key_func(r) not in keys] + list(new_rows)
+    return rows
+
+
+def brand_rows_for_date(all_latest, new_delta, today):
+    current = [r for r in all_latest if str(r.get("date") or "") == today.isoformat()]
+    grouped = {}
+    for r in current:
+        b = str(r.get("brand_name") or "").strip() or "(브랜드 미확인)"
+        grouped.setdefault(b, []).append(r)
+
+    new_by_brand = {}
+    for r in new_delta:
+        b = str(r.get("brand_name") or "").strip() or "(브랜드 미확인)"
+        new_by_brand[b] = new_by_brand.get(b, 0) + 1
+
+    ts = now_kst().isoformat(timespec="seconds")
+    result = []
+    for brand, items in sorted(grouped.items()):
+        def valid(key):
+            return [to_int(x.get(key)) for x in items if to_int(x.get(key)) is not None]
+        def sm(key):
+            v = valid(key)
+            return sum(v) if v else 0
+
+        daily = [x for x in items if to_int(x.get("daily_sales")) is not None]
+        d7 = [x for x in items if to_int(x.get("sales_7d")) is not None]
+        d30 = [x for x in items if to_int(x.get("sales_30d")) is not None]
+        s7 = sum(to_int(x.get("sales_7d")) or 0 for x in d7)
+        s30 = sum(to_int(x.get("sales_30d")) or 0 for x in d30)
+
+        result.append({
+            "date": today.isoformat(), "checked_at": ts, "brand_name": brand,
+            "product_count": len(items),
+            "daily_baseline_product_count": len(daily),
+            "purchase_total_sum": sm("purchase_total"),
+            "simple_gmv_sum": sm("simple_gmv"),
+            "daily_sales_sum": sum(to_int(x.get("daily_sales")) or 0 for x in daily),
+            "daily_estimated_gmv_sum": sum(to_int(x.get("daily_estimated_gmv")) or 0 for x in daily),
+            "daily_page_view_increase_sum": sum(to_int(x.get("daily_page_view_increase")) or 0 for x in daily),
+            "daily_review_increase_sum": sum(to_int(x.get("daily_review_increase")) or 0 for x in daily),
+            "daily_like_increase_sum": 0,
+            "sales_7d_sum": s7 if d7 else "",
+            "sales_7d_avg_per_day": round(s7 / 7, 2) if d7 else "",
+            "estimated_gmv_7d": sum(to_int(x.get("estimated_gmv_7d")) or 0 for x in d7) if d7 else "",
+            "sales_30d_sum": s30 if d30 else "",
+            "sales_30d_avg_per_day": round(s30 / 30, 2) if d30 else "",
+            "estimated_gmv_30d": sum(to_int(x.get("estimated_gmv_30d")) or 0 for x in d30) if d30 else "",
+            "products_with_7d_baseline": len(d7),
+            "products_with_30d_baseline": len(d30),
+            "new_products": new_by_brand.get(brand, 0),
+        })
+    return result
+
+
+def synthetic_failed_row(goods_no, catalog_row, reason="missing shard result"):
+    meta = dict(catalog_row or {})
+    return {
+        "checked_at": now_kst().isoformat(timespec="seconds"),
+        "goods_no": str(goods_no),
+        "brand_name": meta.get("brand_name") or "",
+        "product_name": meta.get("product_name") or "",
+        "purchase_total": None,
+        "page_view_total": None,
+        "normal_price": to_int(meta.get("normal_price")),
+        "current_price": to_int(meta.get("current_price")),
+        "sale_rate": to_int(meta.get("sale_rate")),
+        "review_count": to_int(meta.get("review_count")),
+        "rating": meta.get("rating") or "",
+        "availability": meta.get("availability") or "",
+        "simple_gmv": None,
+        "product_url": meta.get("product_url") or f"https://www.musinsa.com/products/{goods_no}",
+        "errors": reason,
+    }
+
+
+def recovery_queue_path(date_value, slot):
+    d = date_value.isoformat() if hasattr(date_value, "isoformat") else str(date_value)
+    return RECOVERY_DIR / d / f"slot-{int(slot)}-failed.csv"
+
+
+def save_failure_queue(date_value, slot, expected_goods, raw_by_goods, catalog):
+    path = recovery_queue_path(date_value, slot)
+    old = {str(r.get("goods_no") or ""): r for r in read_csv(path) if r.get("goods_no")}
+    now = now_kst().isoformat(timespec="seconds")
+    remaining = []
+    for g in expected_goods:
+        r = raw_by_goods.get(str(g))
+        if r and to_int(r.get("purchase_total")) is not None:
+            continue
+        prev = old.get(str(g), {})
+        meta = catalog.get(str(g), {})
+        remaining.append({
+            "date": date_value.isoformat(),
+            "slot": int(slot),
+            "goods_no": str(g),
+            "brand_name": (r or {}).get("brand_name") or meta.get("brand_name") or "",
+            "product_name": (r or {}).get("product_name") or meta.get("product_name") or "",
+            "first_failed_at": prev.get("first_failed_at") or now,
+            "last_failed_at": now,
+            "attempts": (to_int(prev.get("attempts")) or 0) + 1,
+            "last_error": (r or {}).get("errors") or "missing shard result",
+            "current_price": to_int((r or {}).get("current_price")) if r else to_int(meta.get("current_price")),
+            "product_url": (r or {}).get("product_url") or meta.get("product_url") or f"https://www.musinsa.com/products/{g}",
+        })
+    write_csv(path, remaining, FAILURE_FIELDS)
+    return remaining
+
+
+def update_coverage(date_value, slot, expected, success, failed_rows, stage):
+    date_text = date_value.isoformat() if hasattr(date_value, "isoformat") else str(date_value)
+    path = COVERAGE_DIR / f"{date_text}.json"
+    payload = {}
+    if path.exists():
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            payload = {}
+    payload.setdefault("date", date_text)
+    payload.setdefault("slots", {})
+    prev = payload["slots"].get(str(slot), {})
+    failed_rows = list(failed_rows or [])
+    expected = int(expected or 0)
+    success = int(success or 0)
+    failed = max(0, expected - success)
+    pct = round((success / expected * 100.0), 4) if expected else 100.0
+  
+    coverage_now = now_kst().isoformat(timespec="seconds")
+
+    payload["slots"][str(slot)] = {
+        "slot": int(slot),
+        "expected": expected,
+        "success": success,
+        "failed": failed,
+        "coverage_pct": pct,
+        "status": "complete" if failed == 0 else "partial",
+        "stage": stage,
+
+        "first_collected_at": (
+            prev.get("first_collected_at")
+            or coverage_now
+        ),
+
+        # 정규 primary 수집 시각과 recovery 수집 시각을 따로 저장
+        "last_primary_at": (
+            coverage_now
+            if stage == "primary"
+            else prev.get("last_primary_at")
+        ),
+
+        "last_recovery_at": (
+            coverage_now
+            if stage == "recovery"
+            else prev.get("last_recovery_at")
+        ),
+
+        "last_updated_at": coverage_now,
+
+        "failed_goods_sample": [
+            str(r.get("goods_no") or "")
+            for r in failed_rows[:20]
+        ],
+    }
+    slots = payload["slots"]
+    total_expected = sum(int((v or {}).get("expected") or 0) for v in slots.values())
+    total_success = sum(int((v or {}).get("success") or 0) for v in slots.values())
+    total_failed = max(0, total_expected - total_success)
+    payload["overall"] = {
+        "slots_collected": len(slots),
+        "complete_slots": sum(1 for v in slots.values() if int((v or {}).get("failed") or 0) == 0),
+        "expected": total_expected,
+        "success": total_success,
+        "failed": total_failed,
+        "coverage_pct": round((total_success / total_expected * 100.0), 4) if total_expected else 100.0,
+    }
+    payload["updated_at"] = now_kst().isoformat(timespec="seconds")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    latest_payload = None
+    if COVERAGE_LATEST_FILE.exists():
+        try:
+            latest_payload = json.loads(COVERAGE_LATEST_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            latest_payload = None
+    if not latest_payload or date_text >= str(latest_payload.get("date") or ""):
+        COVERAGE_LATEST_FILE.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return payload
+
+
+def compact_from_raw(r, date_value, slot):
+    return {
+        "date": date_value.isoformat(), "slot": int(slot),
+        "checked_at": r.get("checked_at") or "",
+        "goods_no": str(r.get("goods_no") or ""),
+        "brand_name": r.get("brand_name") or "",
+        "product_name": r.get("product_name") or "",
+        "purchase_total": to_int(r.get("purchase_total")),
+        "page_view_total": to_int(r.get("page_view_total")),
+        "current_price": to_int(r.get("current_price")),
+        "normal_price": to_int(r.get("normal_price")),
+        "sale_rate": to_int(r.get("sale_rate")),
+        "review_count": to_int(r.get("review_count")),
+        "rating": r.get("rating") or "",
+        "availability": r.get("availability") or "",
+    }
+
+
+def raw_from_compact(r, catalog):
+    g = str(r.get("goods_no") or "")
+    meta = catalog.get(g, {})
+    price = to_int(r.get("current_price"))
+    purchase = to_int(r.get("purchase_total"))
+    return {
+        "checked_at": r.get("checked_at") or "",
+        "goods_no": g,
+        "brand_name": r.get("brand_name") or meta.get("brand_name") or "",
+        "product_name": r.get("product_name") or meta.get("product_name") or "",
+        "purchase_total": purchase,
+        "page_view_total": to_int(r.get("page_view_total")),
+        "normal_price": to_int(r.get("normal_price")),
+        "current_price": price,
+        "sale_rate": to_int(r.get("sale_rate")),
+        "review_count": to_int(r.get("review_count")),
+        "rating": r.get("rating") or "",
+        "availability": r.get("availability") or "",
+        "simple_gmv": purchase * price if purchase is not None and price is not None else None,
+        "product_url": meta.get("product_url") or f"https://www.musinsa.com/products/{g}",
+        "errors": "",
+    }
+
+
+def new_products_for_date(date_value):
+    date_text = date_value.isoformat() if hasattr(date_value, "isoformat") else str(date_value)
+    return [r for r in read_csv(NEW_PRODUCTS_FILE) if str(r.get("first_seen_at") or "")[:10] == date_text]
+
+
+def build_rows_for_date(date_value):
+    catalog_rows = read_csv(CATALOG_FILE)
+    catalog = {str(r.get("goods_no") or ""): r for r in catalog_rows if r.get("goods_no")}
+    prev = load_snapshot_any_slot(date_value - timedelta(days=1))
+    d7 = load_snapshot_any_slot(date_value - timedelta(days=7))
+    d30 = load_snapshot_any_slot(date_value - timedelta(days=30))
+    out = []
+    for slot in range(SLOT_COUNT):
+        path = SLOT_DIR / f"slot-{slot}" / f"{date_value.isoformat()}.csv.gz"
+        if not path.exists():
+            legacy = SLOT_DIR / f"slot-{slot}" / f"{date_value.isoformat()}.csv"
+            path = legacy
+        for c in read_csv(path):
+            g = str(c.get("goods_no") or "")
+            raw = raw_from_compact(c, catalog)
+            out.append(build_latest_row(raw, prev.get(g), d7.get(g), d30.get(g), date_value, slot, catalog.get(g)))
+    return out
+
+
+def rebuild_latest_product_file():
+    all_latest = []
+    for s in range(SLOT_COUNT):
+        all_latest.extend(read_csv(LATEST_SLOT_DIR / f"slot-{s}.csv.gz"))
+    all_latest.sort(key=lambda r: (
+        str(r.get("brand_name") or ""),
+        int(r["goods_no"]) if str(r.get("goods_no", "")).isdigit() else 10**30,
+    ))
+    write_csv(LATEST_PRODUCT_FILE, all_latest, LATEST_FIELDS)
+    return all_latest
+
+
+def rebuild_date_aggregates(date_value):
+    rows = build_rows_for_date(date_value)
+    new_delta = new_products_for_date(date_value)
+    brand_today = brand_rows_for_date(rows, new_delta, date_value)
+    brand_all = upsert_rows(
+        BRAND_HISTORY_FILE, brand_today, BRAND_FIELDS,
+        lambda r: (str(r.get("date") or ""), str(r.get("brand_name") or ""))
+    )
+    brand_all.sort(key=lambda r: (str(r.get("date") or ""), str(r.get("brand_name") or "")))
+    write_csv(BRAND_HISTORY_FILE, brand_all, BRAND_FIELDS)
+
+    daily_valid = [r for r in rows if to_int(r.get("daily_sales")) is not None]
+    summary = {
+        "checked_at": now_kst().isoformat(timespec="seconds"),
+        "date": date_value.isoformat(),
+        "product_count": len(rows),
+        "daily_baseline_product_count": len(daily_valid),
+        "purchase_total_sum": sum(to_int(r.get("purchase_total")) or 0 for r in rows),
+        "simple_gmv_sum": sum(to_int(r.get("simple_gmv")) or 0 for r in rows),
+        "daily_sales_sum": sum(to_int(r.get("daily_sales")) or 0 for r in daily_valid),
+        "daily_estimated_gmv_sum": sum(to_int(r.get("daily_estimated_gmv")) or 0 for r in daily_valid),
+        "sales_7d_sum": sum(to_int(r.get("sales_7d")) or 0 for r in rows if to_int(r.get("sales_7d")) is not None),
+        "sales_30d_sum": sum(to_int(r.get("sales_30d")) or 0 for r in rows if to_int(r.get("sales_30d")) is not None),
+        "new_products": len(new_delta),
+    }
+    summaries = upsert_rows(SUMMARY_FILE, [summary], SUMMARY_FIELDS, lambda r: str(r.get("date") or ""))
+    summaries.sort(key=lambda r: str(r.get("date") or ""))
+    write_csv(SUMMARY_FILE, summaries, SUMMARY_FIELDS)
+
+    slot_files = [SLOT_DIR / f"slot-{s}" / f"{date_value.isoformat()}.csv.gz" for s in range(SLOT_COUNT)]
+    if all(p.exists() for p in slot_files):
+        day_rows = []
+        for p in slot_files:
+            day_rows.extend(read_csv(p))
+        day_rows.sort(key=lambda r: int(r["goods_no"]) if str(r.get("goods_no", "")).isdigit() else 10**30)
+        write_csv(DAILY_DIR / f"{date_value.isoformat()}.csv.gz", day_rows, COMPACT_FIELDS)
+    return rows
+
+
+def refresh_latest_slot_from_snapshot(date_value, slot):
+    path = SLOT_DIR / f"slot-{slot}" / f"{date_value.isoformat()}.csv.gz"
+    compact = read_csv(path)
+    if not compact:
+        return []
+    existing_latest = read_csv(LATEST_SLOT_DIR / f"slot-{slot}.csv.gz")
+    existing_date = max([str(r.get("date") or "") for r in existing_latest] or [""])
+    if existing_date and existing_date > date_value.isoformat():
+        return existing_latest
+
+    catalog_rows = read_csv(CATALOG_FILE)
+    catalog = {str(r.get("goods_no") or ""): r for r in catalog_rows if r.get("goods_no")}
+    prev = load_snapshot_any_slot(date_value - timedelta(days=1))
+    d7 = load_snapshot_any_slot(date_value - timedelta(days=7))
+    d30 = load_snapshot_any_slot(date_value - timedelta(days=30))
+    latest = []
+    for c in compact:
+        g = str(c.get("goods_no") or "")
+        raw = raw_from_compact(c, catalog)
+        latest.append(build_latest_row(raw, prev.get(g), d7.get(g), d30.get(g), date_value, slot, catalog.get(g)))
+    write_csv(LATEST_SLOT_DIR / f"slot-{slot}.csv.gz", latest, LATEST_FIELDS)
+    return latest
+
+
+def recover_queue_file(path):
+    path = Path(path)
+    queue = read_csv(path)
+    if not queue:
+        return {"queue": str(path), "attempted": 0, "recovered": 0, "remaining": 0}
+
+    first = queue[0]
+    date_value = datetime.strptime(str(first.get("date")), "%Y-%m-%d").date()
+    slot = int(first.get("slot"))
+    catalog_rows = read_csv(CATALOG_FILE)
+    catalog = {str(r.get("goods_no") or ""): r for r in catalog_rows if r.get("goods_no")}
+
+    THROTTLE.recovery_mode()
+    results = {}
+    with ThreadPoolExecutor(max_workers=max(1, RECOVERY_WORKERS)) as executor:
+        futures = {
+            executor.submit(collect_one, str(r.get("goods_no")), catalog.get(str(r.get("goods_no"))), 4): r
+            for r in queue if r.get("goods_no")
+        }
+        for fut in as_completed(futures):
+            old = futures[fut]
+            g = str(old.get("goods_no"))
+            try:
+                results[g] = fut.result()
+            except Exception as e:
+                results[g] = synthetic_failed_row(g, catalog.get(g), str(e))
+
+    snap_path = SLOT_DIR / f"slot-{slot}" / f"{date_value.isoformat()}.csv.gz"
+    snapshot = {str(r.get("goods_no") or ""): r for r in read_csv(snap_path) if r.get("goods_no")}
+    remaining = []
+    recovered = 0
+    now = now_kst().isoformat(timespec="seconds")
+    for old in queue:
+        g = str(old.get("goods_no") or "")
+        r = results.get(g) or synthetic_failed_row(g, catalog.get(g), "recovery result missing")
+        if to_int(r.get("purchase_total")) is not None:
+            snapshot[g] = compact_from_raw(r, date_value, slot)
+            recovered += 1
+        else:
+            row = dict(old)
+            row["last_failed_at"] = now
+            row["attempts"] = (to_int(old.get("attempts")) or 0) + 1
+            row["last_error"] = r.get("errors") or old.get("last_error") or "recovery failed"
+            remaining.append(row)
+
+    rows = list(snapshot.values())
+    rows.sort(key=lambda r: int(r["goods_no"]) if str(r.get("goods_no", "")).isdigit() else 10**30)
+    write_csv(snap_path, rows, COMPACT_FIELDS)
+    write_csv(path, remaining, FAILURE_FIELDS)
+
+    expected = len(rows)
+    success = sum(1 for r in rows if to_int(r.get("purchase_total")) is not None)
+    update_coverage(date_value, slot, expected, success, remaining, "recovery")
+    refresh_latest_slot_from_snapshot(date_value, slot)
+    rebuild_latest_product_file()
+    rebuild_date_aggregates(date_value)
+    write_history_manifest()
+
+    return {
+        "queue": str(path), "date": date_value.isoformat(), "slot": slot,
+        "attempted": len(queue), "recovered": recovered, "remaining": len(remaining),
+        "coverage_pct": round((success / expected * 100.0), 4) if expected else 100.0,
+        "adaptive_interval_seconds": round(THROTTLE.interval, 3),
+    }
+
+
+def recover_pending(lookback_days=2, max_queues=8):
+    today = now_kst().date()
+    cutoff = today - timedelta(days=max(0, int(lookback_days)))
+    candidates = []
+    if RECOVERY_DIR.exists():
+        for path in RECOVERY_DIR.glob("*/slot-*-failed.csv"):
+            try:
+                d = datetime.strptime(path.parent.name, "%Y-%m-%d").date()
+            except Exception:
+                continue
+            if d < cutoff or d > today:
+                continue
+            if read_csv(path):
+                candidates.append((d, path))
+    candidates.sort(key=lambda x: (x[0], str(x[1])))
+    results = []
+    for _, path in candidates[:max(1, int(max_queues))]:
+        results.append(recover_queue_file(path))
+    print(json.dumps({"pending_queues": len(candidates), "processed": results}, ensure_ascii=False))
+    return 0
+
+
+
+def archive_existing_primary_snapshot(snapshot_path, slot):
+    """
+    같은 날짜/slot을 다시 수집할 때 기존 canonical snapshot이 사라지지 않도록
+    data/observations/YYYY-MM-DD/ 아래에 이전 관측값을 불변 archive로 보존합니다.
+
+    data/slots/.../YYYY-MM-DD.csv.gz 는 '해당 날짜/slot의 최신 snapshot cache'로 유지하고,
+    Calendar Finalizer는 canonical + observations를 함께 읽으므로 모든 재수집 관측값을 사용합니다.
+    """
+    snapshot_path = Path(snapshot_path)
+    if not snapshot_path.exists():
+        legacy = snapshot_path.with_suffix("") if snapshot_path.suffix == ".gz" else snapshot_path
+        if not legacy.exists():
+            return None
+        snapshot_path = legacy
+
+    rows = read_csv(snapshot_path)
+    if not rows:
+        return None
+
+    # 실제 checked_at 날짜 기준으로 나누어 저장합니다.
+    grouped = {}
+    for row in rows:
+        checked = parse_kst_datetime(row.get("checked_at"))
+        if checked is None:
+            # 기존 canonical 파일명 날짜 fallback
+            try:
+                dtext = snapshot_path.name.split(".csv")[0]
+                checked_date = datetime.strptime(dtext, "%Y-%m-%d").date()
+            except Exception:
+                checked_date = now_kst().date()
+        else:
+            checked_date = checked.date()
+
+        copied = dict(row)
+        copied.update({
+            "sample_kind": "primary_rerun_archive",
+            "sampling_tier": "baseline",
+            "sampling_score": "",
+            "base_slot": int(slot),
+            "clock_slot": int((checked.hour * 60 + checked.minute) // 180) % SLOT_COUNT if checked else int(slot),
+        })
+        grouped.setdefault(checked_date.isoformat(), []).append(copied)
+
+    run_id = re.sub(r"[^0-9A-Za-z_.-]+", "-", os.environ.get("GITHUB_RUN_ID", "local"))
+    stamp = now_kst().strftime("%H%M%S")
+    saved = []
+
+    for date_text, out_rows in grouped.items():
+        folder = OBSERVATION_DIR / date_text
+        folder.mkdir(parents=True, exist_ok=True)
+
+        # 이전 canonical의 checked_at 범위를 파일명에 넣어서 사람이 봐도 구분 가능하게 합니다.
+        checked_vals = []
+        for r in out_rows:
+            dt = parse_kst_datetime(r.get("checked_at"))
+            if dt is not None:
+                checked_vals.append(dt)
+        if checked_vals:
+            first_stamp = min(checked_vals).strftime("%H%M%S")
+            last_stamp = max(checked_vals).strftime("%H%M%S")
+        else:
+            first_stamp = last_stamp = stamp
+
+        out_path = folder / (
+            f"primary-rerun-slot-{int(slot)}-"
+            f"{first_stamp}-{last_stamp}-archived-{stamp}-{run_id}.csv.gz"
+        )
+        write_csv(out_path, out_rows, ADAPTIVE_OBS_FIELDS)
+        saved.append(str(out_path.relative_to(BASE_DIR)))
+
+    return saved
+
+
+def aggregate_slot(state_dir, shard_dir):
+    state_dir, shard_dir = Path(state_dir), Path(shard_dir)
+    today = datetime.strptime(
+        (state_dir / "snapshot_date.txt").read_text(encoding="utf-8").strip(),
+        "%Y-%m-%d"
+    ).date()
+    slot = int((state_dir / "slot.txt").read_text(encoding="utf-8").strip())
+
+    catalog_rows = read_csv(state_dir / "musinsa_catalog.csv")
+    catalog = {str(r.get("goods_no") or ""): r for r in catalog_rows if r.get("goods_no")}
+    watchlist = read_lines(state_dir / "musinsa_watchlist.txt")
+    expected_goods = [g for g in watchlist if effective_goods_slot(g, catalog.get(g)) == slot]
+
+    raw = []
+    for p in sorted(shard_dir.glob("*.csv")):
+        raw.extend(read_csv(p))
+    by_goods = {}
+    for r in raw:
+        g = str(r.get("goods_no") or "").strip()
+        if g:
+            by_goods[g] = r
+
+    # matrix job 하나가 timeout/실패해 artifact 자체가 없더라도 누락 goodsNo를 복구 큐에 넣습니다.
+    for g in expected_goods:
+        if g not in by_goods:
+            by_goods[g] = synthetic_failed_row(g, catalog.get(g), "missing shard artifact/result")
+
+    raw = [by_goods[g] for g in expected_goods if g in by_goods]
+    prev = load_snapshot_any_slot(today - timedelta(days=1))
+    d7 = load_snapshot_any_slot(today - timedelta(days=7))
+    d30 = load_snapshot_any_slot(today - timedelta(days=30))
+
+    latest = []
+    compact = []
+    for r in raw:
+        g = str(r.get("goods_no") or "")
+        latest.append(build_latest_row(r, prev.get(g), d7.get(g), d30.get(g), today, slot, catalog.get(g)))
+        compact.append(compact_from_raw(r, today, slot))
+
+    canonical_snapshot = SLOT_DIR / f"slot-{slot}" / f"{today.isoformat()}.csv.gz"
+
+    # 같은 날짜/slot 재실행이면 기존 snapshot을 먼저 observation archive에 보존합니다.
+    archived_observations = archive_existing_primary_snapshot(canonical_snapshot, slot)
+
+    # canonical 경로는 최신 cache로 갱신합니다. 과거 관측은 위 archive에 남아 있습니다.
+    write_csv(canonical_snapshot, compact, COMPACT_FIELDS)
+    write_csv(LATEST_SLOT_DIR / f"slot-{slot}.csv.gz", latest, LATEST_FIELDS)
+    write_history_manifest()
+
+    # discovery 상태 root 반영
+    write_lines(WATCHLIST_FILE, watchlist)
+    write_csv(CATALOG_FILE, catalog_rows, CATALOG_FIELDS)
+    new_delta = read_csv(state_dir / "new_products_delta.csv")
+    append_new_products(new_delta)
+
+    failures = save_failure_queue(today, slot, expected_goods, by_goods, catalog)
+    success_count = len(expected_goods) - len(failures)
+    coverage = update_coverage(today, slot, len(expected_goods), success_count, failures, "primary")
+
+    all_latest = rebuild_latest_product_file()
+    rebuild_date_aggregates(today)
+
+    print(json.dumps({
+        "date": today.isoformat(), "slot": slot,
+        "expected_products": len(expected_goods),
+        "success_products": success_count,
+        "failed_products": len(failures),
+        "coverage_pct": coverage.get("slots", {}).get(str(slot), {}).get("coverage_pct"),
+        "today_latest_products": len([r for r in all_latest if str(r.get("date") or "") == today.isoformat()]),
+        "recovery_queue": str(recovery_queue_path(today, slot)),
+        "archived_previous_observations": archived_observations or [],
+    }, ensure_ascii=False))
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# v9: KST calendar-day estimation
+# ---------------------------------------------------------------------------
+
+def to_float(value):
+    if value is None or value == "":
+        return None
+    try:
+        return float(str(value).replace(",", ""))
+    except Exception:
+        return None
+
+
+def parse_kst_datetime(value):
+    if not value:
+        return None
+    try:
+        text = str(value).strip()
+        if text.endswith("Z"):
+            text = text[:-1] + "+00:00"
+        dt = datetime.fromisoformat(text)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=KST)
+        return dt.astimezone(KST)
+    except Exception:
+        return None
+
+
+def calendar_bucket(goods_no):
+    s = str(goods_no or "").strip()
+    if s.isdigit():
+        return int(s) % CALENDAR_HISTORY_BUCKETS
+    digest = hashlib.sha1(s.encode("utf-8")).digest()
+    return int.from_bytes(digest[:4], "big") % CALENDAR_HISTORY_BUCKETS
+
+
+def overlap_seconds(a_start, a_end, b_start, b_end):
+    left = max(a_start, b_start)
+    right = min(a_end, b_end)
+    return max(0.0, (right - left).total_seconds())
+
+
+def load_calendar_observations(target_date, before_days=3, after_days=2):
+    """
+    snapshot 파일 날짜와 실제 checked_at 날짜가 recovery 때문에 다를 수 있어
+    target 주변 여러 snapshot을 읽은 뒤 실제 checked_at 기준으로 정렬합니다.
+    """
+    start_snapshot = target_date - timedelta(days=before_days)
+    end_snapshot = target_date + timedelta(days=after_days)
+    by_goods = {}
+    d = start_snapshot
+    while d <= end_snapshot:
+        for slot in range(SLOT_COUNT):
+            path = SLOT_DIR / f"slot-{slot}" / f"{d.isoformat()}.csv.gz"
+            if not path.exists():
+                legacy = SLOT_DIR / f"slot-{slot}" / f"{d.isoformat()}.csv"
+                path = legacy
+            for row in read_csv(path):
+                g = str(row.get("goods_no") or "").strip()
+                checked = parse_kst_datetime(row.get("checked_at"))
+                if not g or checked is None:
+                    continue
+                # 같은 timestamp 중복은 purchaseTotal 유효행을 우선
+                key = checked.isoformat()
+                bucket = by_goods.setdefault(g, {})
+                old = bucket.get(key)
+                if old is None or (
+                    to_int(old.get("purchase_total")) is None
+                    and to_int(row.get("purchase_total")) is not None
+                ):
+                    copied = dict(row)
+                    copied["_checked_dt"] = checked
+                    bucket[key] = copied
+
+        # High-selling products may have extra 6h/12h observations archived separately.
+        obs_folder = OBSERVATION_DIR / d.isoformat()
+        if obs_folder.exists():
+            obs_paths = sorted(list(obs_folder.glob("*.csv.gz")) + list(obs_folder.glob("*.csv")))
+            for obs_path in obs_paths:
+                for row in read_csv(obs_path):
+                    g = str(row.get("goods_no") or "").strip()
+                    checked = parse_kst_datetime(row.get("checked_at"))
+                    if not g or checked is None:
+                        continue
+                    key = checked.isoformat()
+                    bucket = by_goods.setdefault(g, {})
+                    old = bucket.get(key)
+                    if old is None or (
+                        to_int(old.get("purchase_total")) is None
+                        and to_int(row.get("purchase_total")) is not None
+                    ):
+                        copied = dict(row)
+                        copied["_checked_dt"] = checked
+                        bucket[key] = copied
+        d += timedelta(days=1)
+
+    out = {}
+    for g, keyed in by_goods.items():
+        rows = list(keyed.values())
+        rows.sort(key=lambda r: r["_checked_dt"])
+        out[g] = rows
+    return out
+
+
+def price_at_or_before(observations, when):
+    chosen = None
+    for row in observations:
+        dt = row.get("_checked_dt")
+        if dt is not None and dt <= when:
+            p = to_int(row.get("current_price"))
+            if p is not None:
+                chosen = p
+        elif dt is not None and dt > when:
+            break
+    return chosen
+
+
+def interval_gmv_contribution(prev_row, cur_row, overlap_start, overlap_end, delta, duration_seconds):
+    """
+    가격은 '마지막 관측값 유지(LOCF)' 방식으로 적용합니다.
+    새 가격은 cur_row의 checked_at에서 처음 확인된 것이므로 그 시점 전에는
+    이전 관측가(prev_row)를 사용합니다. 실제 가격변경 시각을 임의로 과거로
+    소급하지 않는 보수적인 방식입니다.
+    """
+    if duration_seconds <= 0:
+        return None, 0.0
+
+    p0 = to_int(prev_row.get("current_price"))
+    p1 = to_int(cur_row.get("current_price"))
+    if p0 is None and p1 is None:
+        return None, 0.0
+    price = p0 if p0 is not None else p1
+
+    sec = max(0.0, (overlap_end - overlap_start).total_seconds())
+    if sec <= 0:
+        return 0.0, 0.0
+
+    rate = delta / duration_seconds
+    return rate * sec * price, sec
+
+
+
+def sanitize_purchase_observations(observations, catalog_row=None):
+    """Clean purchaseTotal resets, then resolve a newly discovered item's first jump.
+
+    Step 1: remove transient downward resets (1000 -> 0 -> 1005).
+    Step 2: if the very first tracked interval is a large jump, use later 48h
+            observations to decide genuine / rebase / pending.
+
+    review_count is never a hard decision rule.
+    """
+    source = [
+        dict(r) for r in sorted(observations, key=lambda r: r["_checked_dt"])
+        if to_int(r.get("purchase_total")) is not None
+    ]
+
+    if not source:
+        return [], False, "none", 0
+
+    anomaly = False
+
+    # First clean transient/persistent downward counter resets.
+    clean = []
+    segment = 0
+    first = dict(source[0])
+    first["_counter_segment"] = segment
+    clean.append(first)
+    last_value = to_int(first.get("purchase_total"))
+
+    i = 1
+    while i < len(source):
+        row = source[i]
+        value = to_int(row.get("purchase_total"))
+
+        if value >= last_value:
+            x = dict(row)
+            x["_counter_segment"] = segment
+            clean.append(x)
+            last_value = value
+            i += 1
+            continue
+
+        anomaly = True
+
+        recovery_idx = None
+        recovery_tolerance = max(
+            COUNTER_RECOVERY_TOLERANCE_MIN,
+            int(round(abs(last_value) * COUNTER_RECOVERY_TOLERANCE_RATIO)),
+        )
+        recovery_floor = max(0, last_value - recovery_tolerance)
+
+        for j in range(i + 1, len(source)):
+            future = to_int(source[j].get("purchase_total"))
+            if future is not None and future >= recovery_floor:
+                recovery_idx = j
+                break
+
+        if recovery_idx is not None:
+            # transient/near recovery:
+            # 46996 -> 0 -> 46994처럼 거의 원래 counter 수준으로 돌아왔지만
+            # 소폭 낮아진 경우도 "0 -> 46994 신규 판매"로 연결하면 안 됩니다.
+            #
+            # 낮은 오류행(0 등)은 버리고, 복구 지점에서 새 segment를 시작해
+            # 경계 자체는 판매량 계산에서 제외합니다.
+            anomaly = True
+            segment += 1
+            recovered = dict(source[recovery_idx])
+            recovered["_counter_segment"] = segment
+            clean.append(recovered)
+            last_value = to_int(recovered.get("purchase_total"))
+            i = recovery_idx + 1
+            continue
+
+        # Persistent lower counter: begin a new segment only after at least
+        # two observations support the lower regime.
+        remaining = source[i:]
+        if len(remaining) >= 2:
+            segment += 1
+            x = dict(row)
+            x["_counter_segment"] = segment
+            clean.append(x)
+            last_value = value
+            i += 1
+            continue
+
+        i += 1
+
+    # Initial-jump resolver should only operate inside the first counter segment.
+    # If there was an unrelated later reset, preserve its segment boundaries.
+    if len(clean) >= 2:
+        first_segment = clean[0].get("_counter_segment", 0)
+        head = []
+        tail = []
+        switched = False
+        for r in clean:
+            if not switched and r.get("_counter_segment", 0) == first_segment:
+                head.append(r)
+            else:
+                switched = True
+                tail.append(r)
+
+        resolved, initial_state, initial_delta = resolve_initial_purchase_jump(
+            head, catalog_row
+        )
+
+        if initial_state in ("pending", "rebase"):
+            anomaly = True
+
+        # Keep later reset segments distinct by shifting them above resolved head.
+        if tail:
+            max_head_seg = max((int(r.get("_counter_segment", 0)) for r in resolved), default=0)
+            old_tail_min = min(int(r.get("_counter_segment", 0)) for r in tail)
+            shift = max_head_seg + 1 - old_tail_min
+            for r in tail:
+                r["_counter_segment"] = int(r.get("_counter_segment", 0)) + shift
+            resolved.extend(tail)
+
+        clean = resolved
+    else:
+        initial_state, initial_delta = "none", 0
+
+    # Finally protect already-established products from an extreme positive
+    # counter schema jump in the middle of their history.  This runs after the
+    # initial lifecycle resolver so the two protections do not compete.
+    clean, midstream_anomaly, midstream_events = resolve_midstream_purchase_jumps(clean)
+    if midstream_anomaly:
+        anomaly = True
+        if midstream_events:
+            sample = "; ".join(
+                f"{e['state']}:+{e['jump']}@{e['checked_at']}"
+                for e in midstream_events[:5]
+            )
+            print(f"[midstream-counter] {sample}", file=sys.stderr)
+
+    return clean, anomaly, initial_state, initial_delta
+
+
+def estimate_calendar_product(target_date, goods_no, observations, catalog_row=None):
+    day_start = datetime(
+        target_date.year, target_date.month, target_date.day, 0, 0, 0, tzinfo=KST
+    )
+    day_end = day_start + timedelta(days=1)
+
+    # 가격/메타데이터는 원본 관측을 유지하되,
+    # purchaseTotal 판매량 계산은 이상 하락/복구를 정제한 관측만 사용합니다.
+    original_observations = sorted(observations, key=lambda r: r["_checked_dt"])
+    observations, counter_anomaly, initial_delta_status, initial_delta_value = (
+        sanitize_purchase_observations(original_observations, catalog_row)
+    )
+    if len(observations) < 2:
+        return None
+
+    sales_est = 0.0
+    gmv_est = 0.0
+    gmv_seconds = 0.0
+    coverage_seconds = 0.0
+    contributing = 0
+    max_interval_hours = 0.0
+    negative_delta = bool(counter_anomaly)
+
+    for i in range(1, len(observations)):
+        a = observations[i - 1]
+        b = observations[i]
+        t0, t1 = a["_checked_dt"], b["_checked_dt"]
+        if t1 <= t0:
+            continue
+
+        # counter reset/rebase 경계는 서로 연결하지 않습니다.
+        if a.get("_counter_segment") != b.get("_counter_segment"):
+            negative_delta = True
+            continue
+
+        overlap = overlap_seconds(t0, t1, day_start, day_end)
+        if overlap <= 0:
+            continue
+
+        p0 = to_int(a.get("purchase_total"))
+        p1 = to_int(b.get("purchase_total"))
+        if p0 is None or p1 is None:
+            continue
+
+        delta = p1 - p0
+        if delta < 0:
+            # 누적 purchaseTotal 감소 interval은 판매 취소로 해석하지 않는다.
+            # 데이터 품질 이상 interval로 표시하고 판매/GMV/coverage 계산에서 제외한다.
+            negative_delta = True
+            continue
+
+        duration = (t1 - t0).total_seconds()
+        if duration <= 0:
+            continue
+
+        overlap_start = max(t0, day_start)
+        overlap_end = min(t1, day_end)
+        fraction = overlap / duration
+
+        sales_est += delta * fraction
+        coverage_seconds += overlap
+        contributing += 1
+        max_interval_hours = max(max_interval_hours, duration / 3600.0)
+
+        gmv_piece, priced_seconds = interval_gmv_contribution(
+            a, b, overlap_start, overlap_end, delta, duration
+        )
+        if gmv_piece is not None:
+            gmv_est += gmv_piece
+            gmv_seconds += priced_seconds
+
+    coverage_pct = min(100.0, coverage_seconds / 86400.0 * 100.0)
+    if coverage_seconds <= 0:
+        return None
+
+    start_price = price_at_or_before(original_observations, day_start)
+    end_price = price_at_or_before(original_observations, day_end - timedelta(microseconds=1))
+    if end_price is None:
+        # 당일 마지막 관측가 fallback
+        in_day_prices = [
+            to_int(r.get("current_price")) for r in original_observations
+            if day_start <= r["_checked_dt"] < day_end and to_int(r.get("current_price")) is not None
+        ]
+        if in_day_prices:
+            end_price = in_day_prices[-1]
+
+    price_change = (
+        start_price is not None and end_price is not None and start_price != end_price
+    )
+    change_amount = (
+        end_price - start_price
+        if start_price is not None and end_price is not None
+        else None
+    )
+    change_pct = (
+        change_amount / start_price * 100.0
+        if change_amount is not None and start_price not in (None, 0)
+        else None
+    )
+
+    complete = coverage_pct >= 99.0
+    if complete and max_interval_hours <= 30 and not price_change and not negative_delta:
+        confidence = "high"
+    elif coverage_pct >= 95.0 and max_interval_hours <= 48 and not negative_delta:
+        confidence = "medium"
+    else:
+        confidence = "low"
+
+    meta = dict(catalog_row or {})
+    sample = original_observations[-1] if original_observations else {}
+    brand = (
+        str(sample.get("brand_name") or "").strip()
+        or str(meta.get("brand_name") or "").strip()
+    )
+    product_name = sample.get("product_name") or meta.get("product_name") or ""
+    product_url = meta.get("product_url") or f"https://www.musinsa.com/products/{goods_no}"
+
+    avg_price = None
+    if abs(sales_est) > 1e-9 and gmv_seconds > 0:
+        avg_price = gmv_est / sales_est if sales_est != 0 else end_price
+    elif end_price is not None:
+        avg_price = end_price
+
+    return {
+        "date": target_date.isoformat(),
+        "brand_name": brand,
+        "goods_no": str(goods_no),
+        "product_name": product_name,
+        "estimated_sales": round(sales_est, 2),
+        "estimated_gmv": round(gmv_est) if gmv_seconds > 0 else "",
+        "estimated_avg_price": round(avg_price) if avg_price is not None else "",
+        "display_price": end_price if end_price is not None else "",
+        "previous_display_price": start_price if start_price is not None else "",
+        "price_change_detected": 1 if price_change else 0,
+        "price_change_amount": change_amount if change_amount is not None else "",
+        "price_change_pct": round(change_pct, 2) if change_pct is not None else "",
+        "coverage_pct": round(coverage_pct, 2),
+        "calendar_complete": 1 if complete else 0,
+        "confidence": confidence,
+        "max_interval_hours": round(max_interval_hours, 2),
+        "observation_count": len(observations),
+        "contributing_intervals": contributing,
+        "initial_delta_status": initial_delta_status,
+        "initial_delta_value": initial_delta_value if initial_delta_value else "",
+        "history_bucket": calendar_bucket(goods_no),
+        "product_url": product_url,
+    }
+
+
+def calendar_brand_rows(target_date, product_rows):
+    grouped = {}
+    for r in product_rows:
+        brand = str(r.get("brand_name") or "").strip() or "(브랜드 미확인)"
+        grouped.setdefault(brand, []).append(r)
+
+    checked = now_kst().isoformat(timespec="seconds")
+    out = []
+    for brand, rows in sorted(grouped.items()):
+        complete = [r for r in rows if to_int(r.get("calendar_complete")) == 1]
+        coverages = [to_float(r.get("coverage_pct")) for r in rows]
+        coverages = [x for x in coverages if x is not None]
+        out.append({
+            "date": target_date.isoformat(),
+            "checked_at": checked,
+            "brand_name": brand,
+            "product_count": len(rows),
+            "complete_product_count": len(complete),
+            "product_coverage_pct": round(len(complete) / len(rows) * 100.0, 2) if rows else 100.0,
+            "average_time_coverage_pct": round(sum(coverages) / len(coverages), 2) if coverages else 0.0,
+            "estimated_sales": round(sum(to_float(r.get("estimated_sales")) or 0.0 for r in rows), 2),
+            "estimated_gmv": round(sum(to_float(r.get("estimated_gmv")) or 0.0 for r in rows)),
+            "price_change_products": sum(1 for r in rows if to_int(r.get("price_change_detected")) == 1),
+            "high_confidence_products": sum(1 for r in rows if r.get("confidence") == "high"),
+            "medium_confidence_products": sum(1 for r in rows if r.get("confidence") == "medium"),
+            "low_confidence_products": sum(1 for r in rows if r.get("confidence") == "low"),
+        })
+    return out
+
+
+def upsert_calendar_history(target_date, product_rows):
+    """
+    상품 상세 조회용 월별 64개 bucket CSV.
+    goodsNo 하나를 클릭할 때 전체 5만개 일별파일을 읽지 않고
+    해당 월의 bucket 하나만 읽도록 합니다.
+    """
+    month = target_date.strftime("%Y-%m")
+    month_dir = CALENDAR_HISTORY_DIR / month
+    month_dir.mkdir(parents=True, exist_ok=True)
+
+    grouped = {}
+    for row in product_rows:
+        b = int(row.get("history_bucket") or 0)
+        grouped.setdefault(b, []).append(row)
+
+    existing_buckets = set()
+    if month_dir.exists():
+        for p in month_dir.glob("bucket-*.csv"):
+            m = re.match(r"bucket-(\d+)\.csv$", p.name)
+            if m:
+                existing_buckets.add(int(m.group(1)))
+
+    for b in sorted(existing_buckets | set(grouped)):
+        path = month_dir / f"bucket-{b:02d}.csv"
+        old = [
+            r for r in read_csv(path)
+            if str(r.get("date") or "") != target_date.isoformat()
+        ]
+        rows = old + grouped.get(b, [])
+        rows.sort(key=lambda r: (
+            str(r.get("date") or ""),
+            int(r["goods_no"]) if str(r.get("goods_no", "")).isdigit() else 10**30,
+        ))
+        write_csv(path, rows, CALENDAR_PRODUCT_FIELDS)
+
+
+def write_calendar_manifest():
+    summaries = read_csv(CALENDAR_SUMMARY_FILE)
+    dates = sorted({str(r.get("date") or "") for r in summaries if r.get("date")})
+    months = sorted({
+        p.name for p in CALENDAR_HISTORY_DIR.iterdir()
+        if p.is_dir() and re.match(r"^\d{4}-\d{2}$", p.name)
+    }) if CALENDAR_HISTORY_DIR.exists() else []
+    payload = {
+        "updated_at": now_kst().isoformat(timespec="seconds"),
+        "latest_finalized_date": dates[-1] if dates else "",
+        "finalized_dates": dates,
+        "months": months,
+        "history_buckets": CALENDAR_HISTORY_BUCKETS,
+        "method": "KST calendar-day purchaseTotal interval allocation with lifecycle first-jump deferral/reclassification; price uses last-observation-carried-forward",
+    }
+    CALENDAR_MANIFEST_FILE.parent.mkdir(parents=True, exist_ok=True)
+    CALENDAR_MANIFEST_FILE.write_text(
+        json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+        encoding="utf-8",
+    )
+
+
+def finalize_calendar_date(target_date):
+    observations = load_calendar_observations(target_date)
+    catalog_rows = read_csv(CATALOG_FILE)
+    catalog = {str(r.get("goods_no") or ""): r for r in catalog_rows if r.get("goods_no")}
+
+    product_rows = []
+    for g, obs in observations.items():
+        row = estimate_calendar_product(target_date, g, obs, catalog.get(g))
+        if row is not None:
+            product_rows.append(row)
+
+    product_rows.sort(key=lambda r: (
+        str(r.get("brand_name") or ""),
+        int(r["goods_no"]) if str(r.get("goods_no", "")).isdigit() else 10**30,
+    ))
+
+    brand_rows = calendar_brand_rows(target_date, product_rows)
+
+    brand_all = upsert_rows(
+        CALENDAR_BRAND_FILE,
+        brand_rows,
+        CALENDAR_BRAND_FIELDS,
+        lambda r: (str(r.get("date") or ""), str(r.get("brand_name") or "")),
+    )
+    brand_all.sort(key=lambda r: (str(r.get("date") or ""), str(r.get("brand_name") or "")))
+    write_csv(CALENDAR_BRAND_FILE, brand_all, CALENDAR_BRAND_FIELDS)
+
+    complete_count = sum(1 for r in product_rows if to_int(r.get("calendar_complete")) == 1)
+    coverages = [to_float(r.get("coverage_pct")) for r in product_rows]
+    coverages = [x for x in coverages if x is not None]
+    summary = {
+        "date": target_date.isoformat(),
+        "checked_at": now_kst().isoformat(timespec="seconds"),
+        "brand_count": len({r.get("brand_name") for r in product_rows if r.get("brand_name")}),
+        "product_count": len(product_rows),
+        "complete_product_count": complete_count,
+        "product_coverage_pct": round(complete_count / len(product_rows) * 100.0, 2) if product_rows else 100.0,
+        "average_time_coverage_pct": round(sum(coverages) / len(coverages), 2) if coverages else 0.0,
+        "estimated_sales": round(sum(to_float(r.get("estimated_sales")) or 0.0 for r in product_rows), 2),
+        "estimated_gmv": round(sum(to_float(r.get("estimated_gmv")) or 0.0 for r in product_rows)),
+        "price_change_products": sum(1 for r in product_rows if to_int(r.get("price_change_detected")) == 1),
+    }
+    summary_all = upsert_rows(
+        CALENDAR_SUMMARY_FILE,
+        [summary],
+        CALENDAR_SUMMARY_FIELDS,
+        lambda r: str(r.get("date") or ""),
+    )
+    summary_all.sort(key=lambda r: str(r.get("date") or ""))
+    write_csv(CALENDAR_SUMMARY_FILE, summary_all, CALENDAR_SUMMARY_FIELDS)
+
+    upsert_calendar_history(target_date, product_rows)
+
+    # 가장 최근 finalize 날짜를 메인 상품표로 사용
+    latest_date = max(
+        [str(r.get("date") or "") for r in summary_all if r.get("date")] or [target_date.isoformat()]
+    )
+    if target_date.isoformat() == latest_date:
+        write_csv(CALENDAR_LATEST_PRODUCT_FILE, product_rows, CALENDAR_PRODUCT_FIELDS)
+
+    write_calendar_manifest()
+
+    print(json.dumps({
+        "calendar_date": target_date.isoformat(),
+        "products": len(product_rows),
+        "complete_products": complete_count,
+        "product_coverage_pct": summary["product_coverage_pct"],
+        "estimated_sales": summary["estimated_sales"],
+        "estimated_gmv": summary["estimated_gmv"],
+        "price_change_products": summary["price_change_products"],
+    }, ensure_ascii=False))
+    return summary
+
+
+def finalize_calendar_recent(lookback_days=3, date_text=None):
+    if date_text:
+        target = datetime.strptime(date_text, "%Y-%m-%d").date()
+        finalize_calendar_date(target)
+        return 0
+
+    today = now_kst().date()
+    days = max(1, int(lookback_days))
+    targets = [today - timedelta(days=i) for i in range(days, 0, -1)]
+    for target in targets:
+        # 오늘은 아직 00~24시가 끝나지 않았으므로 항상 어제까지만 finalize
+        if target >= today:
+            continue
+        finalize_calendar_date(target)
+    return 0
+
+def main():
+    parser = argparse.ArgumentParser()
+    sub = parser.add_subparsers(dest="cmd", required=True)
+
+    p = sub.add_parser("discover-slot")
+    p.add_argument("--state-dir", default="run_state")
+    p.add_argument("--slot", type=int, required=True, choices=range(8))
+    p.add_argument("--full-discovery", action="store_true")
+
+    p = sub.add_parser("collect-slot-shard")
+    p.add_argument("--state-dir", default="run_state")
+    p.add_argument("--slot", type=int, required=True, choices=range(8))
+    p.add_argument("--shard-index", type=int, required=True)
+    p.add_argument("--shard-count", type=int, required=True)
+    p.add_argument("--output", required=True)
+
+    p = sub.add_parser("aggregate-slot")
+    p.add_argument("--state-dir", default="run_state")
+    p.add_argument("--shard-dir", required=True)
+
+    p = sub.add_parser("recover-pending")
+    p.add_argument("--lookback-days", type=int, default=2)
+    p.add_argument("--max-queues", type=int, default=8)
+
+    p = sub.add_parser("collect-adaptive")
+    p.add_argument("--clock-slot", type=int, required=True, choices=range(8))
+    p.add_argument("--max-products", type=int, default=0)
+    p.add_argument("--dry-run", action="store_true")
+
+    p = sub.add_parser("collect-midnight-anchor")
+    p.add_argument("--max-products", type=int, default=0)
+    p.add_argument("--dry-run", action="store_true")
+
+    p = sub.add_parser("finalize-calendar")
+    p.add_argument("--lookback-days", type=int, default=3)
+    p.add_argument("--date", default="")
+
+    p = sub.add_parser("repair-catalog")
+    p.add_argument("--max-products", type=int, default=200)
+
+    args = parser.parse_args()
+    if args.cmd == "discover-slot":
+        return discover_slot(args.state_dir, args.slot, args.full_discovery)
+    if args.cmd == "collect-slot-shard":
+        return collect_slot_shard(
+            args.state_dir, args.slot, args.shard_index, args.shard_count, args.output
+        )
+    if args.cmd == "aggregate-slot":
+        return aggregate_slot(args.state_dir, args.shard_dir)
+    if args.cmd == "recover-pending":
+        return recover_pending(args.lookback_days, args.max_queues)
+    if args.cmd == "collect-adaptive":
+        return collect_adaptive(args.clock_slot, args.max_products, args.dry_run)
+    if args.cmd == "collect-midnight-anchor":
+        return collect_midnight_anchor(args.max_products, args.dry_run)
+    if args.cmd == "finalize-calendar":
+        return finalize_calendar_recent(args.lookback_days, args.date or None)
+    if args.cmd == "repair-catalog":
+        return repair_catalog_command(args.max_products)
+    return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
