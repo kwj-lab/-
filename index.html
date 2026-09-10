@@ -85,7 +85,7 @@ dialog{width:min(1200px,96vw);max-height:92vh;border:0;border-radius:16px;paddin
 
 <div class="filters">
 <select id="brandFilter"><option value="">전체 브랜드</option></select>
-<input id="search" placeholder="상품명 / 상품번호 검색">
+<input id="search" placeholder="브랜드 / 상품명 / 상품번호 검색">
 </div>
 
 <div class="brandstatus" id="brandStatus">
@@ -600,7 +600,31 @@ async function jsn(p,opt=false){
   throw lastErr||new Error(p+' load failed');
 }
 
-function filtered(){let x=products;const b=document.getElementById('brandFilter').value;if(b)x=x.filter(r=>r.brand_name===b);const q=document.getElementById('search').value.trim().toLowerCase();if(q)x=x.filter(r=>(r.product_name||'').toLowerCase().includes(q)||(r.previous_product_name||'').toLowerCase().includes(q)||(r.product_name_history||'').toLowerCase().includes(q)||String(r.goods_no||'').includes(q));return x}
+function searchText(v){
+ return String(v??'').normalize('NFKC').toLocaleLowerCase('ko-KR');
+}
+function filtered(){
+ let x=products;
+ const b=document.getElementById('brandFilter').value;
+ if(b)x=x.filter(r=>r.brand_name===b);
+
+ const q=searchText(document.getElementById('search').value).trim();
+ if(q){
+   x=x.filter(r=>{
+     const brand=searchText(r.brand_name);
+     const product=searchText(r.product_name);
+     const previous=searchText(r.previous_product_name);
+     const history=searchText(r.product_name_history);
+     const goods=String(r.goods_no||'');
+     return brand.includes(q)
+       || product.includes(q)
+       || previous.includes(q)
+       || history.includes(q)
+       || goods.includes(q);
+   });
+ }
+ return x;
+}
 function chart(el,rows,key){
  if(!rows.length){el.innerHTML='<div class="empty">데이터 없음</div>';return}
  const W=900,H=270,R=18,T=15,B=35;
@@ -1236,7 +1260,7 @@ async function loadShell(){
 
   const finalized=manifest.latest_finalized_date||latestDate(summary)||latestDate(brands)||'-';
   document.getElementById('updated').textContent=
-    `최종 캘린더 날짜 ${finalized} · 빠른 화면 로드 완료 · 상품 상세 데이터는 검색/스크롤 시 로드 · UI v9.28`;
+    `최종 캘린더 날짜 ${finalized} · 빠른 화면 로드 완료 · 상품 상세 데이터는 검색/스크롤 시 로드 · UI v9.31`;
   setProductLoadState('idle','빠른 화면 완료 · 상품 데이터는 필요 시 로드');
  }catch(e){
   er.textContent='초기 데이터 로드 실패: '+e.message;
