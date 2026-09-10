@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Musinsa Distributed Collector v9
+Musinsa Distributed Collector v9.1 lifecycle-safe
 ================================
 등록 브랜드 수백 개 / 상품코드 수만~10만+ 규모를 위한 분산 수집기.
 
@@ -88,6 +88,11 @@ RECOVERY_DIR = BASE_DIR / "data" / "recovery"
 COVERAGE_DIR = BASE_DIR / "data" / "coverage"
 COVERAGE_LATEST_FILE = COVERAGE_DIR / "latest.json"
 
+# lifecycle evidence cache: used to distinguish truly new goods from old goods
+# that existed before this tracker and later became visible again.
+LIFECYCLE_DIR = BASE_DIR / "data" / "lifecycle"
+LIFECYCLE_EVIDENCE_FILE = LIFECYCLE_DIR / "pretracker_evidence.json"
+
 # v9 calendar-day analytics
 CALENDAR_DIR = BASE_DIR / "data" / "calendar"
 CALENDAR_HISTORY_DIR = CALENDAR_DIR / "history"
@@ -134,6 +139,12 @@ MIDSTREAM_JUMP_PLATEAU_RATIO = float(os.environ.get("MUSINSA_MIDSTREAM_JUMP_PLAT
 MIDSTREAM_JUMP_GENUINE_RATIO = float(os.environ.get("MUSINSA_MIDSTREAM_JUMP_GENUINE_RATIO", "0.10"))
 MIDSTREAM_JUMP_GENUINE_MIN_FOLLOW = int(os.environ.get("MUSINSA_MIDSTREAM_JUMP_GENUINE_MIN_FOLLOW", "100"))
 
+# Tracker-start boundary. In the real repository the earliest stored snapshot is
+# preferred automatically; the env/default is only a fallback for fresh/partial copies.
+TRACKER_START_DATE_FALLBACK = os.environ.get("MUSINSA_TRACKER_START_DATE", "2026-08-28")
+LIFECYCLE_PROBE_TIMEOUT = int(os.environ.get("MUSINSA_LIFECYCLE_PROBE_TIMEOUT", "12"))
+LIFECYCLE_DISCOVERY_PROBE_MAX = int(os.environ.get("MUSINSA_LIFECYCLE_DISCOVERY_PROBE_MAX", "120"))
+
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -143,7 +154,9 @@ USER_AGENT = (
 CATALOG_FIELDS = [
     "goods_no", "brand_name", "product_name", "normal_price",
     "current_price", "sale_rate", "review_count", "rating",
-    "availability", "first_seen_at", "last_seen_at", "product_url",
+    "availability", "first_seen_at", "last_seen_at",
+    "lifecycle_status", "lifecycle_evidence_type", "lifecycle_evidence_date",
+    "lifecycle_checked_at", "product_url",
 ]
 RAW_FIELDS = [
     "checked_at", "goods_no", "brand_name", "product_name",
@@ -185,7 +198,7 @@ SUMMARY_FIELDS = [
 ]
 NEW_PRODUCT_FIELDS = [
     "first_seen_at", "brand_name", "goods_no", "product_name",
-    "normal_price", "current_price", "sale_rate",
+    "normal_price", "current_price", "sale_rate", "lifecycle_status",
 ]
 BRAND_AUDIT_FIELDS = [
     "checked_at", "requested_brand", "matched_brand", "match_mode",
@@ -717,10 +730,40 @@ def discover_slot(state_dir, slot, force_full=False):
                     }
 
     new_rows = []
+    lifecycle_probes = 0
+    # Do not explode API calls during a brand-new catalog bootstrap.  Once the
+    # tracker already has a catalog, newly reappearing goods are few enough to
+    # probe for historical existence evidence.
+    lifecycle_probe_enabled = bool(existing_goods)
     for brand in assigned_brands:
         for p in found.get(brand, []):
             g = str(p["goods_no"])
             old = catalog.get(g, {})
+            is_new_discovery = g not in existing_goods
+            lifecycle_status = str(old.get("lifecycle_status") or "").strip()
+            lifecycle_evidence_type = str(old.get("lifecycle_evidence_type") or "").strip()
+            lifecycle_evidence_date = str(old.get("lifecycle_evidence_date") or "").strip()
+            lifecycle_checked_at = str(old.get("lifecycle_checked_at") or "").strip()
+
+            if (
+                is_new_discovery
+                and lifecycle_probe_enabled
+                and lifecycle_probes < max(0, LIFECYCLE_DISCOVERY_PROBE_MAX)
+            ):
+                lifecycle_probes += 1
+                ev = lifecycle_evidence(g)
+                lifecycle_checked_at = ev.get("checked_at") or lifecycle_checked_at
+                lifecycle_evidence_type = ev.get("evidence_type") or lifecycle_evidence_type
+                lifecycle_evidence_date = ev.get("evidence_date") or lifecycle_evidence_date
+                if ev.get("status") == "preexisting_confirmed":
+                    lifecycle_status = "reactivated_pretracker"
+                elif ev.get("status") == "preexisting_probable":
+                    lifecycle_status = "reactivated_pretracker_probable"
+                elif not lifecycle_status:
+                    lifecycle_status = "first_seen_unverified"
+            elif is_new_discovery and not lifecycle_status:
+                lifecycle_status = "first_seen_unverified"
+
             row = {
                 "goods_no": g,
                 "brand_name": p.get("brand_name") or old.get("brand_name") or "",
@@ -733,19 +776,28 @@ def discover_slot(state_dir, slot, force_full=False):
                 "availability": p.get("availability") or old.get("availability") or "",
                 "first_seen_at": old.get("first_seen_at") or ts,
                 "last_seen_at": ts,
+                "lifecycle_status": lifecycle_status,
+                "lifecycle_evidence_type": lifecycle_evidence_type,
+                "lifecycle_evidence_date": lifecycle_evidence_date,
+                "lifecycle_checked_at": lifecycle_checked_at,
                 "product_url": p.get("product_url") or old.get("product_url") or f"https://www.musinsa.com/products/{g}",
             }
             catalog[g] = row
             if g not in existing_goods:
-                new_rows.append({
-                    "first_seen_at": ts,
-                    "brand_name": row["brand_name"],
-                    "goods_no": g,
-                    "product_name": row["product_name"],
-                    "normal_price": row["normal_price"],
-                    "current_price": row["current_price"],
-                    "sale_rate": row["sale_rate"],
-                })
+                # A goodsNo with evidence older than the tracker is a reactivated
+                # existing item, not a genuine new product. Keep it in catalog,
+                # but do not inflate the new-product feed/count.
+                if lifecycle_status not in ("reactivated_pretracker", "reactivated_pretracker_probable"):
+                    new_rows.append({
+                        "first_seen_at": ts,
+                        "brand_name": row["brand_name"],
+                        "goods_no": g,
+                        "product_name": row["product_name"],
+                        "normal_price": row["normal_price"],
+                        "current_price": row["current_price"],
+                        "sale_rate": row["sale_rate"],
+                        "lifecycle_status": lifecycle_status or "first_seen_unverified",
+                    })
                 existing_goods.add(g)
 
     watchlist = []
@@ -990,6 +1042,303 @@ def write_history_manifest():
     HISTORY_MANIFEST_FILE.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
 
 
+_TRACKER_START_DATE_CACHE = None
+_TRACKER_START_GOODS_CEILING_CACHE = None
+_LIFECYCLE_CACHE_MEMORY = None
+
+
+def tracker_start_date():
+    """Return the first actual date for which this repository has tracker snapshots.
+
+    This avoids hard-coding the late-August 2026 start when the repository itself
+    already contains the authoritative first snapshot date.
+    """
+    global _TRACKER_START_DATE_CACHE
+    if _TRACKER_START_DATE_CACHE is not None:
+        return _TRACKER_START_DATE_CACHE
+
+    dates = []
+    roots = [SLOT_DIR, DAILY_DIR]
+    date_re = re.compile(r"(20\d{2}-\d{2}-\d{2})")
+    for root in roots:
+        if not root.exists():
+            continue
+        try:
+            for path in root.rglob("*"):
+                if not path.is_file():
+                    continue
+                m = date_re.search(path.name)
+                if not m:
+                    continue
+                try:
+                    dates.append(datetime.strptime(m.group(1), "%Y-%m-%d").date())
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    if dates:
+        value = min(dates)
+    else:
+        try:
+            value = datetime.strptime(TRACKER_START_DATE_FALLBACK, "%Y-%m-%d").date()
+        except Exception:
+            value = datetime(2026, 8, 28).date()
+
+    _TRACKER_START_DATE_CACHE = value
+    return value
+
+
+
+def tracker_start_goods_no_ceiling():
+    """Largest numeric goodsNo observed on the first tracker snapshot date.
+
+    Musinsa goodsNo behaves as an allocation sequence in practice, so a goodsNo
+    below a number already observed on the tracker start date is strong supporting
+    evidence that the ID itself existed before our tracker began.  This is treated
+    as *probable*, not as an absolute fact, and review/Q&A dates remain stronger.
+    """
+    global _TRACKER_START_GOODS_CEILING_CACHE
+    if _TRACKER_START_GOODS_CEILING_CACHE is not None:
+        return _TRACKER_START_GOODS_CEILING_CACHE
+
+    start = tracker_start_date().isoformat()
+    nums = []
+    for slot in range(SLOT_COUNT):
+        for suffix in (".csv.gz", ".csv"):
+            path = SLOT_DIR / f"slot-{slot}" / f"{start}{suffix}"
+            if not path.exists():
+                continue
+            for row in read_csv(path):
+                g = str(row.get("goods_no") or "").strip()
+                if g.isdigit():
+                    nums.append(int(g))
+
+    # DAILY_DIR is a useful fallback when the individual first-day slot files
+    # have already been compacted/moved.
+    if not nums:
+        for suffix in (".csv.gz", ".csv"):
+            path = DAILY_DIR / f"{start}{suffix}"
+            if not path.exists():
+                continue
+            for row in read_csv(path):
+                g = str(row.get("goods_no") or "").strip()
+                if g.isdigit():
+                    nums.append(int(g))
+
+    value = max(nums) if nums else 0
+    _TRACKER_START_GOODS_CEILING_CACHE = value
+    return value
+
+
+
+def _load_lifecycle_cache():
+    global _LIFECYCLE_CACHE_MEMORY
+    if _LIFECYCLE_CACHE_MEMORY is not None:
+        return _LIFECYCLE_CACHE_MEMORY
+    data = {}
+    try:
+        if LIFECYCLE_EVIDENCE_FILE.exists():
+            obj = json.loads(LIFECYCLE_EVIDENCE_FILE.read_text(encoding="utf-8"))
+            if isinstance(obj, dict):
+                data = obj
+    except Exception:
+        data = {}
+    _LIFECYCLE_CACHE_MEMORY = data
+    return data
+
+
+def _save_lifecycle_cache():
+    cache = _load_lifecycle_cache()
+    LIFECYCLE_DIR.mkdir(parents=True, exist_ok=True)
+    tmp = LIFECYCLE_EVIDENCE_FILE.with_suffix(".tmp")
+    tmp.write_text(json.dumps(cache, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(LIFECYCLE_EVIDENCE_FILE)
+
+
+def _unwrap_api_data(obj):
+    if isinstance(obj, dict) and "data" in obj:
+        return obj.get("data")
+    return obj
+
+
+def _date_only(value):
+    if value in (None, ""):
+        return None
+    s = str(value).strip()
+    # Most Musinsa timestamps are ISO-8601; Q&A can be YYYY-MM-DD.
+    try:
+        d = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        return d.date()
+    except Exception:
+        pass
+    m = re.search(r"(20\d{2})[-./](\d{1,2})[-./](\d{1,2})", s)
+    if not m:
+        return None
+    try:
+        return datetime(int(m.group(1)), int(m.group(2)), int(m.group(3))).date()
+    except Exception:
+        return None
+
+
+def _oldest_review_date(goods_no):
+    """Best-effort oldest Musinsa review date using the public review API.
+
+    The list endpoint is 0-based and supports sort=new.  We first obtain total
+    count, then jump directly to the last page instead of crawling all reviews.
+    """
+    g = str(goods_no).strip()
+    if not g:
+        return None
+    referer = f"https://www.musinsa.com/products/{g}"
+    try:
+        summary_url = f"https://goods.musinsa.com/api2/review/v1/goods/{g}/reviews/summary"
+        summary_obj = json.loads(http_get(summary_url, timeout=LIFECYCLE_PROBE_TIMEOUT, retries=1, referer=referer))
+        summary = _unwrap_api_data(summary_obj) or {}
+        total = to_int(summary.get("totalCount") if isinstance(summary, dict) else None) or 0
+        if total <= 0:
+            return None
+
+        page_size = 100
+        last_page = max(0, (total - 1) // page_size)
+        params = urllib.parse.urlencode({
+            "page": last_page,
+            "pageSize": page_size,
+            "goodsNo": g,
+            "sort": "new",
+            "selectedSimilarNo": g,
+            "myFilter": "false",
+            "hasPhoto": "false",
+            "isExperience": "false",
+        })
+        list_url = "https://goods.musinsa.com/api2/review/v1/view/list?" + params
+        list_obj = json.loads(http_get(list_url, timeout=LIFECYCLE_PROBE_TIMEOUT, retries=1, referer=referer))
+        payload = _unwrap_api_data(list_obj) or {}
+        items = payload.get("list") if isinstance(payload, dict) else None
+        if not isinstance(items, list):
+            return None
+        dates = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            d = _date_only(item.get("createDate") or item.get("pastDate") or item.get("registrationDate"))
+            if d:
+                dates.append(d)
+        return min(dates) if dates else None
+    except Exception:
+        return None
+
+
+def _oldest_qna_date(goods_no):
+    """Best-effort pre-existence evidence for products with no reviews."""
+    g = str(goods_no).strip()
+    if not g:
+        return None
+    referer = f"https://www.musinsa.com/products/{g}"
+    try:
+        url = f"https://goods-detail.musinsa.com/api2/goods/{g}/question-and-answer?isExceptedSecret=false"
+        obj = json.loads(http_get(url, timeout=LIFECYCLE_PROBE_TIMEOUT, retries=1, referer=referer))
+        payload = _unwrap_api_data(obj) or {}
+        items = payload.get("list") if isinstance(payload, dict) else None
+        if not isinstance(items, list):
+            return None
+        dates = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            d = _date_only(item.get("registrationDate") or item.get("createDate"))
+            if d:
+                dates.append(d)
+        return min(dates) if dates else None
+    except Exception:
+        return None
+
+
+def lifecycle_evidence(goods_no, force=False):
+    """Classify whether a goodsNo demonstrably existed before tracker start.
+
+    Evidence priority:
+      1) review written before the first local tracker snapshot (confirmed);
+      2) Q&A written before the first local tracker snapshot (confirmed);
+      3) goodsNo already below the first-day observed ID ceiling (probable).
+
+    No evidence is *not* treated as proof that the item is new.
+    """
+    g = str(goods_no).strip()
+    if not g:
+        return {"status": "unknown", "evidence_type": "", "evidence_date": ""}
+
+    cache = _load_lifecycle_cache()
+    cached = cache.get(g)
+    if isinstance(cached, dict) and not force:
+        return cached
+
+    boundary = tracker_start_date()
+    candidates = []
+    review_date = _oldest_review_date(g)
+    if review_date:
+        candidates.append((review_date, "review"))
+    qna_date = _oldest_qna_date(g)
+    if qna_date:
+        candidates.append((qna_date, "qna"))
+
+    old = [(d, typ) for d, typ in candidates if d < boundary]
+    if old:
+        evidence_date, evidence_type = min(old, key=lambda x: x[0])
+        status = "preexisting_confirmed"
+    else:
+        # Secondary evidence for products that had no reviews/Q&A before the
+        # tracker. The first-day max goodsNo provides a repository-local age
+        # boundary. Because Musinsa does not publicly guarantee monotonic IDs,
+        # keep this as probable rather than confirmed.
+        ceiling = tracker_start_goods_no_ceiling()
+        gnum = int(g) if g.isdigit() else 0
+        if ceiling > 0 and gnum > 0 and gnum <= ceiling:
+            evidence_date, evidence_type = boundary, "goods_no_before_start_ceiling"
+            status = "preexisting_probable"
+        elif candidates:
+            evidence_date, evidence_type = min(candidates, key=lambda x: x[0])
+            status = "no_pretracker_evidence"
+        else:
+            evidence_date, evidence_type = None, ""
+            status = "unknown"
+
+    result = {
+        "status": status,
+        "evidence_type": evidence_type,
+        "evidence_date": evidence_date.isoformat() if evidence_date else "",
+        "tracker_start_date": boundary.isoformat(),
+        "checked_at": now_kst().isoformat(timespec="seconds"),
+    }
+    cache[g] = result
+    try:
+        _save_lifecycle_cache()
+    except Exception:
+        pass
+    return result
+
+
+def catalog_lifecycle_status(catalog_row):
+    return str((catalog_row or {}).get("lifecycle_status") or "").strip()
+
+
+def product_confirmed_pretracker(goods_no, catalog_row=None, allow_network=True):
+    """True for confirmed or high-confidence probable pre-tracker goods."""
+    status = catalog_lifecycle_status(catalog_row)
+    if status in (
+        "reactivated_pretracker", "reactivated_pretracker_probable",
+        "preexisting_confirmed", "preexisting_probable",
+    ):
+        return True
+    if not allow_network:
+        cached = _load_lifecycle_cache().get(str(goods_no).strip(), {})
+        return isinstance(cached, dict) and cached.get("status") in (
+            "preexisting_confirmed", "preexisting_probable"
+        )
+    ev = lifecycle_evidence(goods_no)
+    return ev.get("status") in ("preexisting_confirmed", "preexisting_probable")
+
+
 def metric_delta(cur, baseline, field):
     cv = to_int(cur.get(field))
     bv = to_int(baseline.get(field)) if baseline else None
@@ -1104,6 +1453,22 @@ def resolve_initial_purchase_jump(rows, catalog_row=None):
         return rows, "none", 0
 
     jump = v1 - v0
+
+    # Critical pre-tracker reactivation rule:
+    # if Musinsa itself has a review/Q&A dated before this tracker existed, this
+    # goodsNo cannot be a genuine new product. Any positive first-interval jump
+    # after rediscovery may include restored historical cumulative purchases, so
+    # that boundary is never counted as sales. Later deltas remain fully usable.
+    if jump > 0 and product_confirmed_pretracker(
+        (catalog_row or {}).get("goods_no") or (rows[0].get("goods_no") if rows else ""),
+        catalog_row,
+        allow_network=True,
+    ):
+        rows[0]["_counter_segment"] = 0
+        for r in rows[1:]:
+            r["_counter_segment"] = 1
+        return rows, "preexisting_reactivation", jump
+
     if jump < INITIAL_JUMP_MIN:
         for r in rows:
             r.setdefault("_counter_segment", 0)
@@ -1401,7 +1766,19 @@ def build_latest_row(raw, prev, b7, b30, today, slot, catalog_row=None):
         and abs((prev_checked - first_seen).total_seconds()) / 3600.0
             <= max(1.0, INITIAL_JUMP_FIRST_SEEN_WINDOW_HOURS)
     )
+    # If the goodsNo demonstrably predates the tracker, suppress the first
+    # positive interval regardless of its size. This covers old sold-out items
+    # that were invisible when the tracker began and later reopen.
     if (
+        daily_sales is not None
+        and daily_sales > 0
+        and first_baseline
+        and b7 is None
+        and b30 is None
+        and product_confirmed_pretracker(raw.get("goods_no"), catalog_row, allow_network=True)
+    ):
+        daily_sales = None
+    elif (
         daily_sales is not None
         and daily_sales >= INITIAL_JUMP_MIN
         and product_in_probation(catalog_row, raw_checked)
