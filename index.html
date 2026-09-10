@@ -141,8 +141,8 @@ dialog{width:min(1200px,96vw);max-height:92vh;border:0;border-radius:16px;paddin
 <div class="body"><div class="chart" id="overallChart"></div></div>
 </section>
 <section class="panel">
-<div class="head"><div><div class="title">브랜드 최신 일판매 순위</div><div class="small">브랜드명을 누르면 날짜별 추이 · 담당 slot은 실제 상품 배정 기준</div></div></div>
-<div class="tablewrap" style="max-height:760px;overflow:auto"><table><thead><tr><th>#</th><th>브랜드</th><th>현재 상품수</th><th>담당 slot</th><th>정규 수집시간</th><th>다음 수집</th><th>완성도</th><th><button class="sortbtn" id="brandSortSales">일일 추정판매 <span id="brandSortSalesIcon">▼</span></button></th><th><button class="sortbtn" id="brandSortGmv">일일 추정GMV <span id="brandSortGmvIcon"></span></button></th></tr></thead><tbody id="brandRank"></tbody></table></div>
+<div class="head"><div><div class="title">브랜드 최신 일판매 순위</div><div class="small">현재 추적 = 지금 catalog 기준 · 계산대상/완성도/매출 = 최신 Finalizer 날짜 기준 · 완성도 95% 미만은 매출을 확정값처럼 표시하지 않습니다.</div></div></div>
+<div class="tablewrap" style="max-height:760px;overflow:auto"><table><thead><tr><th>#</th><th>브랜드</th><th>현재 추적</th><th>계산대상</th><th>담당 slot</th><th>정규 수집시간</th><th>다음 수집</th><th>완성도</th><th><button class="sortbtn" id="brandSortSales">일일 추정판매 <span id="brandSortSalesIcon">▼</span></button></th><th><button class="sortbtn" id="brandSortGmv">일일 추정GMV <span id="brandSortGmvIcon"></span></button></th></tr></thead><tbody id="brandRank"></tbody></table></div>
 </section>
 </div>
 
@@ -680,8 +680,14 @@ function renderK(){
    : summary.find(r=>r.date===sd);
 
  document.getElementById('kDate').textContent=(b?bd:sd)||manifest.latest_finalized_date||'-';
- document.getElementById('kSales').textContent=row?f(Math.max(0,n(row.estimated_sales)||0),1):'-';
- document.getElementById('kGmv').textContent=row?wonExact(Math.max(0,n(row.estimated_gmv)||0)):'-';
+ if(b && row){
+   const st=brandCalcState(row);
+   document.getElementById('kSales').textContent=st.ready?f(Math.max(0,n(row.estimated_sales)??0),1):st.label;
+   document.getElementById('kGmv').textContent=st.ready?wonExact(Math.max(0,n(row.estimated_gmv)??0)):'-';
+ }else{
+   document.getElementById('kSales').textContent=row?f(Math.max(0,n(row.estimated_sales)||0),1):'-';
+   document.getElementById('kGmv').textContent=row?wonExact(Math.max(0,n(row.estimated_gmv)||0)):'-';
+ }
 
  let coverage=null,priceChanges=null,productCount=null;
  if(b && row){
@@ -903,26 +909,59 @@ function currentBrandProductCount(brandName,fallback=null){
   return fallback;
 }
 
+const BRAND_READY_COVERAGE=95;
+function brandCalcState(r){
+  const target=Math.max(0,n(r?.product_count)||0);
+  const complete=Math.max(0,n(r?.complete_product_count)||0);
+  const coverage=n(r?.product_coverage_pct);
+  if(!target || coverage==null || coverage<=0)return {ready:false,label:'데이터 부족',target,complete,coverage:coverage??0};
+  if(coverage<BRAND_READY_COVERAGE)return {ready:false,label:'계산중',target,complete,coverage};
+  return {ready:true,label:'',target,complete,coverage};
+}
+function brandSalesText(r){
+  const st=brandCalcState(r);
+  const v=n(r?.estimated_sales);
+  if(!st.ready)return `<span class="muted" title="최종화 대상 ${f(st.target)}개 · 계산완료 ${f(st.complete)}개 · 완성도 ${f(st.coverage,1)}%">${st.label}</span>`;
+  return f(Math.max(0,v??0),1);
+}
+function brandGmvText(r){
+  const st=brandCalcState(r);
+  const v=n(r?.estimated_gmv);
+  if(!st.ready)return `<span class="muted" title="최종화 대상 ${f(st.target)}개 · 계산완료 ${f(st.complete)}개 · 완성도 ${f(st.coverage,1)}%">-</span>`;
+  return wonExact(Math.max(0,v??0));
+}
+function brandSortValue(r,key){
+  const st=brandCalcState(r);
+  if((key==='estimated_sales'||key==='estimated_gmv')&&!st.ready)return -1;
+  return Math.max(0,n(r?.[key])||0);
+}
+
 function renderBrandRank(){
   const d=latestDate(brands);
   const rows=brands.filter(r=>r.date===d).sort((a,b)=>{
-    const av=Math.max(0,n(a[brandRankSort.key])||0);
-    const bv=Math.max(0,n(b[brandRankSort.key])||0);
+    const av=brandSortValue(a,brandRankSort.key);
+    const bv=brandSortValue(b,brandRankSort.key);
     return brandRankSort.dir==='desc' ? bv-av : av-bv;
   });
 
   document.getElementById('brandRank').innerHTML=rows.map((r,i)=>{
     const slot=brandAssignedSlot(r.brand_name);
+    const st=brandCalcState(r);
+    const current=currentBrandProductCount(r.brand_name,null);
+    const currentText=current==null?'로드중':f(current);
+    const currentTitle=productsLoaded?'현재 catalog/추적 기준':'현재 catalog 상품 데이터를 불러오면 실제 추적 수로 갱신됩니다.';
+    const targetTitle=`최신 Finalizer 날짜 ${r.date||'-'} 기준 · 계산대상 ${f(st.target)}개 · 완성도 99% 이상 계산완료 ${f(st.complete)}개`;
     return `<tr>
       <td>${i+1}</td>
       <td><button class="link" data-brand="${esc(r.brand_name)}">${esc(r.brand_name)}</button></td>
-      <td title="${productsLoaded?'현재 catalog/추적 기준':'빠른 화면에서는 최신 캘린더 계산 상품수 · 상품 데이터 로드 후 현재 catalog 기준으로 갱신'}">${f(currentBrandProductCount(r.brand_name,n(r.product_count)))}</td>
+      <td title="${esc(currentTitle)}">${currentText}</td>
+      <td title="${esc(targetTitle)}">${f(st.target)}</td>
       <td>${slot==null?'-':`slot${slot}`}</td>
       <td>${slot==null?'-':slotTimeLabel(slot)}</td>
       <td>${slot==null?'-':nextSlotLabel(slot)}</td>
-      <td>${f(n(r.product_coverage_pct),1)}%</td>
-      <td class="positive">${f(Math.max(0,n(r.estimated_sales)||0),1)}</td>
-      <td>${wonExact(Math.max(0,n(r.estimated_gmv)||0))}</td>
+      <td title="계산완료 ${f(st.complete)} / 계산대상 ${f(st.target)}">${f(st.coverage,1)}%</td>
+      <td class="positive">${brandSalesText(r)}</td>
+      <td>${brandGmvText(r)}</td>
     </tr>`;
   }).join('');
 
@@ -1056,7 +1095,7 @@ function showBrand(b){
   // 브랜드를 직접 선택한 것은 상품 조회 의도가 강하므로 뒤에서 상품 데이터를 준비한다.
   if(!productsLoaded)ensureProductsLoaded('brand');
 }
-function renderBrandDaily(){const b=document.getElementById('brandDaily').value;if(!b){document.getElementById('brandChart').innerHTML='<div class="empty">브랜드를 선택하세요.</div>';document.getElementById('brandDailyBody').innerHTML='';return}const rows=brands.filter(r=>r.brand_name===b).sort((a,c)=>a.date.localeCompare(c.date));chart(document.getElementById('brandChart'),rows.slice(-90),'estimated_sales');document.getElementById('brandDailyBody').innerHTML=[...rows].reverse().slice(0,180).map(r=>`<tr><td>${r.date}</td><td>${f(Math.max(0,n(r.estimated_sales)||0),1)}</td><td>${wonExact(Math.max(0,n(r.estimated_gmv)||0))}</td><td>${f(n(r.product_coverage_pct),1)}%</td><td>${f(n(r.price_change_products))}</td></tr>`).join('')}
+function renderBrandDaily(){const b=document.getElementById('brandDaily').value;if(!b){document.getElementById('brandChart').innerHTML='<div class="empty">브랜드를 선택하세요.</div>';document.getElementById('brandDailyBody').innerHTML='';return}const rows=brands.filter(r=>r.brand_name===b).sort((a,c)=>a.date.localeCompare(c.date));chart(document.getElementById('brandChart'),rows.slice(-90),'estimated_sales');document.getElementById('brandDailyBody').innerHTML=[...rows].reverse().slice(0,180).map(r=>{const st=brandCalcState(r);return `<tr><td>${r.date}</td><td>${st.ready?f(Math.max(0,n(r.estimated_sales)??0),1):`<span class="muted">${st.label}</span>`}</td><td>${st.ready?wonExact(Math.max(0,n(r.estimated_gmv)??0)):'-'}</td><td title="계산완료 ${f(st.complete)} / 계산대상 ${f(st.target)}">${f(st.coverage,1)}%</td><td>${f(n(r.price_change_products))}</td></tr>`}).join('')}
 
 function monthList(start,end){const out=[];let [y,m]=start.slice(0,7).split('-').map(Number),[ey,em]=end.slice(0,7).split('-').map(Number);while(y<ey||(y===ey&&m<=em)){out.push(`${y}-${String(m).padStart(2,'0')}`);m++;if(m===13){m=1;y++}}return out}
 function addDays(s,d){const x=new Date(s+'T00:00:00Z');x.setUTCDate(x.getUTCDate()+d);return x.toISOString().slice(0,10)}
