@@ -1,0 +1,214 @@
+name: Install Musinsa FIFO Workflow Fix
+
+on:
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  install:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch Musinsa workflows
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          targets = [
+              Path('.github/workflows/collect-distributed-v9.yml'),
+              Path('.github/workflows/recover-distributed-v9.yml'),
+              Path('.github/workflows/adaptive-sampling-v9.yml'),
+              Path('.github/workflows/calendar-finalize-v9.yml'),
+              Path('.github/workflows/midnight-anchor-v9.yml'),
+          ]
+
+          gate = r'''      - name: Wait for older Musinsa workflows (FIFO)
+                shell: bash
+                env:
+                  GH_TOKEN: ${{ github.token }}
+                run: |
+                  set -euo pipefail
+
+                  SELF_ID="$GITHUB_RUN_ID"
+                  SELF_JSON="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${SELF_ID}")"
+                  SELF_CREATED="$(python -c 'import json,sys; print(json.load(sys.stdin)["created_at"])' <<<"$SELF_JSON")"
+
+                  WORKFLOWS=(
+                    "collect-distributed-v9.yml"
+                    "recover-distributed-v9.yml"
+                    "adaptive-sampling-v9.yml"
+                    "calendar-finalize-v9.yml"
+                    "midnight-anchor-v9.yml"
+                  )
+
+                  echo "Musinsa FIFO: run=${SELF_ID}, created=${SELF_CREATED}"
+
+                  while true; do
+                    TMP="$(mktemp)"
+                    : > "$TMP"
+
+                    for WF in "${WORKFLOWS[@]}"; do
+                      gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/${WF}/runs?branch=${GITHUB_REF_NAME}&per_page=100" >> "$TMP"
+                      printf '\n' >> "$TMP"
+                    done
+
+                    OLDER="$(python - "$SELF_ID" "$SELF_CREATED" "$TMP" <<'PY2'
+          import json, sys
+
+          self_id = int(sys.argv[1])
+          self_created = sys.argv[2]
+          path = sys.argv[3]
+          active = {"queued", "in_progress", "waiting", "pending", "requested"}
+          self_key = (self_created, self_id)
+          older = []
+
+          with open(path, "r", encoding="utf-8") as f:
+              for line in f:
+                  line = line.strip()
+                  if not line:
+                      continue
+                  obj = json.loads(line)
+                  for r in obj.get("workflow_runs", []):
+                      rid = int(r.get("id") or 0)
+                      if rid == self_id or r.get("status") not in active:
+                          continue
+                      key = (r.get("created_at") or "", rid)
+                      if key < self_key:
+                          older.append((key, r.get("status") or "?", r.get("name") or "?"))
+
+          older.sort()
+          for (created, rid), status, name in older:
+              print(f"{rid}\t{status}\t{name}\t{created}")
+          PY2
+                    )"
+                    rm -f "$TMP"
+
+                    if [ -z "$OLDER" ]; then
+                      echo "Musinsa FIFO turn acquired."
+                      break
+                    fi
+
+                    echo "Older Musinsa runs are active; waiting 20 seconds:"
+                    echo "$OLDER"
+                    sleep 20
+                  done
+
+          '''
+
+          def add_actions_read(text: str) -> str:
+              if re.search(r'(?m)^  actions:\s*read\s*$', text):
+                  return text
+              m = re.search(r'(?m)^permissions:\s*\n', text)
+              if not m:
+                  raise RuntimeError('permissions block not found')
+              return text[:m.end()] + '  actions: read\n' + text[m.end():]
+
+          def remove_bad_concurrency(text: str) -> str:
+              return re.sub(
+                  r'\nconcurrency:\s*\n\s*group:\s*musinsa-v9-distributed\s*\n\s*cancel-in-progress:\s*false\s*\n',
+                  '\n', text, count=1
+              )
+
+          def add_gate_before_checkout(text: str) -> str:
+              if 'Wait for older Musinsa workflows (FIFO)' in text:
+                  return text
+              candidates = [
+                  text.find('      - name: Checkout repository'),
+                  text.find('      - uses: actions/checkout@v4'),
+              ]
+              candidates = [x for x in candidates if x >= 0]
+              if not candidates:
+                  raise RuntimeError('first checkout step not found')
+              idx = min(candidates)
+              return text[:idx] + gate + text[idx:]
+
+          def enlarge_gate_job_timeout(text: str) -> str:
+              # Only the first job contains the FIFO gate. Give that job enough time
+              # to wait behind earlier runs without timing out.
+              return re.sub(
+                  r'(?m)^(\s*timeout-minutes:)\s*\d+\s*$',
+                  r'\1 360', text, count=1
+              )
+
+          changed = []
+          for path in targets:
+              if not path.exists():
+                  raise SystemExit(f'Missing workflow: {path}')
+
+              original = path.read_text(encoding='utf-8')
+              text = original
+              text = add_actions_read(text)
+              text = remove_bad_concurrency(text)
+              text = add_gate_before_checkout(text)
+              text = enlarge_gate_job_timeout(text)
+
+              if 'musinsa-v9-distributed' in text:
+                  raise SystemExit(f'Old shared concurrency group remains in {path}')
+              if 'Wait for older Musinsa workflows (FIFO)' not in text:
+                  raise SystemExit(f'FIFO gate missing in {path}')
+              if 'actions: read' not in text:
+                  raise SystemExit(f'actions:read missing in {path}')
+
+              if text != original:
+                  path.write_text(text, encoding='utf-8')
+                  changed.append(str(path))
+
+          print('Patched workflows:')
+          for p in changed:
+              print(' -', p)
+          if not changed:
+              print(' - none (already patched)')
+          PY
+
+      - name: Validate patched workflow structure
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          files = [
+              '.github/workflows/collect-distributed-v9.yml',
+              '.github/workflows/recover-distributed-v9.yml',
+              '.github/workflows/adaptive-sampling-v9.yml',
+              '.github/workflows/calendar-finalize-v9.yml',
+              '.github/workflows/midnight-anchor-v9.yml',
+          ]
+          for f in files:
+              t = Path(f).read_text(encoding='utf-8')
+              assert 'musinsa-v9-distributed' not in t, f
+              assert 'Wait for older Musinsa workflows (FIFO)' in t, f
+              assert 'actions: read' in t, f
+              assert 'timeout-minutes: 360' in t, f
+              print('OK', f)
+          PY
+
+      - name: Commit FIFO fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/workflows/collect-distributed-v9.yml \
+                  .github/workflows/recover-distributed-v9.yml \
+                  .github/workflows/adaptive-sampling-v9.yml \
+                  .github/workflows/calendar-finalize-v9.yml \
+                  .github/workflows/midnight-anchor-v9.yml
+
+          if git diff --cached --quiet; then
+            echo "FIFO fix is already installed."
+            exit 0
+          fi
+
+          git commit -m "fix(actions): replace Musinsa shared concurrency with FIFO gate"
+          git pull --rebase origin "$GITHUB_REF_NAME"
+          git push origin "HEAD:$GITHUB_REF_NAME"
