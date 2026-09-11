@@ -12,11 +12,8 @@ on:
         default: '2'
 
 permissions:
+  actions: read
   contents: write
-
-concurrency:
-  group: musinsa-v9-distributed
-  cancel-in-progress: false
 
 env:
   PYTHONUTF8: '1'
@@ -28,8 +25,66 @@ env:
 jobs:
   recover:
     runs-on: ubuntu-latest
-    timeout-minutes: 110
+    timeout-minutes: 360
     steps:
+      - name: Wait for older Musinsa workflows (FIFO)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          SELF_ID="$GITHUB_RUN_ID"
+          SELF_CREATED="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${SELF_ID}" --jq '.created_at')"
+          WORKFLOWS=(
+            "collect-distributed-v9.yml"
+            "recover-distributed-v9.yml"
+            "adaptive-sampling-v9.yml"
+            "calendar-finalize-v9.yml"
+            "midnight-anchor-v9.yml"
+          )
+
+          echo "Musinsa FIFO: run=${SELF_ID}, created=${SELF_CREATED}"
+
+          while true; do
+            OLDER=""
+
+            for WF in "${WORKFLOWS[@]}"; do
+              MATCHES="$(
+                gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/${WF}/runs?branch=${GITHUB_REF_NAME}&per_page=100" \
+                | jq -r --arg sid "$SELF_ID" --arg sc "$SELF_CREATED" '
+                    .workflow_runs[]
+                    | select(
+                        (.status == "queued" or
+                         .status == "in_progress" or
+                         .status == "waiting" or
+                         .status == "pending" or
+                         .status == "requested")
+                        and ((.id | tostring) != $sid)
+                        and (
+                          (.created_at < $sc)
+                          or (.created_at == $sc and .id < ($sid | tonumber))
+                        )
+                      )
+                    | "\(.id)\t\(.status)\t\(.name)\t\(.created_at)"
+                  '
+              )"
+
+              if [ -n "$MATCHES" ]; then
+                OLDER="${OLDER}${MATCHES}"$'\n'
+              fi
+            done
+
+            if [ -z "${OLDER//$'\n'/}" ]; then
+              echo "Musinsa FIFO turn acquired."
+              break
+            fi
+
+            echo "Older Musinsa runs are active; waiting 20 seconds:"
+            printf '%s' "$OLDER"
+            sleep 20
+          done
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
