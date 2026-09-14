@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Musinsa Distributed Collector v9.1 lifecycle-safe
+Musinsa Distributed Collector v9.2 lifecycle-safe
 ================================
 등록 브랜드 수백 개 / 상품코드 수만~10만+ 규모를 위한 분산 수집기.
 
@@ -102,7 +102,20 @@ CALENDAR_BRAND_FILE = BASE_DIR / "musinsa_calendar_brand_daily.csv"
 CALENDAR_SUMMARY_FILE = BASE_DIR / "musinsa_calendar_summary.csv"
 CALENDAR_HISTORY_BUCKETS = 64
 
+# Extra observations share the lifecycle-safe calendar estimator below.
+OBSERVATION_DIR = BASE_DIR / "data" / "observations"
+ADAPTIVE_REPORT_DIR = BASE_DIR / "data" / "adaptive"
+MIDNIGHT_REPORT_DIR = BASE_DIR / "data" / "anchor"
+
 SLOT_COUNT = 8
+ADAPTIVE_MEDIUM_MIN = float(os.environ.get("MUSINSA_ADAPTIVE_MEDIUM_MIN", "3"))
+ADAPTIVE_HIGH_MIN = float(os.environ.get("MUSINSA_ADAPTIVE_HIGH_MIN", "21"))
+ADAPTIVE_MAX_PER_RUN = int(os.environ.get("MUSINSA_ADAPTIVE_MAX_PER_RUN", "15000"))
+NEW_PRODUCT_PROBE_OFFSET = int(os.environ.get("MUSINSA_NEW_PRODUCT_PROBE_OFFSET", "2")) % SLOT_COUNT
+NEW_PRODUCT_PROBE_MAX_PER_RUN = int(os.environ.get("MUSINSA_NEW_PRODUCT_PROBE_MAX_PER_RUN", "3000"))
+NEW_PRODUCT_PROBE_LOOKBACK_DAYS = int(os.environ.get("MUSINSA_NEW_PRODUCT_PROBE_LOOKBACK_DAYS", "3"))
+MIDNIGHT_ANCHOR_MIN = float(os.environ.get("MUSINSA_MIDNIGHT_ANCHOR_MIN", "3"))
+MIDNIGHT_ANCHOR_MAX_PER_RUN = int(os.environ.get("MUSINSA_MIDNIGHT_ANCHOR_MAX_PER_RUN", "15000"))
 DISCOVERY_WORKERS = int(os.environ.get("MUSINSA_DISCOVERY_WORKERS", "2"))
 SHARD_WORKERS = int(os.environ.get("MUSINSA_SHARD_WORKERS", "2"))
 RECOVERY_WORKERS = int(os.environ.get("MUSINSA_RECOVERY_WORKERS", "2"))
@@ -168,6 +181,9 @@ COMPACT_FIELDS = [
     "date", "slot", "checked_at", "goods_no", "brand_name", "product_name",
     "purchase_total", "page_view_total", "current_price", "normal_price",
     "sale_rate", "review_count", "rating", "availability",
+]
+ADAPTIVE_OBS_FIELDS = COMPACT_FIELDS + [
+    "sample_kind", "sampling_tier", "sampling_score", "base_slot", "clock_slot",
 ]
 LATEST_FIELDS = [
     "date", "slot", "checked_at", "brand_name", "goods_no", "product_name",
@@ -968,6 +984,9 @@ def collect_slot_shard(state_dir, slot, shard_index, shard_count, output):
                 r = synthetic_failed_row(g, catalog.get(g), str(e))
             with rows_lock:
                 rows.append(r)
+                completed = len(rows)
+                if completed % 1000 == 0:
+                    print(f"[collect-progress] slot={slot} completed={completed}/{len(selected)}", flush=True)
             work.task_done()
 
     worker_count = max(1, SHARD_WORKERS)
@@ -1010,7 +1029,612 @@ def collect_slot_shard(state_dir, slot, shard_index, shard_count, output):
         "not_attempted_before_budget": not_attempted,
         "adaptive_state": THROTTLE.state(),
     }, ensure_ascii=False))
-    return 0
+    return 1 if selected and len(rows) == failures else 0
+
+def adaptive_sales_score(row):
+    """Stable sales-speed score used for sampling tier selection.
+
+    Prefer the latest same-slot ~24h delta, but keep the 7d average as a
+    stabilizer so a single quiet day does not immediately demote a fast seller.
+    Negative/reset deltas are treated as zero.
+    """
+    vals = []
+    for key in ("daily_sales", "sales_7d_avg_per_day"):
+        v = to_float(row.get(key))
+        if v is not None:
+            vals.append(max(0.0, v))
+    return max(vals) if vals else 0.0
+
+
+def adaptive_sampling_tier(row):
+    score = adaptive_sales_score(row)
+    if score >= ADAPTIVE_HIGH_MIN:
+        return "3h", score
+    if score >= ADAPTIVE_MEDIUM_MIN:
+        return "9h", score
+    return "24h", score
+
+
+
+def load_recent_extra_observations(goods_set, lookback_days=None):
+    """Load only recent extra observations for the requested goodsNos.
+
+    This scans data/observations, not the full 90k+ primary snapshots, so the
+    adaptive selector can cheaply tell whether a new item has already received
+    its one probe and whether purchaseTotal moved after the latest primary.
+    """
+    wanted = {str(g) for g in goods_set if str(g)}
+    if not wanted:
+        return {}
+
+    days = max(
+        1,
+        int(
+            NEW_PRODUCT_PROBE_LOOKBACK_DAYS
+            if lookback_days in (None, 0)
+            else lookback_days
+        ),
+    )
+    today = now_kst().date()
+    out = {}
+
+    for back in range(days):
+        folder = OBSERVATION_DIR / (today - timedelta(days=back)).isoformat()
+        if not folder.exists():
+            continue
+
+        paths = sorted(list(folder.glob("*.csv.gz")) + list(folder.glob("*.csv")))
+        for path in paths:
+            for row in read_csv(path):
+                g = str(row.get("goods_no") or "").strip()
+                if g not in wanted:
+                    continue
+                checked = parse_kst_datetime(row.get("checked_at"))
+                p = to_int(row.get("purchase_total"))
+                if checked is None or p is None:
+                    continue
+                copied = dict(row)
+                copied["_checked_dt"] = checked
+                out.setdefault(g, []).append(copied)
+
+    for rows in out.values():
+        rows.sort(key=lambda r: r["_checked_dt"])
+    return out
+
+
+def probation_has_probe(catalog_row, extra_rows):
+    """Whether at least one extra observation exists after first_seen."""
+    first = _catalog_first_seen(catalog_row)
+    if first is None:
+        return False
+    return any(
+        (r.get("_checked_dt") or parse_kst_datetime(r.get("checked_at"))) >= first
+        for r in (extra_rows or [])
+    )
+
+
+def probation_activity_score(latest_primary_row, extra_rows):
+    """Observed sales pace after the latest primary baseline.
+
+    No review-count inference and no assumed launch time.  We compare an actual
+    primary purchaseTotal with a later observed purchaseTotal.  A positive delta
+    is annualized only for sampling-tier selection; calendar sales remain based
+    on the original observation intervals.
+    """
+    if not latest_primary_row:
+        return 0.0
+
+    base_p = to_int(latest_primary_row.get("purchase_total"))
+    base_t = parse_kst_datetime(latest_primary_row.get("checked_at"))
+    if base_p is None or base_t is None:
+        return 0.0
+
+    later = []
+    for r in extra_rows or []:
+        t = r.get("_checked_dt") or parse_kst_datetime(r.get("checked_at"))
+        p = to_int(r.get("purchase_total"))
+        if t is None or p is None or t <= base_t:
+            continue
+        later.append((t, p))
+
+    if not later:
+        return 0.0
+
+    t1, p1 = max(later, key=lambda x: x[0])
+    delta = p1 - base_p
+    hours = (t1 - base_t).total_seconds() / 3600.0
+    if delta <= 0 or hours <= 0:
+        return 0.0
+
+    return max(0.0, delta * 24.0 / hours)
+
+
+def calendar_sampling_score(calendar_row):
+    """Use the latest finalized calendar estimate as a stabilizer after day 1."""
+    if not calendar_row:
+        return 0.0
+    v = to_float(calendar_row.get("estimated_sales"))
+    return max(0.0, v) if v is not None else 0.0
+
+
+def tier_for_score(score):
+    score = max(0.0, float(score or 0.0))
+    if score >= ADAPTIVE_HIGH_MIN:
+        return "3h"
+    if score >= ADAPTIVE_MEDIUM_MIN:
+        return "9h"
+    return "24h"
+
+
+def adaptive_due(base_slot, clock_slot, tier):
+    """Return True when an extra observation is due in this 3h clock block."""
+    offset = (int(clock_slot) - int(base_slot)) % SLOT_COUNT
+    if tier == "probe_6h":
+        return offset == NEW_PRODUCT_PROBE_OFFSET
+    if tier == "9h":
+        return offset in (3, 6)
+    if tier == "3h":
+        return offset in (1, 2, 3, 4, 5, 6, 7)
+    return False
+
+def _adaptive_run_token(clock_slot):
+    stamp = now_kst().strftime("%H%M%S")
+    run_id = re.sub(r"[^0-9A-Za-z_.-]+", "-", os.environ.get("GITHUB_RUN_ID", "local"))
+    return f"clock-{int(clock_slot)}-{stamp}-{run_id}"
+
+
+def save_adaptive_observations(raw_rows, meta_by_goods, clock_slot):
+    """Archive successful extra observations without overwriting daily baseline snapshots."""
+    grouped = {}
+    for r in raw_rows:
+        if to_int(r.get("purchase_total")) is None:
+            continue
+        checked = parse_kst_datetime(r.get("checked_at")) or now_kst()
+        d = checked.date().isoformat()
+        g = str(r.get("goods_no") or "")
+        meta = meta_by_goods.get(g, {})
+        row = compact_from_raw(r, checked.date(), meta.get("base_slot", 0))
+        row.update({
+            "sample_kind": "adaptive",
+            "sampling_tier": meta.get("tier", ""),
+            "sampling_score": round(float(meta.get("score") or 0.0), 2),
+            "base_slot": meta.get("base_slot", ""),
+            "clock_slot": int(clock_slot),
+        })
+        grouped.setdefault(d, []).append(row)
+
+    token = _adaptive_run_token(clock_slot)
+    paths = []
+    for date_text, rows in grouped.items():
+        folder = OBSERVATION_DIR / date_text
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / f"adaptive-{token}.csv.gz"
+        rows.sort(key=lambda x: int(x["goods_no"]) if str(x.get("goods_no", "")).isdigit() else 10**30)
+        write_csv(path, rows, ADAPTIVE_OBS_FIELDS)
+        paths.append(str(path.relative_to(BASE_DIR)))
+    return paths
+
+
+def collect_adaptive(clock_slot, max_products=None, dry_run=False):
+    """Collect extra observations with a bulk-safe discovery policy.
+
+    Existing sellers keep the normal 3h/9h tiers.
+
+    A newly discovered product is NOT automatically sampled every 3h. Instead:
+      1. first primary observation = baseline
+      2. one probe ~6h later (subject to a separate cap)
+      3. if purchaseTotal actually increased, observed pace promotes it to 9h/3h
+      4. latest finalized calendar sales also keeps a proven seller promoted
+
+    This prevents hundreds of newly added brands from turning every newly
+    discovered SKU into a 3-hour polling job.
+    """
+    clock_slot = int(clock_slot)
+    max_products = ADAPTIVE_MAX_PER_RUN if max_products in (None, 0) else int(max_products)
+
+    latest_rows = read_csv(LATEST_PRODUCT_FILE)
+    catalog_rows = read_csv(CATALOG_FILE)
+    calendar_rows = read_csv(CALENDAR_LATEST_PRODUCT_FILE)
+
+    catalog = {
+        str(r.get("goods_no") or ""): r
+        for r in catalog_rows
+        if r.get("goods_no")
+    }
+    calendar = {
+        str(r.get("goods_no") or ""): r
+        for r in calendar_rows
+        if r.get("goods_no")
+    }
+
+    probation_goods = {
+        str(row.get("goods_no") or "").strip()
+        for row in latest_rows
+        if str(row.get("goods_no") or "").strip()
+        and product_in_probation(
+            catalog.get(str(row.get("goods_no") or "").strip())
+        )
+    }
+    recent_extra = load_recent_extra_observations(probation_goods)
+
+    active_due = []
+    probe_due = []
+
+    for row in latest_rows:
+        g = str(row.get("goods_no") or "").strip()
+        if not g:
+            continue
+
+        cat = catalog.get(g)
+        normal_score = adaptive_sales_score(row)
+        cal_score = calendar_sampling_score(calendar.get(g))
+        score = max(normal_score, cal_score)
+
+        probation = g in probation_goods
+        activity_score = (
+            probation_activity_score(row, recent_extra.get(g, []))
+            if probation
+            else 0.0
+        )
+        score = max(score, activity_score)
+        tier = tier_for_score(score)
+
+        base_slot = to_int(row.get("slot"))
+        if base_slot is None or not (0 <= base_slot < SLOT_COUNT):
+            base_slot = effective_goods_slot(g, cat)
+
+        if tier != "24h":
+            if not adaptive_due(base_slot, clock_slot, tier):
+                continue
+            active_due.append({
+                "goods_no": g,
+                "tier": tier,
+                "score": score,
+                "base_slot": base_slot,
+                "reason": "probation_activity" if activity_score >= max(normal_score, cal_score) and activity_score > 0 else "sales_score",
+            })
+            continue
+
+        # Quiet/unknown newly discovered goods get only ONE lightweight probe.
+        if not probation:
+            continue
+        if probation_has_probe(cat, recent_extra.get(g, [])):
+            continue
+        if not adaptive_due(base_slot, clock_slot, "probe_6h"):
+            continue
+
+        probe_due.append({
+            "goods_no": g,
+            "tier": "probe_6h",
+            "score": 0.0,
+            "base_slot": base_slot,
+            "reason": "first_probe",
+        })
+
+    # Proven sellers always have priority over discovery probes.
+    active_due.sort(
+        key=lambda x: (
+            0 if x["tier"] == "3h" else 1,
+            -x["score"],
+            int(x["goods_no"]) if x["goods_no"].isdigit() else 10**30,
+        )
+    )
+
+    selected_active = active_due[:max_products] if max_products > 0 else active_due[:]
+
+    remaining = (
+        max(0, max_products - len(selected_active))
+        if max_products > 0
+        else len(probe_due)
+    )
+    probe_cap = max(0, NEW_PRODUCT_PROBE_MAX_PER_RUN)
+    probe_take = min(remaining, probe_cap) if max_products > 0 else probe_cap
+
+    # Oldest unprobed items first; goodsNo breaks ties deterministically.
+    probe_due.sort(
+        key=lambda x: (
+            _catalog_first_seen(catalog.get(x["goods_no"])) or now_kst(),
+            int(x["goods_no"]) if x["goods_no"].isdigit() else 10**30,
+        )
+    )
+    selected_probe = probe_due[:probe_take]
+
+    selected = selected_active + selected_probe
+    total_due = len(active_due) + len(probe_due)
+
+    stats = {
+        "checked_at": now_kst().isoformat(timespec="seconds"),
+        "clock_slot": clock_slot,
+        "thresholds": {
+            "medium_min": ADAPTIVE_MEDIUM_MIN,
+            "high_min": ADAPTIVE_HIGH_MIN,
+        },
+        "bulk_safe_new_product_policy": {
+            "probation_hours": NEW_PRODUCT_PROBATION_HOURS,
+            "probe_offset_slots": NEW_PRODUCT_PROBE_OFFSET,
+            "probe_approx_hours": NEW_PRODUCT_PROBE_OFFSET * 3,
+            "probe_max_per_run": NEW_PRODUCT_PROBE_MAX_PER_RUN,
+            "blanket_3h_probation": False,
+        },
+        "probation_goods": len(probation_goods),
+        "active_due_before_cap": len(active_due),
+        "probe_due_before_cap": len(probe_due),
+        "due_before_cap": total_due,
+        "selected": len(selected),
+        "selected_probe_6h": len(selected_probe),
+        "selected_3h": sum(1 for x in selected if x["tier"] == "3h"),
+        "selected_9h": sum(1 for x in selected if x["tier"] == "9h"),
+        "deferred_probes": max(0, len(probe_due) - len(selected_probe)),
+        "max_products": max_products,
+        "dry_run": bool(dry_run),
+    }
+
+    if dry_run or not selected:
+        print(json.dumps(stats, ensure_ascii=False))
+        return 0
+
+    meta_by_goods = {x["goods_no"]: x for x in selected}
+    deadline = time.monotonic() + max(300, COLLECT_BUDGET_SECONDS)
+    work = Queue()
+    for x in selected:
+        work.put(x["goods_no"])
+
+    rows = []
+    rows_lock = threading.Lock()
+
+    def worker():
+        while time.monotonic() < deadline:
+            try:
+                g = work.get_nowait()
+            except Empty:
+                return
+            try:
+                r = collect_one(g, catalog.get(g), 2)
+            except Exception as e:
+                r = synthetic_failed_row(g, catalog.get(g), str(e))
+            with rows_lock:
+                rows.append(r)
+            work.task_done()
+
+    with ThreadPoolExecutor(max_workers=max(1, SHARD_WORKERS)) as executor:
+        futures = [executor.submit(worker) for _ in range(max(1, SHARD_WORKERS))]
+        for fut in futures:
+            try:
+                fut.result()
+            except Exception as e:
+                print(f"[adaptive-worker-error] {e}", file=sys.stderr)
+
+    by_goods = {str(r.get("goods_no") or ""): r for r in rows}
+    success_rows = [r for r in by_goods.values() if to_int(r.get("purchase_total")) is not None]
+    failed_goods = [g for g in meta_by_goods if g not in by_goods or to_int(by_goods[g].get("purchase_total")) is None]
+    not_attempted = max(0, len(selected) - len(by_goods))
+
+    paths = save_adaptive_observations(success_rows, meta_by_goods, clock_slot)
+
+    report_date = now_kst().date().isoformat()
+    report_dir = ADAPTIVE_REPORT_DIR / report_date
+    report_dir.mkdir(parents=True, exist_ok=True)
+    token = _adaptive_run_token(clock_slot)
+    stats.update({
+        "success": len(success_rows),
+        "failed_or_unattempted": len(failed_goods),
+        "not_attempted_before_budget": not_attempted,
+        "observation_files": paths,
+        "adaptive_state": THROTTLE.state(),
+        "failed_goods_sample": failed_goods[:100],
+    })
+    (report_dir / f"run-{token}.json").write_text(
+        json.dumps(stats, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    print(json.dumps(stats, ensure_ascii=False))
+    return 0 if success_rows else 1
+
+
+
+def _midnight_anchor_token():
+    stamp = now_kst().strftime("%Y%m%d-%H%M%S")
+    run_id = re.sub(r"[^0-9A-Za-z_.-]+", "-", os.environ.get("GITHUB_RUN_ID", "local"))
+    return f"{stamp}-{run_id}"
+
+
+def save_midnight_anchor_observations(raw_rows, meta_by_goods):
+    """Save the day-boundary observations without touching primary snapshots."""
+    grouped = {}
+    for r in raw_rows:
+        if to_int(r.get("purchase_total")) is None:
+            continue
+        checked = parse_kst_datetime(r.get("checked_at")) or now_kst()
+        date_text = checked.date().isoformat()
+        g = str(r.get("goods_no") or "")
+        meta = meta_by_goods.get(g, {})
+
+        row = compact_from_raw(r, checked.date(), meta.get("base_slot", 0))
+        row.update({
+            "sample_kind": "midnight_anchor",
+            "sampling_tier": meta.get("tier", ""),
+            "sampling_score": round(float(meta.get("score") or 0.0), 2),
+            "base_slot": meta.get("base_slot", ""),
+            "clock_slot": 0,
+        })
+        grouped.setdefault(date_text, []).append(row)
+
+    token = _midnight_anchor_token()
+    paths = []
+    for date_text, rows in grouped.items():
+        folder = OBSERVATION_DIR / date_text
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / f"midnight-anchor-{token}.csv.gz"
+        rows.sort(
+            key=lambda x: int(x["goods_no"])
+            if str(x.get("goods_no", "")).isdigit()
+            else 10**30
+        )
+        write_csv(path, rows, ADAPTIVE_OBS_FIELDS)
+        paths.append(str(path.relative_to(BASE_DIR)))
+    return paths
+
+
+def collect_midnight_anchor(max_products=None, dry_run=False):
+    """Collect an extra observation near the KST day boundary.
+
+    Selection:
+    - sales-speed score >= MIDNIGHT_ANCHOR_MIN (default 3/day)
+    - base slot 0 is skipped because its primary observation is already near 00:15
+    - faster sellers are collected first if the safety cap is reached
+
+    These observations are used only by Calendar Finalizer and never overwrite
+    the normal primary snapshots.
+    """
+    max_products = (
+        MIDNIGHT_ANCHOR_MAX_PER_RUN
+        if max_products in (None, 0)
+        else int(max_products)
+    )
+
+    latest_rows = read_csv(LATEST_PRODUCT_FILE)
+    catalog_rows = read_csv(CATALOG_FILE)
+    catalog = {
+        str(r.get("goods_no") or ""): r
+        for r in catalog_rows
+        if r.get("goods_no")
+    }
+    calendar_rows = read_csv(CALENDAR_LATEST_PRODUCT_FILE)
+    calendar = {
+        str(r.get("goods_no") or ""): r
+        for r in calendar_rows
+        if r.get("goods_no")
+    }
+    probation_goods = {
+        str(row.get("goods_no") or "").strip()
+        for row in latest_rows
+        if str(row.get("goods_no") or "").strip()
+        and product_in_probation(
+            catalog.get(str(row.get("goods_no") or "").strip())
+        )
+    }
+    recent_extra = load_recent_extra_observations(probation_goods)
+
+    selected = []
+    for row in latest_rows:
+        g = str(row.get("goods_no") or "").strip()
+        if not g:
+            continue
+
+        score = adaptive_sales_score(row)
+        cal_row = calendar.get(g)
+        score = max(score, calendar_sampling_score(cal_row))
+        if g in probation_goods:
+            score = max(
+                score,
+                probation_activity_score(row, recent_extra.get(g, [])),
+            )
+        if score < MIDNIGHT_ANCHOR_MIN:
+            continue
+
+        base_slot = to_int(row.get("slot"))
+        if base_slot is None or not (0 <= base_slot < SLOT_COUNT):
+            base_slot = effective_goods_slot(g, catalog.get(g))
+
+        # slot0 primary is already around the day boundary.
+        if base_slot == 0:
+            continue
+
+        tier = tier_for_score(score)
+        selected.append({
+            "goods_no": g,
+            "score": score,
+            "tier": tier,
+            "base_slot": base_slot,
+        })
+
+    selected.sort(
+        key=lambda x: (
+            -x["score"],
+            int(x["goods_no"]) if x["goods_no"].isdigit() else 10**30
+        )
+    )
+    due_before_cap = len(selected)
+    if max_products > 0:
+        selected = selected[:max_products]
+
+    stats = {
+        "checked_at": now_kst().isoformat(timespec="seconds"),
+        "anchor": "KST day-boundary",
+        "threshold_min_sales_per_day": MIDNIGHT_ANCHOR_MIN,
+        "due_before_cap": due_before_cap,
+        "selected": len(selected),
+        "max_products": max_products,
+        "dry_run": bool(dry_run),
+    }
+
+    if dry_run or not selected:
+        print(json.dumps(stats, ensure_ascii=False))
+        return 0
+
+    meta_by_goods = {x["goods_no"]: x for x in selected}
+    deadline = time.monotonic() + max(300, COLLECT_BUDGET_SECONDS)
+    work = Queue()
+    for x in selected:
+        work.put(x["goods_no"])
+
+    rows = []
+    rows_lock = threading.Lock()
+
+    def worker():
+        while time.monotonic() < deadline:
+            try:
+                g = work.get_nowait()
+            except Empty:
+                return
+            try:
+                r = collect_one(g, catalog.get(g), 2)
+            except Exception as e:
+                r = synthetic_failed_row(g, catalog.get(g), str(e))
+            with rows_lock:
+                rows.append(r)
+            work.task_done()
+
+    with ThreadPoolExecutor(max_workers=max(1, SHARD_WORKERS)) as executor:
+        futures = [executor.submit(worker) for _ in range(max(1, SHARD_WORKERS))]
+        for fut in futures:
+            try:
+                fut.result()
+            except Exception as e:
+                print(f"[midnight-anchor-worker-error] {e}", file=sys.stderr)
+
+    by_goods = {str(r.get("goods_no") or ""): r for r in rows}
+    success_rows = [
+        r for r in by_goods.values()
+        if to_int(r.get("purchase_total")) is not None
+    ]
+    failed_goods = [
+        g for g in meta_by_goods
+        if g not in by_goods or to_int(by_goods[g].get("purchase_total")) is None
+    ]
+
+    paths = save_midnight_anchor_observations(success_rows, meta_by_goods)
+
+    report_date = now_kst().date().isoformat()
+    report_dir = MIDNIGHT_REPORT_DIR / report_date
+    report_dir.mkdir(parents=True, exist_ok=True)
+    token = _midnight_anchor_token()
+
+    stats.update({
+        "success": len(success_rows),
+        "failed_or_unattempted": len(failed_goods),
+        "observation_files": paths,
+        "adaptive_state": THROTTLE.state(),
+        "failed_goods_sample": failed_goods[:100],
+    })
+
+    (report_dir / f"run-{token}.json").write_text(
+        json.dumps(stats, ensure_ascii=False, indent=2),
+        encoding="utf-8"
+    )
+    print(json.dumps(stats, ensure_ascii=False))
+    return 0 if success_rows else 1
+
+
 
 def load_snapshot_any_slot(date_value):
     """v6→v7 slot 재배치와 과거 기록 호환을 위해 날짜별 8개 slot을 goodsNo로 합칩니다."""
@@ -2236,6 +2860,80 @@ def recover_pending(lookback_days=2, max_queues=8):
     return 0
 
 
+def archive_existing_primary_snapshot(snapshot_path, slot):
+    """
+    같은 날짜/slot을 다시 수집할 때 기존 canonical snapshot이 사라지지 않도록
+    data/observations/YYYY-MM-DD/ 아래에 이전 관측값을 불변 archive로 보존합니다.
+
+    data/slots/.../YYYY-MM-DD.csv.gz 는 '해당 날짜/slot의 최신 snapshot cache'로 유지하고,
+    Calendar Finalizer는 canonical + observations를 함께 읽으므로 모든 재수집 관측값을 사용합니다.
+    """
+    snapshot_path = Path(snapshot_path)
+    if not snapshot_path.exists():
+        legacy = snapshot_path.with_suffix("") if snapshot_path.suffix == ".gz" else snapshot_path
+        if not legacy.exists():
+            return None
+        snapshot_path = legacy
+
+    rows = read_csv(snapshot_path)
+    if not rows:
+        return None
+
+    # 실제 checked_at 날짜 기준으로 나누어 저장합니다.
+    grouped = {}
+    for row in rows:
+        checked = parse_kst_datetime(row.get("checked_at"))
+        if checked is None:
+            # 기존 canonical 파일명 날짜 fallback
+            try:
+                dtext = snapshot_path.name.split(".csv")[0]
+                checked_date = datetime.strptime(dtext, "%Y-%m-%d").date()
+            except Exception:
+                checked_date = now_kst().date()
+        else:
+            checked_date = checked.date()
+
+        copied = dict(row)
+        copied.update({
+            "sample_kind": "primary_rerun_archive",
+            "sampling_tier": "baseline",
+            "sampling_score": "",
+            "base_slot": int(slot),
+            "clock_slot": int((checked.hour * 60 + checked.minute) // 180) % SLOT_COUNT if checked else int(slot),
+        })
+        grouped.setdefault(checked_date.isoformat(), []).append(copied)
+
+    run_id = re.sub(r"[^0-9A-Za-z_.-]+", "-", os.environ.get("GITHUB_RUN_ID", "local"))
+    stamp = now_kst().strftime("%H%M%S")
+    saved = []
+
+    for date_text, out_rows in grouped.items():
+        folder = OBSERVATION_DIR / date_text
+        folder.mkdir(parents=True, exist_ok=True)
+
+        # 이전 canonical의 checked_at 범위를 파일명에 넣어서 사람이 봐도 구분 가능하게 합니다.
+        checked_vals = []
+        for r in out_rows:
+            dt = parse_kst_datetime(r.get("checked_at"))
+            if dt is not None:
+                checked_vals.append(dt)
+        if checked_vals:
+            first_stamp = min(checked_vals).strftime("%H%M%S")
+            last_stamp = max(checked_vals).strftime("%H%M%S")
+        else:
+            first_stamp = last_stamp = stamp
+
+        out_path = folder / (
+            f"primary-rerun-slot-{int(slot)}-"
+            f"{first_stamp}-{last_stamp}-archived-{stamp}-{run_id}.csv.gz"
+        )
+        write_csv(out_path, out_rows, ADAPTIVE_OBS_FIELDS)
+        saved.append(str(out_path.relative_to(BASE_DIR)))
+
+    return saved
+
+
+
 def aggregate_slot(state_dir, shard_dir):
     state_dir, shard_dir = Path(state_dir), Path(shard_dir)
     today = datetime.strptime(
@@ -2275,7 +2973,9 @@ def aggregate_slot(state_dir, shard_dir):
         latest.append(build_latest_row(r, prev.get(g), d7.get(g), d30.get(g), today, slot, catalog.get(g)))
         compact.append(compact_from_raw(r, today, slot))
 
-    write_csv(SLOT_DIR / f"slot-{slot}" / f"{today.isoformat()}.csv.gz", compact, COMPACT_FIELDS)
+    canonical_snapshot = SLOT_DIR / f"slot-{slot}" / f"{today.isoformat()}.csv.gz"
+    archived_observations = archive_existing_primary_snapshot(canonical_snapshot, slot)
+    write_csv(canonical_snapshot, compact, COMPACT_FIELDS)
     write_csv(LATEST_SLOT_DIR / f"slot-{slot}.csv.gz", latest, LATEST_FIELDS)
     write_history_manifest()
 
@@ -2303,6 +3003,7 @@ def aggregate_slot(state_dir, shard_dir):
         "coverage_pct": coverage.get("slots", {}).get(str(slot), {}).get("coverage_pct"),
         "today_latest_products": len([r for r in all_latest if str(r.get("date") or "") == today.isoformat()]),
         "recovery_queue": str(recovery_queue_path(today, slot)),
+        "archived_previous_observations": archived_observations or [],
     }, ensure_ascii=False))
     return 0
 
@@ -2380,6 +3081,27 @@ def load_calendar_observations(target_date, before_days=3, after_days=2):
                     copied = dict(row)
                     copied["_checked_dt"] = checked
                     bucket[key] = copied
+
+        # High-selling products may have extra 6h/12h observations archived separately.
+        obs_folder = OBSERVATION_DIR / d.isoformat()
+        if obs_folder.exists():
+            obs_paths = sorted(list(obs_folder.glob("*.csv.gz")) + list(obs_folder.glob("*.csv")))
+            for obs_path in obs_paths:
+                for row in read_csv(obs_path):
+                    g = str(row.get("goods_no") or "").strip()
+                    checked = parse_kst_datetime(row.get("checked_at"))
+                    if not g or checked is None:
+                        continue
+                    key = checked.isoformat()
+                    bucket = by_goods.setdefault(g, {})
+                    old = bucket.get(key)
+                    if old is None or (
+                        to_int(old.get("purchase_total")) is None
+                        and to_int(row.get("purchase_total")) is not None
+                    ):
+                        copied = dict(row)
+                        copied["_checked_dt"] = checked
+                        bucket[key] = copied
         d += timedelta(days=1)
 
     out = {}
@@ -2388,6 +3110,7 @@ def load_calendar_observations(target_date, before_days=3, after_days=2):
         rows.sort(key=lambda r: r["_checked_dt"])
         out[g] = rows
     return out
+
 
 
 def price_at_or_before(observations, when):
@@ -2817,7 +3540,7 @@ def finalize_calendar_date(target_date):
         "brand_count": len({r.get("brand_name") for r in product_rows if r.get("brand_name")}),
         "product_count": len(product_rows),
         "complete_product_count": complete_count,
-        "product_coverage_pct": round(complete_count / len(product_rows) * 100.0, 2) if product_rows else 100.0,
+        "product_coverage_pct": round(complete_count / len(product_rows) * 100.0, 2) if product_rows else 0.0,
         "average_time_coverage_pct": round(sum(coverages) / len(coverages), 2) if coverages else 0.0,
         "estimated_sales": round(sum(to_float(r.get("estimated_sales")) or 0.0 for r in product_rows), 2),
         "estimated_gmv": round(sum(to_float(r.get("estimated_gmv")) or 0.0 for r in product_rows)),
@@ -2895,6 +3618,15 @@ def main():
     p.add_argument("--lookback-days", type=int, default=2)
     p.add_argument("--max-queues", type=int, default=8)
 
+    p = sub.add_parser("collect-adaptive")
+    p.add_argument("--clock-slot", type=int, required=True, choices=range(SLOT_COUNT))
+    p.add_argument("--max-products", type=int, default=0)
+    p.add_argument("--dry-run", action="store_true")
+
+    p = sub.add_parser("collect-midnight-anchor")
+    p.add_argument("--max-products", type=int, default=0)
+    p.add_argument("--dry-run", action="store_true")
+
     p = sub.add_parser("finalize-calendar")
     p.add_argument("--lookback-days", type=int, default=3)
     p.add_argument("--date", default="")
@@ -2910,6 +3642,10 @@ def main():
         return aggregate_slot(args.state_dir, args.shard_dir)
     if args.cmd == "recover-pending":
         return recover_pending(args.lookback_days, args.max_queues)
+    if args.cmd == "collect-adaptive":
+        return collect_adaptive(args.clock_slot, args.max_products, args.dry_run)
+    if args.cmd == "collect-midnight-anchor":
+        return collect_midnight_anchor(args.max_products, args.dry_run)
     if args.cmd == "finalize-calendar":
         return finalize_calendar_recent(args.lookback_days, args.date or None)
     return 2

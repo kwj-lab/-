@@ -1,6 +1,11 @@
 name: Distributed Musinsa Collection v9
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'musinsa_collector_v9.py'
+      - '.github/workflows/collect-distributed-v9.yml'
   schedule:
     # KST 00:15,03:15,06:15,09:15,12:15,15:15,18:15,21:15
     - cron: '15 0,3,6,9,12,15,18,21 * * *'
@@ -40,6 +45,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 360
     outputs:
+      collector_sha: ${{ steps.revision.outputs.sha }}
       slot: ${{ steps.slot.outputs.slot }}
     steps:
       - name: Wait for older Musinsa workflows (FIFO)
@@ -102,10 +108,14 @@ jobs:
 
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.ref_name }}
           fetch-depth: 1
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Record collector revision
+        id: revision
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - name: Resolve KST collection slot
         id: slot
         shell: bash
@@ -118,7 +128,7 @@ jobs:
           else:
               slot = (datetime.now(timezone(timedelta(hours=9))).hour // 3) % 8
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
-              f.write(f"slot={slot}\\n")
+              f.write(f"slot={slot}\n")
           print("KST slot:", slot)
           PY2
       - name: Discover and refresh prices
@@ -126,7 +136,8 @@ jobs:
         run: |
           EXTRA=""
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.full_discovery }}" = "true" ]; then EXTRA="--full-discovery"; fi
-          python musinsa_collector_v9.py discover-slot --state-dir run_state --slot ${{ steps.slot.outputs.slot }} $EXTRA
+          python musinsa_collector_v9.py discover-slot --state-dir run_state --slot "${{ steps.slot.outputs.slot }}" $EXTRA
+          if [ -d data/lifecycle ]; then cp -R data/lifecycle run_state/lifecycle; fi
       - uses: actions/upload-artifact@v4
         with:
           name: v9-discovery-state
@@ -134,6 +145,8 @@ jobs:
           path: |
             run_state/musinsa_watchlist.txt
             run_state/musinsa_catalog.csv
+            run_state/musinsa_brand_audit.csv
+            run_state/lifecycle/
             run_state/new_products_delta.csv
             run_state/discovery_stats.json
             run_state/snapshot_date.txt
@@ -145,6 +158,9 @@ jobs:
     timeout-minutes: 95
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.discover.outputs.collector_sha }}
+          fetch-depth: 1
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -179,7 +195,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          ref: ${{ github.ref_name }}
+          fetch-depth: 1
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -195,7 +212,9 @@ jobs:
           name: v9-slot-${{ needs.discover.outputs.slot }}-primary
           path: shard_results
       - name: Aggregate and create recovery queue
-        run: python musinsa_collector_v9.py aggregate-slot --state-dir run_state --shard-dir shard_results
+        run: |
+          if [ -d run_state/lifecycle ]; then mkdir -p data; cp -R run_state/lifecycle data/; fi
+          python musinsa_collector_v9.py aggregate-slot --state-dir run_state --shard-dir shard_results
 
       - name: Recalculate recent calendar-day estimates immediately
         shell: bash
@@ -208,7 +227,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A -- data
-          for p in             musinsa_watchlist.txt             musinsa_catalog.csv             musinsa_daily_product_sales.csv             musinsa_daily_brand_sales.csv             musinsa_daily_summary.csv             musinsa_new_products.csv             musinsa_calendar_latest_products.csv             musinsa_calendar_brand_daily.csv             musinsa_calendar_summary.csv             data/calendar; do
+          for p in             musinsa_watchlist.txt             musinsa_catalog.csv             musinsa_brand_audit.csv             musinsa_daily_product_sales.csv             musinsa_daily_brand_sales.csv             musinsa_daily_summary.csv             musinsa_new_products.csv             musinsa_calendar_latest_products.csv             musinsa_calendar_brand_daily.csv             musinsa_calendar_summary.csv             data/calendar; do
             if [ -e "$p" ]; then git add -- "$p"; fi
           done
           if git diff --cached --quiet; then echo "No collected changes."; exit 0; fi

@@ -102,7 +102,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          ref: ${{ github.ref_name }}
+          fetch-depth: 1
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -124,7 +125,7 @@ jobs:
               now = datetime.now(timezone(timedelta(hours=9)))
               slot = (now.hour // 3) % 8
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
-              f.write(f"slot={slot}\\n")
+              f.write(f"slot={slot}\n")
           print("Adaptive KST clock slot:", slot)
           PY2
 
@@ -133,7 +134,7 @@ jobs:
         run: |
           EXTRA=""
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.dry_run }}" = "true" ]; then EXTRA="--dry-run"; fi
-          python musinsa_collector_v9.py collect-adaptive --clock-slot ${{ steps.slot.outputs.slot }} $EXTRA
+          python musinsa_collector_v9.py collect-adaptive --clock-slot "${{ steps.slot.outputs.slot }}" $EXTRA
 
       - name: Commit adaptive observations
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run == true) }}
