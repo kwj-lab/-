@@ -56,6 +56,7 @@ import os
 import random
 import re
 import sys
+import tempfile
 import threading
 import time
 import urllib.error
@@ -152,6 +153,12 @@ MIDSTREAM_JUMP_PLATEAU_RATIO = float(os.environ.get("MUSINSA_MIDSTREAM_JUMP_PLAT
 MIDSTREAM_JUMP_GENUINE_RATIO = float(os.environ.get("MUSINSA_MIDSTREAM_JUMP_GENUINE_RATIO", "0.10"))
 MIDSTREAM_JUMP_GENUINE_MIN_FOLLOW = int(os.environ.get("MUSINSA_MIDSTREAM_JUMP_GENUINE_MIN_FOLLOW", "100"))
 
+# Daily attribution needs an actual adjacent observation. A missed daily crawl
+# must not become a week of sales or fabricated coverage over the outage.
+MAX_SALES_INTERVAL_HOURS = 36.0
+SALES_POLICY_VERSION = "2026-09-14-observed-baselines-v1"
+SALES_POLICY_FILE = BASE_DIR / "data" / "sales_policy.json"
+
 # Tracker-start boundary. In the real repository the earliest stored snapshot is
 # preferred automatically; the env/default is only a fallback for fresh/partial copies.
 TRACKER_START_DATE_FALLBACK = os.environ.get("MUSINSA_TRACKER_START_DATE", "2026-08-28")
@@ -195,6 +202,7 @@ LATEST_FIELDS = [
     "sales_7d", "sales_7d_avg_per_day", "estimated_gmv_7d",
     "sales_30d", "sales_30d_avg_per_day", "estimated_gmv_30d",
     "availability", "product_url", "errors",
+    "daily_sales_status", "daily_baseline_at", "daily_interval_hours", "sales_policy_version",
 ]
 BRAND_FIELDS = [
     "date", "checked_at", "brand_name", "product_count",
@@ -2001,7 +2009,10 @@ def guarded_purchase_delta(cur, baseline, older_baselines=()):
     That decision is made by the calendar lifecycle resolver, which has access to
     multiple observations before/after the jump.
     """
-    if purchase_counter_observation_inconsistent(cur):
+    # Older rows may detect resets; they cannot substitute for the requested
+    # period's missing baseline. Zero -> positive does not establish that the
+    # counter had no historical purchases (sold-out APIs can report zero).
+    if purchase_baseline_status(cur, baseline) != "ok":
         return None
 
     cv = to_int((cur or {}).get("purchase_total"))
@@ -2023,6 +2034,26 @@ def guarded_purchase_delta(cur, baseline, older_baselines=()):
     if cv < reference:
         return None
     return cv - reference
+
+
+def purchase_baseline_status(cur, baseline, max_hours=None):
+    if not baseline:
+        return "baseline_missing"
+    if purchase_counter_observation_inconsistent(cur) or purchase_counter_observation_inconsistent(baseline):
+        return "counter_missing"
+    t0, t1 = _row_dt(baseline), _row_dt(cur)
+    if t0 is None or t1 is None:
+        return "timestamp_missing"
+    if t1 <= t0:
+        return "out_of_order"
+    if max_hours is not None and (t1 - t0).total_seconds() > max_hours * 3600:
+        return "collection_gap"
+    p0, p1 = to_int(baseline.get("purchase_total")), to_int(cur.get("purchase_total"))
+    if p0 == 0 and p1 > 0:
+        return "zero_baseline_unverified"
+    if p1 < p0:
+        return "counter_reset"
+    return "ok"
 
 def _catalog_first_seen(catalog_row):
     if not catalog_row:
@@ -2051,15 +2082,14 @@ def resolve_initial_purchase_jump(rows, catalog_row=None):
     state:
       none      - no special first-jump condition
       pending   - not enough evidence yet; first jump excluded *for now*
-      genuine   - later observations show continued growth; first jump is restored
       rebase    - jump behaved like historical cumulative-value restoration; excluded
 
     Important:
     - We do NOT use review_count.
     - We do NOT say "0 means invalid".
     - The first observed cumulative value is always just a baseline.
-    - A large first jump is only promoted into sales after follow-through evidence.
-    - Finalizer re-runs can later change pending -> genuine and retroactively restore it.
+    - Later sales do not prove that the disputed earlier jump was also sales.
+    - The disputed boundary stays excluded; later observed increments remain usable.
     """
     rows = [dict(r) for r in rows]
     if len(rows) < 2 or not _is_true_first_observation(rows, catalog_row):
@@ -2086,7 +2116,7 @@ def resolve_initial_purchase_jump(rows, catalog_row=None):
     if jump > 0 and product_confirmed_pretracker(
         (catalog_row or {}).get("goods_no") or (rows[0].get("goods_no") if rows else ""),
         catalog_row,
-        allow_network=True,
+        allow_network=False,
     ):
         rows[0]["_counter_segment"] = 0
         for r in rows[1:]:
@@ -2132,8 +2162,8 @@ def resolve_initial_purchase_jump(rows, catalog_row=None):
                 INITIAL_JUMP_GENUINE_MIN_FOLLOW,
                 int(round(jump * INITIAL_JUMP_GENUINE_FOLLOW_RATIO)),
             )
-            if follow_growth >= genuine_follow and positive_steps >= 2:
-                state = "genuine"
+            # Continuing sales can coexist with restored historical purchases.
+            # They are not evidence for retroactively admitting this boundary.
 
             # "rebase" requires a long, repeatedly confirmed plateau.
             # This is what the NAUTICA 0 -> 1906 -> 1906... pattern looks like.
@@ -2145,12 +2175,6 @@ def resolve_initial_purchase_jump(rows, catalog_row=None):
                 and follow_growth <= plateau_tol
             ):
                 state = "rebase"
-
-    # Genuine => keep one segment, so the first jump is restored.
-    if state == "genuine":
-        for r in rows:
-            r["_counter_segment"] = 0
-        return rows, state, jump
 
     # Pending/rebase => first observation and all later observations live in
     # different segments. This excludes only the disputed first jump.
@@ -2185,8 +2209,8 @@ def resolve_midstream_purchase_jumps(rows):
                  Exclude only that disputed boundary for now.
       - rebase:  >= configured hours / confirmations later, post-jump growth
                  remains tiny relative to the jump. Exclude boundary permanently.
-      - genuine: follow-up growth is large and has >=2 positive steps.
-                 Keep the original segment, restoring the jump.
+      Later growth is counted in its own intervals, never used as proof to
+      restore the disputed earlier boundary.
 
     The function intentionally uses only the purchaseTotal time-series.  It does
     not use review_count, product name changes, or brand heuristics as hard rules.
@@ -2296,8 +2320,8 @@ def resolve_midstream_purchase_jumps(rows):
                     MIDSTREAM_JUMP_GENUINE_MIN_FOLLOW,
                     int(round(jump * MIDSTREAM_JUMP_GENUINE_RATIO)),
                 )
-                if follow_growth >= genuine_follow and positive_steps >= 2:
-                    state = "genuine"
+                # A resumed product may sell normally after a historical rebase.
+                # Follow-through cannot certify the size of the preceding jump.
 
                 plateau_tol = max(
                     10,
@@ -2323,10 +2347,6 @@ def resolve_midstream_purchase_jumps(rows):
                 "state": state,
             })
 
-            if state == "genuine":
-                pos += 1
-                continue
-
             # pending/rebase: split exactly at the disputed boundary.
             anomaly = True
             new_sid = next_segment_id
@@ -2345,21 +2365,25 @@ def resolve_midstream_purchase_jumps(rows):
 
 def build_latest_row(raw, prev, b7, b30, today, slot, catalog_row=None):
     price = to_int(raw.get("current_price"))
-    daily_sales = guarded_purchase_delta(raw, prev, (b7, b30))
+    daily_status = purchase_baseline_status(raw, prev, MAX_SALES_INTERVAL_HOURS)
+    daily_sales = guarded_purchase_delta(raw, prev, (b7, b30)) if daily_status == "ok" else None
 
     # Mid-stream live guard: rolling 24h has no future observations yet.
     # If an established product suddenly jumps by an extreme amount while its
     # older 7d/30d baselines imply a radically lower pace, display unknown rather
     # than publishing a false five-digit 24h sale. Calendar Finalizer can later
-    # restore a genuine jump after follow-through evidence.
+    # evaluate later intervals without admitting an unverified earlier jump.
     if daily_sales is not None and daily_sales >= MIDSTREAM_JUMP_MIN:
         historical_rates = []
-        raw_dt = parse_kst_datetime((raw or {}).get("checked_at"))
+        # Historical pace ends BEFORE the disputed interval. Including today's
+        # jump in its own threshold makes a 7-day baseline mathematically unable
+        # to detect a 50x anomaly.
+        raw_dt = parse_kst_datetime((prev or {}).get("checked_at"))
         for older in (b7, b30):
             if not older:
                 continue
             ov = to_int(older.get("purchase_total"))
-            cv = to_int((raw or {}).get("purchase_total"))
+            cv = to_int((prev or {}).get("purchase_total"))
             odt = parse_kst_datetime(older.get("checked_at"))
             if ov is None or cv is None or odt is None or raw_dt is None or raw_dt <= odt:
                 continue
@@ -2380,7 +2404,7 @@ def build_latest_row(raw, prev, b7, b30, today, slot, catalog_row=None):
     # Rolling 24h has no future observations available at build time.
     # For a newly discovered item, a large first-day jump with no older baseline
     # is therefore displayed as unknown instead of a false spike. Calendar Finalizer
-    # can later restore it retroactively after the 48h follow-through is known.
+    # counts later observed increments separately from this disputed boundary.
     raw_checked = parse_kst_datetime(raw.get("checked_at")) or now_kst()
     first_seen = _catalog_first_seen(catalog_row)
     prev_checked = parse_kst_datetime((prev or {}).get("checked_at"))
@@ -2399,7 +2423,7 @@ def build_latest_row(raw, prev, b7, b30, today, slot, catalog_row=None):
         and first_baseline
         and b7 is None
         and b30 is None
-        and product_confirmed_pretracker(raw.get("goods_no"), catalog_row, allow_network=True)
+        and product_confirmed_pretracker(raw.get("goods_no"), catalog_row, allow_network=False)
     ):
         daily_sales = None
     elif (
@@ -2414,8 +2438,14 @@ def build_latest_row(raw, prev, b7, b30, today, slot, catalog_row=None):
 
     sales7 = guarded_purchase_delta(raw, b7, (b30,))
     sales30 = guarded_purchase_delta(raw, b30)
-    views = metric_delta(raw, prev, "page_view_total")
-    reviews = metric_delta(raw, prev, "review_count")
+    if daily_status == "ok" and daily_sales is None:
+        daily_status = "counter_jump_unverified"
+    daily_hours = ((raw_checked - prev_checked).total_seconds() / 3600.0
+                   if prev_checked is not None else None)
+    valid_daily_time = (_row_dt(raw) is not None and daily_hours is not None
+                        and 0 < daily_hours <= MAX_SALES_INTERVAL_HOURS)
+    views = metric_delta(raw, prev, "page_view_total") if valid_daily_time else None
+    reviews = metric_delta(raw, prev, "review_count") if valid_daily_time else None
 
     return {
         "date": today.isoformat(),
@@ -2426,6 +2456,10 @@ def build_latest_row(raw, prev, b7, b30, today, slot, catalog_row=None):
         "product_name": raw.get("product_name") or "",
         "purchase_total": to_int(raw.get("purchase_total")),
         "daily_sales": daily_sales,
+        "daily_sales_status": daily_status,
+        "daily_baseline_at": (prev or {}).get("checked_at") or "",
+        "daily_interval_hours": round(daily_hours, 2) if daily_hours is not None else "",
+        "sales_policy_version": SALES_POLICY_VERSION,
         "normal_price": to_int(raw.get("normal_price")),
         "current_price": price,
         "sale_rate": to_int(raw.get("sale_rate")),
@@ -2709,8 +2743,9 @@ def rebuild_latest_product_file():
     return all_latest
 
 
-def rebuild_date_aggregates(date_value):
-    rows = build_rows_for_date(date_value)
+def rebuild_date_aggregates(date_value, rows=None, write_daily_snapshot=True):
+    if rows is None:
+        rows = build_rows_for_date(date_value)
     new_delta = new_products_for_date(date_value)
     brand_today = brand_rows_for_date(rows, new_delta, date_value)
     brand_all = upsert_rows(
@@ -2739,7 +2774,7 @@ def rebuild_date_aggregates(date_value):
     write_csv(SUMMARY_FILE, summaries, SUMMARY_FIELDS)
 
     slot_files = [SLOT_DIR / f"slot-{s}" / f"{date_value.isoformat()}.csv.gz" for s in range(SLOT_COUNT)]
-    if all(p.exists() for p in slot_files):
+    if write_daily_snapshot and all(p.exists() for p in slot_files):
         day_rows = []
         for p in slot_files:
             day_rows.extend(read_csv(p))
@@ -3161,7 +3196,7 @@ def sanitize_purchase_observations(observations, catalog_row=None):
     """
     source = [
         dict(r) for r in sorted(observations, key=lambda r: r["_checked_dt"])
-        if to_int(r.get("purchase_total")) is not None
+        if not purchase_counter_observation_inconsistent(r)
     ]
 
     if not source:
@@ -3217,6 +3252,25 @@ def sanitize_purchase_observations(observations, catalog_row=None):
             continue
 
         i += 1
+
+    # Repeated zeros and long outages can occur long after discovery/probation.
+    # Split these boundaries regardless of catalog age, review count or jump size.
+    # Downward-reset cleanup above still preserves 1000 -> 0 -> 1005 as +5 when
+    # its two trusted positive observations are close enough in time.
+    old_segment = None
+    segment = -1
+    previous = None
+    for row in clean:
+        original_segment = row.get("_counter_segment")
+        boundary = previous is not None and purchase_baseline_status(
+            row, previous, MAX_SALES_INTERVAL_HOURS) != "ok"
+        if original_segment != old_segment or boundary:
+            segment += 1
+        if boundary:
+            anomaly = True
+        old_segment = original_segment
+        row["_counter_segment"] = segment
+        previous = row
 
     # Initial-jump resolver should only operate inside the first counter segment.
     # If there was an unrelated later reset, preserve its segment boundaries.
@@ -3495,7 +3549,8 @@ def write_calendar_manifest():
         "finalized_dates": dates,
         "months": months,
         "history_buckets": CALENDAR_HISTORY_BUCKETS,
-        "method": "uniform purchaseTotal delta allocation across KST calendar-day overlap; price uses last-observation-carried-forward",
+        "method": "purchaseTotal deltas within verified counter segments, maximum 36h observation gap; KST overlap allocation; price uses last-observation-carried-forward",
+        "sales_policy_version": SALES_POLICY_VERSION,
     }
     CALENDAR_MANIFEST_FILE.parent.mkdir(parents=True, exist_ok=True)
     CALENDAR_MANIFEST_FILE.write_text(
@@ -3504,7 +3559,7 @@ def write_calendar_manifest():
     )
 
 
-def finalize_calendar_date(target_date):
+def finalize_calendar_date(target_date, history_sink=None):
     observations = load_calendar_observations(target_date)
     catalog_rows = read_csv(CATALOG_FILE)
     catalog = {str(r.get("goods_no") or ""): r for r in catalog_rows if r.get("goods_no")}
@@ -3522,12 +3577,21 @@ def finalize_calendar_date(target_date):
 
     brand_rows = calendar_brand_rows(target_date, product_rows)
 
-    brand_all = upsert_rows(
-        CALENDAR_BRAND_FILE,
-        brand_rows,
-        CALENDAR_BRAND_FIELDS,
-        lambda r: (str(r.get("date") or ""), str(r.get("brand_name") or "")),
-    )
+    # A recalculation can remove every valid interval for a brand. Upsert alone
+    # leaves its old inflated total behind, so replace this complete date slice.
+    old_brand_rows = read_csv(CALENDAR_BRAND_FILE)
+    observed_brands = {str(obs[-1].get("brand_name") or "") for obs in observations.values() if obs}
+    observed_brands.update(r.get("brand_name") for r in old_brand_rows
+                           if r.get("date") == target_date.isoformat())
+    known_brands = {r["brand_name"] for r in brand_rows}
+    for brand in sorted(observed_brands - known_brands - {"", None}):
+        brand_rows.append({"date": target_date.isoformat(),
+                           "checked_at": now_kst().isoformat(timespec="seconds"),
+                           "brand_name": brand, "product_count": 0,
+                           "complete_product_count": 0, "product_coverage_pct": 0,
+                           "average_time_coverage_pct": 0,
+                           "estimated_sales": "", "estimated_gmv": ""})
+    brand_all = [r for r in old_brand_rows if r.get("date") != target_date.isoformat()] + brand_rows
     brand_all.sort(key=lambda r: (str(r.get("date") or ""), str(r.get("brand_name") or "")))
     write_csv(CALENDAR_BRAND_FILE, brand_all, CALENDAR_BRAND_FIELDS)
 
@@ -3542,8 +3606,8 @@ def finalize_calendar_date(target_date):
         "complete_product_count": complete_count,
         "product_coverage_pct": round(complete_count / len(product_rows) * 100.0, 2) if product_rows else 0.0,
         "average_time_coverage_pct": round(sum(coverages) / len(coverages), 2) if coverages else 0.0,
-        "estimated_sales": round(sum(to_float(r.get("estimated_sales")) or 0.0 for r in product_rows), 2),
-        "estimated_gmv": round(sum(to_float(r.get("estimated_gmv")) or 0.0 for r in product_rows)),
+        "estimated_sales": round(sum(to_float(r.get("estimated_sales")) or 0.0 for r in product_rows), 2) if product_rows else "",
+        "estimated_gmv": round(sum(to_float(r.get("estimated_gmv")) or 0.0 for r in product_rows)) if product_rows else "",
         "price_change_products": sum(1 for r in product_rows if to_int(r.get("price_change_detected")) == 1),
     }
     summary_all = upsert_rows(
@@ -3555,7 +3619,10 @@ def finalize_calendar_date(target_date):
     summary_all.sort(key=lambda r: str(r.get("date") or ""))
     write_csv(CALENDAR_SUMMARY_FILE, summary_all, CALENDAR_SUMMARY_FIELDS)
 
-    upsert_calendar_history(target_date, product_rows)
+    if history_sink is None:
+        upsert_calendar_history(target_date, product_rows)
+    else:
+        history_sink(target_date, product_rows)
 
     # 가장 최근 finalize 날짜를 메인 상품표로 사용
     latest_date = max(
@@ -3594,6 +3661,111 @@ def finalize_calendar_recent(lookback_days=3, date_text=None):
         finalize_calendar_date(target)
     return 0
 
+
+def repair_sales_analytics():
+    """One-time, offline rebuild of derived analytics from unchanged observations.
+
+    Called only by existing FIFO writers. Rebuild dates already stored in this
+    repository, never create historical observations or re-fetch past counters.
+    The marker is written last, so interrupted repairs retry safely.
+    """
+    if SALES_POLICY_FILE.exists():
+        marker = json.loads(SALES_POLICY_FILE.read_text(encoding="utf-8"))
+        if marker.get("version") == SALES_POLICY_VERSION:
+            return marker
+
+    original_latest = {r["goods_no"]: to_int(r.get("daily_sales"))
+                       for r in read_csv(LATEST_PRODUCT_FILE) if r.get("goods_no")}
+    snapshot_dates = set()
+    latest_slot_dates = {}
+    for slot in range(SLOT_COUNT):
+        folder = SLOT_DIR / f"slot-{slot}"
+        dates = sorted({p.name[:10] for p in folder.glob("*.csv*")
+                        if re.match(r"^\d{4}-\d{2}-\d{2}\.csv(?:\.gz)?$", p.name)})
+        snapshot_dates.update(dates)
+        if dates:
+            latest_slot_dates[slot] = dates[-1]
+
+    # Use every existing finalized day so an old product-detail spike cannot
+    # survive merely because it falls outside the routine three-day lookback.
+    calendar_dates = sorted({r.get("date") for r in read_csv(CALENDAR_SUMMARY_FILE) if r.get("date")})
+    for date_text in sorted(snapshot_dates):
+        target = datetime.strptime(date_text, "%Y-%m-%d").date()
+        rows = build_rows_for_date(target)
+        rebuild_date_aggregates(target, rows, write_daily_snapshot=False)
+        for slot, latest_date in latest_slot_dates.items():
+            if latest_date == date_text:
+                write_csv(LATEST_SLOT_DIR / f"slot-{slot}.csv.gz",
+                          [r for r in rows if to_int(r.get("slot")) == slot], LATEST_FIELDS)
+        print(f"[sales-repair] rolling {date_text}: {len(rows)} rows", flush=True)
+    rebuilt_latest = rebuild_latest_product_file()
+
+    changes = []
+    for row in rebuilt_latest:
+        before = original_latest.get(str(row.get("goods_no")))
+        after = to_int(row.get("daily_sales"))
+        if before is not None and before != after:
+            changes.append({"goods_no": row.get("goods_no"), "brand_name": row.get("brand_name"),
+                            "date": row.get("date"), "before": before, "after": after,
+                            "reason": row.get("daily_sales_status")})
+    changes.sort(key=lambda x: x["before"], reverse=True)
+    # Calendar estimation loads several days of observations; release the large
+    # rolling tables before that phase on the hosted runner.
+    del original_latest, rebuilt_latest
+    if snapshot_dates:
+        del rows
+    # Rewriting every monthly bucket for every day is quadratic in the history
+    # size. Spool new rows by bucket, then replace each bucket once. Temporary
+    # files are outside the repository and never become observation snapshots.
+    closed_dates = {d for d in calendar_dates if d < now_kst().date().isoformat()}
+    with tempfile.TemporaryDirectory(prefix="musinsa-sales-repair-") as tmp:
+        staging = Path(tmp)
+
+        def stage_history(target, product_rows):
+            grouped = {}
+            for row in product_rows:
+                grouped.setdefault(int(row.get("history_bucket") or 0), []).append(row)
+            for bucket, bucket_rows in grouped.items():
+                path = staging / target.strftime("%Y-%m") / f"bucket-{bucket:02d}.csv"
+                path.parent.mkdir(parents=True, exist_ok=True)
+                exists = path.exists()
+                with path.open("a", encoding="utf-8", newline="") as stream:
+                    writer = csv.DictWriter(stream, fieldnames=CALENDAR_PRODUCT_FIELDS)
+                    if not exists:
+                        writer.writeheader()
+                    writer.writerows(bucket_rows)
+
+        for date_text in sorted(closed_dates):
+            target = datetime.strptime(date_text, "%Y-%m-%d").date()
+            finalize_calendar_date(target, history_sink=stage_history)
+            print(f"[sales-repair] calendar {date_text}", flush=True)
+
+        for month in sorted({d[:7] for d in closed_dates}):
+            existing = CALENDAR_HISTORY_DIR / month
+            staged = staging / month
+            names = {p.name for p in existing.glob("bucket-*.csv")}
+            names.update(p.name for p in staged.glob("bucket-*.csv"))
+            for name in sorted(names):
+                kept = [r for r in read_csv(existing / name) if r.get("date") not in closed_dates]
+                merged = kept + read_csv(staged / name)
+                merged.sort(key=lambda r: (str(r.get("date") or ""),
+                                          int(r["goods_no"]) if str(r.get("goods_no", "")).isdigit() else 10**30))
+                write_csv(existing / name, merged, CALENDAR_PRODUCT_FIELDS)
+
+    write_calendar_manifest()
+    marker = {"version": SALES_POLICY_VERSION,
+              "updated_at": now_kst().isoformat(timespec="seconds"),
+              "snapshot_dates_rebuilt": sorted(snapshot_dates),
+              "calendar_dates_rebuilt": calendar_dates,
+              "latest_values_corrected": len(changes),
+              "largest_corrections": changes[:30],
+              "raw_observations_modified": False,
+              "max_attribution_interval_hours": MAX_SALES_INTERVAL_HOURS}
+    SALES_POLICY_FILE.parent.mkdir(parents=True, exist_ok=True)
+    SALES_POLICY_FILE.write_text(json.dumps(marker, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(json.dumps({"sales_repair": marker}, ensure_ascii=False), flush=True)
+    return marker
+
 def main():
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -3631,7 +3803,13 @@ def main():
     p.add_argument("--lookback-days", type=int, default=3)
     p.add_argument("--date", default="")
 
+    sub.add_parser("repair-sales", help="Rebuild derived sales from stored observations; no collection")
+
     args = parser.parse_args()
+    if args.cmd in ("aggregate-slot", "recover-pending", "finalize-calendar", "repair-sales"):
+        repair_sales_analytics()
+    if args.cmd == "repair-sales":
+        return 0
     if args.cmd == "discover-slot":
         return discover_slot(args.state_dir, args.slot, args.full_discovery)
     if args.cmd == "collect-slot-shard":

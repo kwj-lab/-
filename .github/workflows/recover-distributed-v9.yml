@@ -108,7 +108,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A -- data
-          for p in musinsa_daily_product_sales.csv musinsa_daily_brand_sales.csv musinsa_daily_summary.csv; do
+          for p in musinsa_daily_product_sales.csv musinsa_daily_brand_sales.csv musinsa_daily_summary.csv musinsa_calendar_latest_products.csv musinsa_calendar_brand_daily.csv musinsa_calendar_summary.csv; do
             if [ -e "$p" ]; then git add -- "$p"; fi
           done
           if git diff --cached --quiet; then

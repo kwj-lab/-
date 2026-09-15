@@ -120,6 +120,11 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           for p in \
+            musinsa_daily_product_sales.csv \
+            musinsa_daily_brand_sales.csv \
+            musinsa_daily_summary.csv \
+            data/latest_slots \
+            data/sales_policy.json \
             musinsa_calendar_latest_products.csv \
             musinsa_calendar_brand_daily.csv \
             musinsa_calendar_summary.csv \
