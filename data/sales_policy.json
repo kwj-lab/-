@@ -1,0 +1,292 @@
+{
+  "version": "2026-09-14-observed-baselines-v1",
+  "updated_at": "2026-09-15T13:27:13+09:00",
+  "snapshot_dates_rebuilt": [
+    "2026-08-27",
+    "2026-08-28",
+    "2026-08-29",
+    "2026-08-30",
+    "2026-08-31",
+    "2026-09-01",
+    "2026-09-02",
+    "2026-09-03",
+    "2026-09-04",
+    "2026-09-05",
+    "2026-09-06",
+    "2026-09-07",
+    "2026-09-08",
+    "2026-09-09",
+    "2026-09-10",
+    "2026-09-14",
+    "2026-09-15"
+  ],
+  "calendar_dates_rebuilt": [
+    "2026-08-24",
+    "2026-08-25",
+    "2026-08-26",
+    "2026-08-27",
+    "2026-08-28",
+    "2026-08-29",
+    "2026-08-30",
+    "2026-08-31",
+    "2026-09-01",
+    "2026-09-02",
+    "2026-09-03",
+    "2026-09-04",
+    "2026-09-05",
+    "2026-09-06",
+    "2026-09-07",
+    "2026-09-08",
+    "2026-09-09",
+    "2026-09-10",
+    "2026-09-11",
+    "2026-09-12",
+    "2026-09-13",
+    "2026-09-14"
+  ],
+  "latest_values_corrected": 173487,
+  "largest_corrections": [
+    {
+      "goods_no": "3946794",
+      "brand_name": "그랜디오시티",
+      "date": "2026-09-14",
+      "before": 23798,
+      "after": null,
+      "reason": "baseline_missing"
+    },
+    {
+      "goods_no": "3050501",
+      "brand_name": "제이엘브",
+      "date": "2026-09-14",
+      "before": 23458,
+      "after": null,
+      "reason": "baseline_missing"
+    },
+    {
+      "goods_no": "3019653",
+      "brand_name": "엘무드",
+      "date": "2026-09-14",
+      "before": 10939,
+      "after": null,
+      "reason": "baseline_missing"
+    },
+    {
+      "goods_no": "5251265",
+      "brand_name": "리메인세컨드",
+      "date": "2026-09-14",
+      "before": 8045,
+      "after": null,
+      "reason": "baseline_missing"
+    },
+    {
+      "goods_no": "6948481",
+      "brand_name": "트릴리온",
+      "date": "2026-09-14",
+      "before": 8029,
+      "after": null,
+      "reason": "baseline_missing"
+    },
+    {
+      "goods_no": "4750062",
+      "brand_name": "워크온바디오프",
+      "date": "2026-09-14",
+      "before": 6356,
+      "after": null,
+      "reason": "baseline_missing"
+    },
+    {
+      "goods_no": "4749421",
+      "brand_name": "워크온바디오프",
+      "date": "2026-09-14",
+      "before": 5768,
+      "after": null,
+      "reason": "baseline_missing"
+    },
+    {
+      "goods_no": "4750067",
+      "brand_name": "워크온바디오프",
+      "date": "2026-09-14",
+      "before": 4910,
+      "after": null,
+      "reason": "baseline_missing"
+    },
+    {
+      "goods_no": "2680731",
+      "brand_name": "테이크이지",
+      "date": "2026-09-14",
+      "before": 4873,
+      "after": null,
+      "reason": "baseline_missing"
+    },
+    {
+      "goods_no": "5562220",
+      "brand_name": "코드그라피",
+      "date": "2026-09-14",
+      "before": 4649,
+      "after": null,
+      "reason": "baseline_missing"
+    },
+    {
+      "goods_no": "4969774",
+      "brand_name": "아캄",
+      "date": "2026-09-14",
+      "before": 4333,
+      "after": null,
+      "reason": "baseline_missing"
+    },
+    {
+      "goods_no": "6000058",
+      "brand_name": "길라아카이브",
+      "date": "2026-09-14",
+      "before": 4281,
+      "after": null,
+      "reason": "baseline_missing"
+    },
+    {
+      "goods_no": "4053834",
+      "brand_name": "아캄",
+      "date": "2026-09-14",
+      "before": 3784,
+      "after": null,
+      "reason": "baseline_missing"
+    },
+    {
+      "goods_no": "4993373",
+      "brand_name": "아캄",
+      "date": "2026-09-14",
+      "before": 3569,
+      "after": null,
+      "reason": "baseline_missing"
+    },
+    {
+      "goods_no": "4969775",
+      "brand_name": "아캄",
+      "date": "2026-09-14",
+      "before": 3302,
+      "after": null,
+      "reason": "baseline_missing"
+    },
+    {
+      "goods_no": "6175747",
+      "brand_name": "토마스모어",
+      "date": "2026-09-14",
+      "before": 3094,
+      "after": null,
+      "reason": "baseline_missing"
+    },
+    {
+      "goods_no": "4749432",
+      "brand_name": "워크온바디오프",
+      "date": "2026-09-14",
+      "before": 2740,
+      "after": null,
+      "reason": "baseline_missing"
+    },
+    {
+      "goods_no": "3098417",
+      "brand_name": "플랙",
+      "date": "2026-09-14",
+      "before": 2459,
+      "after": null,
+      "reason": "baseline_missing"
+    },
+    {
+      "goods_no": "5329359",
+      "brand_name": "아디다스",
+      "date": "2026-09-14",
+      "before": 2318,
+      "after": null,
+      "reason": "baseline_missing"
+    },
+    {
+      "goods_no": "4750061",
+      "brand_name": "워크온바디오프",
+      "date": "2026-09-14",
+      "before": 2254,
+      "after": null,
+      "reason": "baseline_missing"
+    },
+    {
+      "goods_no": "7109260",
+      "brand_name": "수아레",
+      "date": "2026-09-14",
+      "before": 2161,
+      "after": null,
+      "reason": "baseline_missing"
+    },
+    {
+      "goods_no": "4945148",
+      "brand_name": "아디다스",
+      "date": "2026-09-14",
+      "before": 1940,
+      "after": null,
+      "reason": "baseline_missing"
+    },
+    {
+      "goods_no": "4750063",
+      "brand_name": "워크온바디오프",
+      "date": "2026-09-14",
+      "before": 1928,
+      "after": null,
+      "reason": "baseline_missing"
+    },
+    {
+      "goods_no": "4969772",
+      "brand_name": "아캄",
+      "date": "2026-09-14",
+      "before": 1866,
+      "after": null,
+      "reason": "baseline_missing"
+    },
+    {
+      "goods_no": "5532467",
+      "brand_name": "수아레",
+      "date": "2026-09-14",
+      "before": 1823,
+      "after": null,
+      "reason": "baseline_missing"
+    },
+    {
+      "goods_no": "7011611",
+      "brand_name": "더니트컴퍼니",
+      "date": "2026-09-14",
+      "before": 1789,
+      "after": null,
+      "reason": "baseline_missing"
+    },
+    {
+      "goods_no": "4575686",
+      "brand_name": "아캄",
+      "date": "2026-09-14",
+      "before": 1698,
+      "after": null,
+      "reason": "baseline_missing"
+    },
+    {
+      "goods_no": "5260790",
+      "brand_name": "무센트",
+      "date": "2026-09-14",
+      "before": 1630,
+      "after": null,
+      "reason": "baseline_missing"
+    },
+    {
+      "goods_no": "6226755",
+      "brand_name": "아캄",
+      "date": "2026-09-14",
+      "before": 1580,
+      "after": null,
+      "reason": "baseline_missing"
+    },
+    {
+      "goods_no": "4969760",
+      "brand_name": "아캄",
+      "date": "2026-09-14",
+      "before": 1420,
+      "after": null,
+      "reason": "baseline_missing"
+    }
+  ],
+  "raw_observations_modified": false,
+  "max_attribution_interval_hours": 36.0
+}

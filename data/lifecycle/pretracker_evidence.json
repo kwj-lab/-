@@ -7376,5 +7376,845 @@
     "evidence_date": "2026-08-27",
     "tracker_start_date": "2026-08-27",
     "checked_at": "2026-09-15T09:55:02+09:00"
+  },
+  "7321139": {
+    "status": "unknown",
+    "evidence_type": "",
+    "evidence_date": "",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:40:43+09:00"
+  },
+  "7320004": {
+    "status": "unknown",
+    "evidence_type": "",
+    "evidence_date": "",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:40:49+09:00"
+  },
+  "7319999": {
+    "status": "unknown",
+    "evidence_type": "",
+    "evidence_date": "",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:40:55+09:00"
+  },
+  "7319992": {
+    "status": "unknown",
+    "evidence_type": "",
+    "evidence_date": "",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:41:01+09:00"
+  },
+  "7319998": {
+    "status": "unknown",
+    "evidence_type": "",
+    "evidence_date": "",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:41:07+09:00"
+  },
+  "7319994": {
+    "status": "unknown",
+    "evidence_type": "",
+    "evidence_date": "",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:41:13+09:00"
+  },
+  "7320027": {
+    "status": "unknown",
+    "evidence_type": "",
+    "evidence_date": "",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:41:19+09:00"
+  },
+  "7320022": {
+    "status": "unknown",
+    "evidence_type": "",
+    "evidence_date": "",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:41:25+09:00"
+  },
+  "7320006": {
+    "status": "unknown",
+    "evidence_type": "",
+    "evidence_date": "",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:41:31+09:00"
+  },
+  "7320001": {
+    "status": "unknown",
+    "evidence_type": "",
+    "evidence_date": "",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:41:37+09:00"
+  },
+  "7320014": {
+    "status": "unknown",
+    "evidence_type": "",
+    "evidence_date": "",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:41:43+09:00"
+  },
+  "7320013": {
+    "status": "unknown",
+    "evidence_type": "",
+    "evidence_date": "",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:41:49+09:00"
+  },
+  "7320012": {
+    "status": "unknown",
+    "evidence_type": "",
+    "evidence_date": "",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:41:55+09:00"
+  },
+  "7116417": {
+    "status": "preexisting_probable",
+    "evidence_type": "goods_no_before_start_ceiling",
+    "evidence_date": "2026-08-27",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:42:01+09:00"
+  },
+  "5586652": {
+    "status": "preexisting_confirmed",
+    "evidence_type": "qna",
+    "evidence_date": "2026-02-12",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:42:13+09:00"
+  },
+  "5427560": {
+    "status": "preexisting_confirmed",
+    "evidence_type": "qna",
+    "evidence_date": "2026-01-09",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:42:25+09:00"
+  },
+  "7311296": {
+    "status": "unknown",
+    "evidence_type": "",
+    "evidence_date": "",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:42:31+09:00"
+  },
+  "7311293": {
+    "status": "unknown",
+    "evidence_type": "",
+    "evidence_date": "",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:42:37+09:00"
+  },
+  "7311299": {
+    "status": "unknown",
+    "evidence_type": "",
+    "evidence_date": "",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:42:43+09:00"
+  },
+  "7275561": {
+    "status": "no_pretracker_evidence",
+    "evidence_type": "qna",
+    "evidence_date": "2026-09-10",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:42:49+09:00"
+  },
+  "7043626": {
+    "status": "preexisting_confirmed",
+    "evidence_type": "qna",
+    "evidence_date": "2026-08-25",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:43:01+09:00"
+  },
+  "5880266": {
+    "status": "preexisting_confirmed",
+    "evidence_type": "qna",
+    "evidence_date": "2026-02-03",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:43:15+09:00"
+  },
+  "7289525": {
+    "status": "unknown",
+    "evidence_type": "",
+    "evidence_date": "",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:43:21+09:00"
+  },
+  "7233830": {
+    "status": "unknown",
+    "evidence_type": "",
+    "evidence_date": "",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:43:27+09:00"
+  },
+  "5153143": {
+    "status": "preexisting_probable",
+    "evidence_type": "goods_no_before_start_ceiling",
+    "evidence_date": "2026-08-27",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:43:40+09:00"
+  },
+  "5153024": {
+    "status": "preexisting_confirmed",
+    "evidence_type": "qna",
+    "evidence_date": "2026-06-11",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:43:52+09:00"
+  },
+  "5987750": {
+    "status": "preexisting_confirmed",
+    "evidence_type": "qna",
+    "evidence_date": "2026-03-24",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:44:04+09:00"
+  },
+  "5641091": {
+    "status": "preexisting_confirmed",
+    "evidence_type": "qna",
+    "evidence_date": "2026-01-02",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:44:10+09:00"
+  },
+  "5622630": {
+    "status": "preexisting_probable",
+    "evidence_type": "goods_no_before_start_ceiling",
+    "evidence_date": "2026-08-27",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:44:16+09:00"
+  },
+  "5622628": {
+    "status": "preexisting_probable",
+    "evidence_type": "goods_no_before_start_ceiling",
+    "evidence_date": "2026-08-27",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:44:29+09:00"
+  },
+  "5622633": {
+    "status": "preexisting_probable",
+    "evidence_type": "goods_no_before_start_ceiling",
+    "evidence_date": "2026-08-27",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:44:35+09:00"
+  },
+  "5622629": {
+    "status": "preexisting_probable",
+    "evidence_type": "goods_no_before_start_ceiling",
+    "evidence_date": "2026-08-27",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:44:48+09:00"
+  },
+  "5614999": {
+    "status": "preexisting_probable",
+    "evidence_type": "goods_no_before_start_ceiling",
+    "evidence_date": "2026-08-27",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:45:00+09:00"
+  },
+  "5597331": {
+    "status": "preexisting_probable",
+    "evidence_type": "goods_no_before_start_ceiling",
+    "evidence_date": "2026-08-27",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:45:12+09:00"
+  },
+  "5565801": {
+    "status": "preexisting_confirmed",
+    "evidence_type": "qna",
+    "evidence_date": "2025-11-17",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:45:25+09:00"
+  },
+  "5558797": {
+    "status": "preexisting_probable",
+    "evidence_type": "goods_no_before_start_ceiling",
+    "evidence_date": "2026-08-27",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:45:31+09:00"
+  },
+  "5522654": {
+    "status": "preexisting_probable",
+    "evidence_type": "goods_no_before_start_ceiling",
+    "evidence_date": "2026-08-27",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:45:45+09:00"
+  },
+  "5522653": {
+    "status": "preexisting_probable",
+    "evidence_type": "goods_no_before_start_ceiling",
+    "evidence_date": "2026-08-27",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:45:58+09:00"
+  },
+  "5522652": {
+    "status": "preexisting_probable",
+    "evidence_type": "goods_no_before_start_ceiling",
+    "evidence_date": "2026-08-27",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:46:10+09:00"
+  },
+  "5516237": {
+    "status": "preexisting_probable",
+    "evidence_type": "goods_no_before_start_ceiling",
+    "evidence_date": "2026-08-27",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:46:22+09:00"
+  },
+  "5516248": {
+    "status": "preexisting_probable",
+    "evidence_type": "goods_no_before_start_ceiling",
+    "evidence_date": "2026-08-27",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:46:35+09:00"
+  },
+  "5497205": {
+    "status": "preexisting_confirmed",
+    "evidence_type": "qna",
+    "evidence_date": "2025-10-13",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:46:48+09:00"
+  },
+  "5497204": {
+    "status": "preexisting_confirmed",
+    "evidence_type": "qna",
+    "evidence_date": "2026-01-10",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:47:00+09:00"
+  },
+  "5497220": {
+    "status": "preexisting_confirmed",
+    "evidence_type": "qna",
+    "evidence_date": "2025-11-30",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:47:12+09:00"
+  },
+  "5442893": {
+    "status": "preexisting_confirmed",
+    "evidence_type": "qna",
+    "evidence_date": "2026-03-23",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:47:24+09:00"
+  },
+  "5442891": {
+    "status": "preexisting_confirmed",
+    "evidence_type": "qna",
+    "evidence_date": "2026-04-03",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:47:37+09:00"
+  },
+  "5442890": {
+    "status": "preexisting_confirmed",
+    "evidence_type": "qna",
+    "evidence_date": "2026-03-25",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:47:49+09:00"
+  },
+  "5442889": {
+    "status": "preexisting_confirmed",
+    "evidence_type": "qna",
+    "evidence_date": "2025-10-20",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:48:02+09:00"
+  },
+  "5442902": {
+    "status": "preexisting_confirmed",
+    "evidence_type": "qna",
+    "evidence_date": "2025-10-08",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:48:15+09:00"
+  },
+  "5442899": {
+    "status": "preexisting_probable",
+    "evidence_type": "goods_no_before_start_ceiling",
+    "evidence_date": "2026-08-27",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:48:27+09:00"
+  },
+  "4767026": {
+    "status": "preexisting_confirmed",
+    "evidence_type": "qna",
+    "evidence_date": "2025-05-04",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:48:39+09:00"
+  },
+  "4767024": {
+    "status": "preexisting_confirmed",
+    "evidence_type": "qna",
+    "evidence_date": "2025-03-11",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:48:51+09:00"
+  },
+  "4767022": {
+    "status": "preexisting_probable",
+    "evidence_type": "goods_no_before_start_ceiling",
+    "evidence_date": "2026-08-27",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:49:04+09:00"
+  },
+  "4767027": {
+    "status": "preexisting_probable",
+    "evidence_type": "goods_no_before_start_ceiling",
+    "evidence_date": "2026-08-27",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:49:16+09:00"
+  },
+  "4762239": {
+    "status": "preexisting_probable",
+    "evidence_type": "goods_no_before_start_ceiling",
+    "evidence_date": "2026-08-27",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:49:29+09:00"
+  },
+  "4762237": {
+    "status": "preexisting_confirmed",
+    "evidence_type": "qna",
+    "evidence_date": "2025-03-28",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:49:41+09:00"
+  },
+  "4752423": {
+    "status": "preexisting_probable",
+    "evidence_type": "goods_no_before_start_ceiling",
+    "evidence_date": "2026-08-27",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:49:53+09:00"
+  },
+  "4699222": {
+    "status": "preexisting_probable",
+    "evidence_type": "goods_no_before_start_ceiling",
+    "evidence_date": "2026-08-27",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:50:06+09:00"
+  },
+  "4699221": {
+    "status": "preexisting_confirmed",
+    "evidence_type": "qna",
+    "evidence_date": "2025-12-24",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:50:19+09:00"
+  },
+  "4587022": {
+    "status": "preexisting_confirmed",
+    "evidence_type": "qna",
+    "evidence_date": "2024-12-12",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:50:31+09:00"
+  },
+  "4546548": {
+    "status": "preexisting_probable",
+    "evidence_type": "goods_no_before_start_ceiling",
+    "evidence_date": "2026-08-27",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:50:45+09:00"
+  },
+  "4546546": {
+    "status": "preexisting_probable",
+    "evidence_type": "goods_no_before_start_ceiling",
+    "evidence_date": "2026-08-27",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:50:58+09:00"
+  },
+  "4539938": {
+    "status": "preexisting_confirmed",
+    "evidence_type": "qna",
+    "evidence_date": "2024-12-31",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:51:10+09:00"
+  },
+  "4508466": {
+    "status": "preexisting_probable",
+    "evidence_type": "goods_no_before_start_ceiling",
+    "evidence_date": "2026-08-27",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:51:23+09:00"
+  },
+  "4487097": {
+    "status": "preexisting_probable",
+    "evidence_type": "goods_no_before_start_ceiling",
+    "evidence_date": "2026-08-27",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:51:29+09:00"
+  },
+  "4443333": {
+    "status": "preexisting_confirmed",
+    "evidence_type": "qna",
+    "evidence_date": "2026-03-03",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:51:41+09:00"
+  },
+  "3837816": {
+    "status": "preexisting_confirmed",
+    "evidence_type": "qna",
+    "evidence_date": "2024-07-30",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:51:54+09:00"
+  },
+  "3839158": {
+    "status": "preexisting_probable",
+    "evidence_type": "goods_no_before_start_ceiling",
+    "evidence_date": "2026-08-27",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:52:08+09:00"
+  },
+  "3808279": {
+    "status": "preexisting_confirmed",
+    "evidence_type": "qna",
+    "evidence_date": "2025-01-15",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:52:19+09:00"
+  },
+  "3801645": {
+    "status": "preexisting_confirmed",
+    "evidence_type": "qna",
+    "evidence_date": "2024-02-29",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:52:32+09:00"
+  },
+  "3608641": {
+    "status": "preexisting_confirmed",
+    "evidence_type": "qna",
+    "evidence_date": "2024-01-22",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:52:44+09:00"
+  },
+  "3604573": {
+    "status": "preexisting_confirmed",
+    "evidence_type": "qna",
+    "evidence_date": "2025-10-24",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:52:56+09:00"
+  },
+  "3604572": {
+    "status": "preexisting_confirmed",
+    "evidence_type": "qna",
+    "evidence_date": "2024-01-25",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:53:09+09:00"
+  },
+  "3595572": {
+    "status": "preexisting_probable",
+    "evidence_type": "goods_no_before_start_ceiling",
+    "evidence_date": "2026-08-27",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:53:21+09:00"
+  },
+  "3595556": {
+    "status": "preexisting_confirmed",
+    "evidence_type": "qna",
+    "evidence_date": "2023-11-15",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:53:33+09:00"
+  },
+  "3052560": {
+    "status": "preexisting_confirmed",
+    "evidence_type": "qna",
+    "evidence_date": "2024-02-27",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:53:46+09:00"
+  },
+  "2948748": {
+    "status": "preexisting_probable",
+    "evidence_type": "goods_no_before_start_ceiling",
+    "evidence_date": "2026-08-27",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:53:59+09:00"
+  },
+  "2948744": {
+    "status": "preexisting_confirmed",
+    "evidence_type": "qna",
+    "evidence_date": "2023-10-10",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:54:11+09:00"
+  },
+  "2165844": {
+    "status": "preexisting_confirmed",
+    "evidence_type": "qna",
+    "evidence_date": "2021-11-30",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:54:24+09:00"
+  },
+  "1644225": {
+    "status": "preexisting_confirmed",
+    "evidence_type": "qna",
+    "evidence_date": "2020-11-14",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:54:36+09:00"
+  },
+  "6501034": {
+    "status": "preexisting_probable",
+    "evidence_type": "goods_no_before_start_ceiling",
+    "evidence_date": "2026-08-27",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:54:42+09:00"
+  },
+  "4810692": {
+    "status": "preexisting_confirmed",
+    "evidence_type": "qna",
+    "evidence_date": "2025-06-09",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:54:48+09:00"
+  },
+  "4759736": {
+    "status": "preexisting_probable",
+    "evidence_type": "goods_no_before_start_ceiling",
+    "evidence_date": "2026-08-27",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:54:54+09:00"
+  },
+  "4200375": {
+    "status": "preexisting_confirmed",
+    "evidence_type": "qna",
+    "evidence_date": "2025-03-08",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:55:07+09:00"
+  },
+  "4083725": {
+    "status": "preexisting_confirmed",
+    "evidence_type": "qna",
+    "evidence_date": "2024-05-11",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:55:19+09:00"
+  },
+  "4002423": {
+    "status": "preexisting_probable",
+    "evidence_type": "goods_no_before_start_ceiling",
+    "evidence_date": "2026-08-27",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:55:32+09:00"
+  },
+  "3582456": {
+    "status": "preexisting_confirmed",
+    "evidence_type": "qna",
+    "evidence_date": "2023-10-16",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:55:44+09:00"
+  },
+  "7157139": {
+    "status": "preexisting_probable",
+    "evidence_type": "goods_no_before_start_ceiling",
+    "evidence_date": "2026-08-27",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:55:50+09:00"
+  },
+  "3573234": {
+    "status": "preexisting_confirmed",
+    "evidence_type": "qna",
+    "evidence_date": "2024-02-13",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:56:02+09:00"
+  },
+  "7091173": {
+    "status": "preexisting_probable",
+    "evidence_type": "goods_no_before_start_ceiling",
+    "evidence_date": "2026-08-27",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:56:08+09:00"
+  },
+  "7091168": {
+    "status": "preexisting_probable",
+    "evidence_type": "goods_no_before_start_ceiling",
+    "evidence_date": "2026-08-27",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:56:14+09:00"
+  },
+  "7090901": {
+    "status": "preexisting_probable",
+    "evidence_type": "goods_no_before_start_ceiling",
+    "evidence_date": "2026-08-27",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:56:20+09:00"
+  },
+  "7090857": {
+    "status": "preexisting_probable",
+    "evidence_type": "goods_no_before_start_ceiling",
+    "evidence_date": "2026-08-27",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:56:26+09:00"
+  },
+  "7090659": {
+    "status": "preexisting_probable",
+    "evidence_type": "goods_no_before_start_ceiling",
+    "evidence_date": "2026-08-27",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:56:32+09:00"
+  },
+  "7089849": {
+    "status": "preexisting_probable",
+    "evidence_type": "goods_no_before_start_ceiling",
+    "evidence_date": "2026-08-27",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:56:38+09:00"
+  },
+  "7089828": {
+    "status": "preexisting_probable",
+    "evidence_type": "goods_no_before_start_ceiling",
+    "evidence_date": "2026-08-27",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:56:44+09:00"
+  },
+  "7095521": {
+    "status": "preexisting_probable",
+    "evidence_type": "goods_no_before_start_ceiling",
+    "evidence_date": "2026-08-27",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:56:50+09:00"
+  },
+  "7095481": {
+    "status": "preexisting_probable",
+    "evidence_type": "goods_no_before_start_ceiling",
+    "evidence_date": "2026-08-27",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:56:56+09:00"
+  },
+  "7093882": {
+    "status": "preexisting_probable",
+    "evidence_type": "goods_no_before_start_ceiling",
+    "evidence_date": "2026-08-27",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:57:02+09:00"
+  },
+  "6945290": {
+    "status": "preexisting_probable",
+    "evidence_type": "goods_no_before_start_ceiling",
+    "evidence_date": "2026-08-27",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:57:08+09:00"
+  },
+  "6945288": {
+    "status": "preexisting_probable",
+    "evidence_type": "goods_no_before_start_ceiling",
+    "evidence_date": "2026-08-27",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:57:14+09:00"
+  },
+  "6945284": {
+    "status": "preexisting_probable",
+    "evidence_type": "goods_no_before_start_ceiling",
+    "evidence_date": "2026-08-27",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:57:20+09:00"
+  },
+  "6945279": {
+    "status": "preexisting_probable",
+    "evidence_type": "goods_no_before_start_ceiling",
+    "evidence_date": "2026-08-27",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:57:26+09:00"
+  },
+  "7095794": {
+    "status": "preexisting_probable",
+    "evidence_type": "goods_no_before_start_ceiling",
+    "evidence_date": "2026-08-27",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:57:32+09:00"
+  },
+  "7095103": {
+    "status": "preexisting_probable",
+    "evidence_type": "goods_no_before_start_ceiling",
+    "evidence_date": "2026-08-27",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:57:38+09:00"
+  },
+  "7094429": {
+    "status": "preexisting_probable",
+    "evidence_type": "goods_no_before_start_ceiling",
+    "evidence_date": "2026-08-27",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:57:44+09:00"
+  },
+  "7093921": {
+    "status": "preexisting_probable",
+    "evidence_type": "goods_no_before_start_ceiling",
+    "evidence_date": "2026-08-27",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:57:50+09:00"
+  },
+  "7093851": {
+    "status": "preexisting_probable",
+    "evidence_type": "goods_no_before_start_ceiling",
+    "evidence_date": "2026-08-27",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:57:56+09:00"
+  },
+  "7093340": {
+    "status": "preexisting_probable",
+    "evidence_type": "goods_no_before_start_ceiling",
+    "evidence_date": "2026-08-27",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:58:02+09:00"
+  },
+  "7093281": {
+    "status": "preexisting_probable",
+    "evidence_type": "goods_no_before_start_ceiling",
+    "evidence_date": "2026-08-27",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:58:08+09:00"
+  },
+  "7095621": {
+    "status": "preexisting_probable",
+    "evidence_type": "goods_no_before_start_ceiling",
+    "evidence_date": "2026-08-27",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:58:14+09:00"
+  },
+  "4937079": {
+    "status": "preexisting_confirmed",
+    "evidence_type": "qna",
+    "evidence_date": "2025-04-25",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:58:26+09:00"
+  },
+  "4937076": {
+    "status": "preexisting_confirmed",
+    "evidence_type": "qna",
+    "evidence_date": "2025-06-27",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:58:38+09:00"
+  },
+  "4660266": {
+    "status": "preexisting_confirmed",
+    "evidence_type": "qna",
+    "evidence_date": "2025-02-12",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:58:44+09:00"
+  },
+  "7307640": {
+    "status": "unknown",
+    "evidence_type": "",
+    "evidence_date": "",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:58:50+09:00"
+  },
+  "7307642": {
+    "status": "unknown",
+    "evidence_type": "",
+    "evidence_date": "",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:58:56+09:00"
+  },
+  "7307638": {
+    "status": "unknown",
+    "evidence_type": "",
+    "evidence_date": "",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:59:02+09:00"
+  },
+  "7307637": {
+    "status": "unknown",
+    "evidence_type": "",
+    "evidence_date": "",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:59:08+09:00"
+  },
+  "7307612": {
+    "status": "unknown",
+    "evidence_type": "",
+    "evidence_date": "",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:59:14+09:00"
+  },
+  "7307610": {
+    "status": "unknown",
+    "evidence_type": "",
+    "evidence_date": "",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-15T11:59:20+09:00"
   }
 }
