@@ -356,18 +356,24 @@ def read_csv(path):
 def write_csv(path, rows, fields):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    if path.suffix.lower() == ".gz":
-        with gzip.open(path, "wt", encoding="utf-8-sig", newline="", compresslevel=6) as f:
+    # Publish a complete file only after the CSV and gzip footer are closed.
+    # An interrupted rewrite must not leave a truncated snapshot in its place.
+    fd, name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=path.suffix, dir=path.parent)
+    os.close(fd)
+    temporary = Path(name)
+    try:
+        if path.suffix.lower() == ".gz":
+            stream = gzip.open(temporary, "wt", encoding="utf-8-sig", newline="", compresslevel=6)
+        else:
+            stream = temporary.open("w", encoding="utf-8-sig", newline="")
+        with stream as f:
             w = csv.DictWriter(f, fieldnames=fields)
             w.writeheader()
             for row in rows:
                 w.writerow({k: row.get(k, "") for k in fields})
-        return
-    with path.open("w", encoding="utf-8-sig", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=fields)
-        w.writeheader()
-        for row in rows:
-            w.writerow({k: row.get(k, "") for k in fields})
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 class AdaptiveThrottle:
@@ -3678,6 +3684,7 @@ def repair_sales_analytics():
                        for r in read_csv(LATEST_PRODUCT_FILE) if r.get("goods_no")}
     snapshot_dates = set()
     latest_slot_dates = {}
+    latest_slot_counts = {}
     for slot in range(SLOT_COUNT):
         folder = SLOT_DIR / f"slot-{slot}"
         dates = sorted({p.name[:10] for p in folder.glob("*.csv*")
@@ -3695,9 +3702,17 @@ def repair_sales_analytics():
         rebuild_date_aggregates(target, rows, write_daily_snapshot=False)
         for slot, latest_date in latest_slot_dates.items():
             if latest_date == date_text:
+                slot_rows = [r for r in rows if to_int(r.get("slot")) == slot]
                 write_csv(LATEST_SLOT_DIR / f"slot-{slot}.csv.gz",
-                          [r for r in rows if to_int(r.get("slot")) == slot], LATEST_FIELDS)
+                          slot_rows, LATEST_FIELDS)
+                latest_slot_counts[slot] = len(slot_rows)
         print(f"[sales-repair] rolling {date_text}: {len(rows)} rows", flush=True)
+    for slot, expected in latest_slot_counts.items():
+        path = LATEST_SLOT_DIR / f"slot-{slot}.csv.gz"
+        with gzip.open(path, "rt", encoding="utf-8-sig", newline="") as stream:
+            actual = sum(1 for _ in csv.DictReader(stream))
+        if actual != expected:
+            raise RuntimeError(f"Incomplete sales repair for slot {slot}: expected {expected}, read {actual}")
     rebuilt_latest = rebuild_latest_product_file()
 
     changes = []
@@ -3713,7 +3728,7 @@ def repair_sales_analytics():
     # rolling tables before that phase on the hosted runner.
     del original_latest, rebuilt_latest
     if snapshot_dates:
-        del rows
+        del rows, slot_rows
     # Rewriting every monthly bucket for every day is quadratic in the history
     # size. Spool new rows by bucket, then replace each bucket once. Temporary
     # files are outside the repository and never become observation snapshots.

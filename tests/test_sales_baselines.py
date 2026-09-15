@@ -104,6 +104,43 @@ class SalesBaselineTests(unittest.TestCase):
         self.assertEqual(result["estimated_sales"], 5)
         self.assertEqual(result["coverage_pct"], 50)
 
+    def test_interrupted_csv_write_preserves_previous_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for suffix in (".csv", ".csv.gz"):
+                with self.subTest(suffix=suffix):
+                    path = Path(tmp) / ("observations" + suffix)
+                    c.write_csv(path, [{"purchase_total": 2459}], ["purchase_total"])
+                    original = path.read_bytes()
+                    def interrupted():
+                        yield {"purchase_total": 2460}
+                        raise RuntimeError("interrupted write")
+                    with self.assertRaisesRegex(RuntimeError, "interrupted write"):
+                        c.write_csv(path, interrupted(), ["purchase_total"])
+                    self.assertEqual(path.read_bytes(), original)
+                    self.assertEqual(c.read_csv(path)[0]["purchase_total"], "2459")
+
+    def test_incomplete_rebuilt_slot_cannot_be_marked_repaired(self):
+        with tempfile.TemporaryDirectory() as tmp, contextlib.ExitStack() as stack:
+            root = c.BASE_DIR
+            for name, value in list(vars(c).items()):
+                if isinstance(value, Path) and value.is_relative_to(root):
+                    stack.enter_context(patch.object(c, name, Path(tmp) / value.relative_to(root)))
+            stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
+            raw_path = c.SLOT_DIR / "slot-3" / "2026-09-14.csv.gz"
+            c.write_csv(raw_path, [self.row("2026-09-14T11:28:04+09:00", 2459)], c.COMPACT_FIELDS)
+            c.write_csv(c.LATEST_PRODUCT_FILE, [dict(goods_no="3098417", daily_sales=2459)], c.LATEST_FIELDS)
+            original = c.LATEST_PRODUCT_FILE.read_bytes()
+            write = c.write_csv
+            def corrupt_slot(path, rows, fields):
+                write(path, rows, fields)
+                if Path(path).parent == c.LATEST_SLOT_DIR:
+                    Path(path).write_bytes(b"incomplete gzip")
+            with patch.object(c, "write_csv", side_effect=corrupt_slot):
+                with self.assertRaises(OSError):
+                    c.repair_sales_analytics()
+            self.assertFalse(c.SALES_POLICY_FILE.exists())
+            self.assertEqual(c.LATEST_PRODUCT_FILE.read_bytes(), original)
+
     def test_corrected_brand_total_replaces_old_total_when_no_intervals_remain(self):
         with tempfile.TemporaryDirectory() as tmp, contextlib.ExitStack() as stack:
             root = c.BASE_DIR
