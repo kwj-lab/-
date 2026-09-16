@@ -47,7 +47,7 @@ def read_rows(path):
 def write_rows(path, rows, fields):
     path.parent.mkdir(parents=True, exist_ok=True)
     if str(path).endswith(".gz"):
-        with path.open("wb") as raw, gzip.GzipFile(fileobj=raw, mode="wb", mtime=0) as gz:
+        with path.open("wb") as raw, gzip.GzipFile(fileobj=raw, mode="wb", mtime=0, compresslevel=3) as gz:
             with io.TextIOWrapper(gz, encoding="utf-8", newline="") as stream:
                 writer = csv.DictWriter(stream, fieldnames=fields, extrasaction="ignore")
                 writer.writeheader()
@@ -251,7 +251,7 @@ def build(root=None, today=None):
     manifest_path = destination/"manifest.json"
     if manifest_path.exists():
         prior = json.loads(manifest_path.read_text())
-        if prior.get("source_fingerprint") == fingerprint and prior.get("latest_date") == str(today):
+        if prior.get("source_fingerprint") == fingerprint and prior.get("as_of_date") == str(today):
             print("Dashboard already reflects these observations.", flush=True)
             return prior
     if not inputs:
@@ -264,6 +264,7 @@ def build(root=None, today=None):
     reject_counts = Counter()
     largest = []
     input_rows = 0
+    latest_stamp = ""
     with tempfile.TemporaryDirectory(prefix="musinsa-dashboard-") as temporary:
         temp = Path(temporary)
         staged = temp/"published"
@@ -277,7 +278,10 @@ def build(root=None, today=None):
                     if g:
                         writers[c.calendar_bucket(g)].writerow(row)
                         input_rows += 1
+                        stamp = str(row.get("checked_at") or "")
+                        if stamp[:10] <= str(today): latest_stamp = max(latest_stamp, stamp)
         print(f"Read {input_rows:,} observations from {len(inputs)} files", flush=True)
+        display_date = latest_stamp[:10] or str(today)
         seen = set()
         for bucket in range(64):
             groups = defaultdict(list)
@@ -288,7 +292,8 @@ def build(root=None, today=None):
                 rows, metadata, rejected = product_days(g, source, catalog.get(g), today)
                 if not rows: continue
                 seen.add(g)
-                latest.append(dict(metadata, **rows[-1]))
+                displayed = next((r for r in reversed(rows) if r["date"] <= display_date), rows[-1])
+                latest.append(dict(metadata, **displayed))
                 for row in rows:
                     history[row["date"][:7]].append(row)
                     add_total(totals[(row["date"], row["brand_name"])], row)
@@ -304,13 +309,13 @@ def build(root=None, today=None):
             if bucket % 8 == 7: print(f"Published {bucket+1}/64 history buckets", flush=True)
         for g, meta in catalog.items():
             if g in seen: continue
-            row = dict(meta, date=str(today), goods_no=g, history_bucket=c.calendar_bucket(g),
+            row = dict(meta, date=display_date, goods_no=g, history_bucket=c.calendar_bucket(g),
                        estimated_sales="", estimated_gmv="", confidence="pending", calculation_status="baseline_missing",
                        calendar_complete=0, coverage_pct=0, display_price=meta.get("current_price", ""),
                        sales_policy_version=VERSION)
             latest.append(row)
-            add_total(totals[(str(today), row["brand_name"])], row)
-            add_total(overall[str(today)], row)
+            add_total(totals[(display_date, row["brand_name"])], row)
+            add_total(overall[display_date], row)
         latest.sort(key=lambda r: (r.get("brand_name", ""), r["goods_no"]))
         write_rows(staged/"latest_products.csv.gz", latest, LATEST_FIELDS)
         brand_rows = [aggregate_row(day, brand, acc, generated) for (day, brand), acc in sorted(totals.items())]
@@ -318,12 +323,12 @@ def build(root=None, today=None):
         write_rows(staged/"brand_daily.csv", brand_rows, AGG_FIELDS)
         write_rows(staged/"summary.csv", summary, AGG_FIELDS)
         manifest = dict(sales_policy_version=VERSION, source_fingerprint=fingerprint,
-                        updated_at=generated, latest_date=str(today), latest_finalized_date=str(today),
+                        updated_at=generated, as_of_date=str(today), latest_date=display_date, latest_finalized_date=display_date,
                         latest_closed_date=str(today-timedelta(days=1)),
                         dates=[r["date"] for r in summary], months=sorted({r["date"][:7] for r in summary}),
                         history_buckets=64, last_observed_at=max((r.get("last_checked_at", "") for r in latest), default=""),
                         source_files=len(inputs), source_rows=input_rows, product_count=len(latest),
-                        excluded_boundaries=dict(reject_counts), latest_summary=summary[-1] if summary else {},
+                        excluded_boundaries=dict(reject_counts), latest_summary=next((r for r in summary if r["date"] == display_date), {}),
                         method="First cumulative value is a baseline; only verified subsequent deltas are allocated by KST day overlap. Current day is partial through the latest observation. Unknown is not zero.")
         (staged/"audit.json").write_text(json.dumps(dict(largest_excluded_boundaries=largest), ensure_ascii=False, indent=2), encoding="utf-8")
         # Validate gzip CRC and complete row count before making any output visible.

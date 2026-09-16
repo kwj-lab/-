@@ -27,6 +27,27 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  unblock-stale-queue:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Release abandoned queued runs with no jobs
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const {owner, repo} = context.repo;
+            const names = new Set(['Distributed Musinsa Collection v9', 'Musinsa Adaptive Sampling v9', 'Musinsa Midnight Anchor v9', 'Musinsa Recovery v9', 'Musinsa Calendar Daily Finalizer v9']);
+            const {data} = await github.rest.actions.listWorkflowRunsForRepo({owner, repo, branch: 'main', status: 'queued', per_page: 100});
+            for (const run of data.workflow_runs) {
+              if (!names.has(run.name) || Date.now()-Date.parse(run.created_at) < 90*60*1000) continue;
+              const jobs = await github.rest.actions.listJobsForWorkflowRun({owner, repo, run_id: run.id, per_page: 1});
+              if (jobs.data.total_count !== 0) continue;
+              core.info(`Cancel abandoned queued run ${run.id}: no jobs, created ${run.created_at}`);
+              await github.rest.actions.cancelWorkflowRun({owner, repo, run_id: run.id});
+            }
   publish:
     runs-on: ubuntu-latest
     timeout-minutes: 30
