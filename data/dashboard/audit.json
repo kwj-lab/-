@@ -671,6 +671,16 @@
       "reason": "zero_baseline_unverified"
     },
     {
+      "goods_no": "6334181",
+      "brand_name": "미세키서울 맨",
+      "from_at": "2026-09-15T17:43:20+09:00",
+      "to_at": "2026-09-16T17:35:46+09:00",
+      "before": 0,
+      "after": 374,
+      "excluded_delta": 374,
+      "reason": "zero_baseline_unverified"
+    },
+    {
       "goods_no": "5329384",
       "brand_name": "플레이스 스튜디오",
       "from_at": "2026-09-10T19:42:35+09:00",
@@ -987,16 +997,6 @@
       "to_at": "2026-09-14T12:58:38+09:00",
       "before": 631607,
       "after": 631913,
-      "excluded_delta": 306,
-      "reason": "collection_gap"
-    },
-    {
-      "goods_no": "5335287",
-      "brand_name": "토피",
-      "from_at": "2026-09-10T19:43:04+09:00",
-      "to_at": "2026-09-14T12:59:25+09:00",
-      "before": 1828,
-      "after": 2134,
       "excluded_delta": 306,
       "reason": "collection_gap"
     }
