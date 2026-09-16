@@ -11,16 +11,6 @@
       "reason": "zero_baseline_unverified"
     },
     {
-      "goods_no": "5215759",
-      "brand_name": "르아르",
-      "from_at": "2026-09-14T18:48:23+09:00",
-      "to_at": "2026-09-15T17:17:02+09:00",
-      "before": 0,
-      "after": 12442,
-      "excluded_delta": 12442,
-      "reason": "zero_baseline_unverified"
-    },
-    {
       "goods_no": "1623333",
       "brand_name": "아웃스탠딩",
       "from_at": "2026-08-31T03:17:26+09:00",
@@ -999,6 +989,16 @@
       "after": 290411,
       "excluded_delta": 301,
       "reason": "collection_gap"
+    },
+    {
+      "goods_no": "7145574",
+      "brand_name": "스파오",
+      "from_at": "2026-09-05T07:16:00+09:00",
+      "to_at": "2026-09-06T07:15:41+09:00",
+      "before": 0,
+      "after": 298,
+      "excluded_delta": 298,
+      "reason": "zero_baseline_unverified"
     }
   ]
 }
