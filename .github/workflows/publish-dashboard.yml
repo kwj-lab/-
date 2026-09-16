@@ -24,6 +24,7 @@ permissions:
 
 jobs:
   unblock-stale-queue:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -51,6 +52,7 @@ jobs:
               catch (error) { if (error.status !== 409) throw error; }
             }
   publish:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     concurrency:
       group: musinsa-dashboard-publisher
       cancel-in-progress: false

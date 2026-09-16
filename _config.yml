@@ -1,0 +1,23 @@
+# Publish only browser-facing data. All observation archives remain in Git.
+# The dashboard reads these archives through the publisher, not through Pages.
+exclude:
+  - data/calendar
+  - data/daily
+  - data/slots
+  - data/observations
+  - data/latest_slots
+  - data/recovery
+  - data/adaptive
+  - data/anchor
+  - data/lifecycle
+  - musinsa_calendar_latest_products.csv
+  - musinsa_calendar_brand_daily.csv
+  - musinsa_calendar_summary.csv
+  - musinsa_daily_product_sales.csv
+  - musinsa_daily_brand_sales.csv
+  - musinsa_daily_summary.csv
+  - musinsa_new_products.csv
+  - musinsa_collector_v9.py
+  - musinsa_collector_v9_29.py
+  - musinsa_dashboard.py
+  - tests

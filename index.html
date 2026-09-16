@@ -564,7 +564,7 @@ function renderDataDiagnostics(catalogMap){
  ucSummary.textContent=`오늘 미수집 상품 ${uncollectedTodayProducts.length}개 보기${uncollectedTodayProducts.length>500?' · 목록은 500개까지만 표시':''}`;
 
  if(uncollectedTodayProducts.length){
-   ucList.innerHTML=`<div class="small" style="margin:0 0 8px">오늘(${esc(latestRawDate||'-')}) purchaseTotal 정상 관측이 아직 없는 상품입니다. 신규 편입·timeout·실패·recovery 대기 등이 포함될 수 있습니다.</div>
+   ucList.innerHTML=`<div class="small" style="margin:0 0 8px">오늘(${esc(kstToday())}) purchaseTotal 정상 관측이 아직 없는 상품입니다. 신규 편입·timeout·실패·recovery 대기 등이 포함될 수 있습니다.</div>
    <table class="audittable">
      <thead><tr><th>상품번호</th><th>브랜드</th><th>상품명</th><th>상태</th><th>마지막 수집</th></tr></thead>
      <tbody>${uncollectedTodayProducts.slice(0,500).map(r=>`<tr>
@@ -1067,7 +1067,7 @@ function renderProducts(){
 
  const todayCollected=rows.filter(r=>r.raw_collected_today==='1').length;
  document.getElementById('productCount').textContent=
-   `${f(rows.length)}개 · ${latestRawDate||'-'} 수집 ${f(todayCollected)}개`;
+   `${f(rows.length)}개 · ${kstToday()} 수집 ${f(todayCollected)}개`;
 
  body.innerHTML=pageRows.map((r,i)=>{
    const ch=n(r.price_change_detected)===1
@@ -1362,7 +1362,7 @@ async function loadProductsHeavy(reason='manual',force=false){
       raw_date:rr.date||old.raw_date||'',
       last_checked_at:rr.checked_at||old.last_checked_at||'',
       raw_collected:(rr.purchase_total!==''&&rr.purchase_total!=null)?'1':(old.raw_collected||'0'),
-      raw_collected_today:(rr.purchase_total!==''&&rr.purchase_total!=null&&rr.date===latestRawDate)?'1':'0',
+      raw_collected_today:(rr.purchase_total!==''&&rr.purchase_total!=null&&rr.date===kstToday())?'1':'0',
       raw_daily_sales:rr.daily_sales??old.raw_daily_sales??'',
       raw_daily_sales_status:rr.daily_sales_status||'',
       raw_daily_estimated_gmv:rr.daily_estimated_gmv??old.raw_daily_estimated_gmv??''
@@ -1400,7 +1400,7 @@ async function loadProductsHeavy(reason='manual',force=false){
       raw_date:old.raw_date||rr.date||'',
       last_checked_at:old.last_checked_at||rr.checked_at||'',
       raw_collected:old.raw_collected||((rr.purchase_total!==''&&rr.purchase_total!=null)?'1':'0'),
-      raw_collected_today:old.raw_collected_today||((rr.purchase_total!==''&&rr.purchase_total!=null&&rr.date===latestRawDate)?'1':'0'),
+      raw_collected_today:old.raw_collected_today||((rr.purchase_total!==''&&rr.purchase_total!=null&&rr.date===kstToday())?'1':'0'),
       raw_daily_sales:old.raw_daily_sales??rr.daily_sales??'',
       raw_daily_sales_status:old.raw_daily_sales_status||rr.daily_sales_status||'',
       raw_daily_estimated_gmv:old.raw_daily_estimated_gmv??rr.daily_estimated_gmv??''
