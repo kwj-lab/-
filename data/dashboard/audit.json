@@ -51,6 +51,16 @@
       "reason": "zero_baseline_unverified"
     },
     {
+      "goods_no": "3968466",
+      "brand_name": "키뮤어",
+      "from_at": "2026-09-15T02:51:45+09:00",
+      "to_at": "2026-09-16T22:24:58+09:00",
+      "before": 0,
+      "after": 3173,
+      "excluded_delta": 3173,
+      "reason": "collection_gap"
+    },
+    {
       "goods_no": "4036581",
       "brand_name": "마뗑킴",
       "from_at": "2026-09-14T11:35:11+09:00",
@@ -351,6 +361,16 @@
       "reason": "collection_gap"
     },
     {
+      "goods_no": "5109102",
+      "brand_name": "노이어",
+      "from_at": "2026-09-15T03:05:13+09:00",
+      "to_at": "2026-09-16T22:38:17+09:00",
+      "before": 0,
+      "after": 529,
+      "excluded_delta": 529,
+      "reason": "collection_gap"
+    },
+    {
       "goods_no": "6982363",
       "brand_name": "필루미네이트",
       "from_at": "2026-08-31T13:13:40+09:00",
@@ -379,6 +399,16 @@
       "after": 507,
       "excluded_delta": 507,
       "reason": "zero_baseline_unverified"
+    },
+    {
+      "goods_no": "4598301",
+      "brand_name": "트리밍버드",
+      "from_at": "2026-09-15T02:58:30+09:00",
+      "to_at": "2026-09-16T22:31:40+09:00",
+      "before": 0,
+      "after": 506,
+      "excluded_delta": 506,
+      "reason": "collection_gap"
     },
     {
       "goods_no": "6100901",
@@ -691,16 +721,6 @@
       "reason": "collection_gap"
     },
     {
-      "goods_no": "5420611",
-      "brand_name": "배드블러드",
-      "from_at": "2026-09-14T16:41:31+09:00",
-      "to_at": "2026-09-15T03:10:29+09:00",
-      "before": 0,
-      "after": 367,
-      "excluded_delta": 367,
-      "reason": "zero_baseline_unverified"
-    },
-    {
       "goods_no": "2578996",
       "brand_name": "시그니처",
       "from_at": "2026-09-10T18:46:12+09:00",
@@ -978,26 +998,6 @@
       "before": 286109,
       "after": 286421,
       "excluded_delta": 312,
-      "reason": "collection_gap"
-    },
-    {
-      "goods_no": "7032804",
-      "brand_name": "알리스",
-      "from_at": "2026-09-10T19:42:51+09:00",
-      "to_at": "2026-09-14T12:58:59+09:00",
-      "before": 945,
-      "after": 1252,
-      "excluded_delta": 307,
-      "reason": "collection_gap"
-    },
-    {
-      "goods_no": "1551840",
-      "brand_name": "제로",
-      "from_at": "2026-09-10T19:42:42+09:00",
-      "to_at": "2026-09-14T12:58:38+09:00",
-      "before": 631607,
-      "after": 631913,
-      "excluded_delta": 306,
       "reason": "collection_gap"
     }
   ]
