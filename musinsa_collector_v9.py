@@ -3821,7 +3821,9 @@ def main():
     sub.add_parser("repair-sales", help="Rebuild derived sales from stored observations; no collection")
 
     args = parser.parse_args()
-    if args.cmd in ("aggregate-slot", "recover-pending", "finalize-calendar", "repair-sales"):
+    # Historical repair must never hold up saving new observations. The live
+    # dashboard publisher rebuilds its own outputs independently after each run.
+    if args.cmd == "repair-sales":
         repair_sales_analytics()
     if args.cmd == "repair-sales":
         return 0

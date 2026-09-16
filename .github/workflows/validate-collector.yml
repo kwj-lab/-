@@ -4,11 +4,13 @@ on:
   push:
     paths:
       - 'musinsa_collector_v9.py'
+      - 'musinsa_dashboard.py'
       - '.github/workflows/**'
       - 'tests/**'
   pull_request:
     paths:
       - 'musinsa_collector_v9.py'
+      - 'musinsa_dashboard.py'
       - '.github/workflows/**'
       - 'tests/**'
   workflow_dispatch:
@@ -27,6 +29,7 @@ jobs:
             .github
             tests
             musinsa_collector_v9.py
+            musinsa_dashboard.py
           sparse-checkout-cone-mode: false
           fetch-depth: 1
       - uses: actions/setup-python@v5
