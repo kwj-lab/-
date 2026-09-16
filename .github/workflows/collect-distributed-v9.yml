@@ -91,9 +91,21 @@ jobs:
                   '
               )"
 
-              if [ -n "$MATCHES" ]; then
-                OLDER="${OLDER}${MATCHES}"$'\n'
-              fi
+              # FIFO ignores stale queued runs without jobs.
+              while IFS=$'\t' read -r RUN_ID RUN_STATUS RUN_NAME RUN_CREATED; do
+                if [ -z "$RUN_ID" ]; then continue; fi
+                if [ "$RUN_STATUS" = "queued" ]; then
+                  AGE=$(( $(date +%s) - $(date -d "$RUN_CREATED" +%s) ))
+                  if [ "$AGE" -ge 5400 ]; then
+                    JOBS="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/jobs?per_page=1" --jq '.total_count')"
+                    if [ "$JOBS" = "0" ]; then
+                      echo "Ignoring abandoned queued run ${RUN_ID}: no jobs after ${AGE}s"
+                      continue
+                    fi
+                  fi
+                fi
+                OLDER="${OLDER}${RUN_ID}"$'\t'"${RUN_STATUS}"$'\t'"${RUN_NAME}"$'\t'"${RUN_CREATED}"$'\n'
+              done <<< "$MATCHES"
             done
 
             if [ -z "${OLDER//$'\n'/}" ]; then

@@ -22,10 +22,6 @@ on:
 permissions:
   contents: write
 
-concurrency:
-  group: musinsa-dashboard-publisher
-  cancel-in-progress: false
-
 jobs:
   unblock-stale-queue:
     runs-on: ubuntu-latest
@@ -34,21 +30,30 @@ jobs:
       actions: write
       contents: read
     steps:
-      - name: Release abandoned queued runs with no jobs
+      - name: Release obsolete FIFO waiters without interrupting collection
         uses: actions/github-script@v7
         with:
           script: |
             const {owner, repo} = context.repo;
             const names = new Set(['Distributed Musinsa Collection v9', 'Musinsa Adaptive Sampling v9', 'Musinsa Midnight Anchor v9', 'Musinsa Recovery v9', 'Musinsa Calendar Daily Finalizer v9']);
-            const {data} = await github.rest.actions.listWorkflowRunsForRepo({owner, repo, branch: 'main', status: 'queued', per_page: 100});
+            const {data} = await github.rest.actions.listWorkflowRunsForRepo({owner, repo, branch: 'main', status: 'in_progress', per_page: 100});
             for (const run of data.workflow_runs) {
-              if (!names.has(run.name) || Date.now()-Date.parse(run.created_at) < 90*60*1000) continue;
-              const jobs = await github.rest.actions.listJobsForWorkflowRun({owner, repo, run_id: run.id, per_page: 1});
-              if (jobs.data.total_count !== 0) continue;
-              core.info(`Cancel abandoned queued run ${run.id}: no jobs, created ${run.created_at}`);
-              await github.rest.actions.cancelWorkflowRun({owner, repo, run_id: run.id});
+              if (!names.has(run.name)) continue;
+              const jobs = await github.rest.actions.listJobsForWorkflowRun({owner, repo, run_id: run.id, per_page: 100});
+              const active = jobs.data.jobs.filter(j => j.status === 'in_progress');
+              if (!active.length || !active.every(j => j.steps.some(s => s.name === 'Wait for older Musinsa workflows (FIFO)' && s.status === 'in_progress'))) continue;
+              const wf = await github.rest.actions.getWorkflow({owner, repo, workflow_id: run.workflow_id});
+              const file = await github.rest.repos.getContent({owner, repo, path: wf.data.path, ref: run.head_sha});
+              const source = Buffer.from(file.data.content, 'base64').toString();
+              if (source.includes('FIFO ignores stale queued runs without jobs')) continue;
+              core.info(`Restart scheduling after obsolete FIFO waiter ${run.id}; collection has not started`);
+              try { await github.rest.actions.cancelWorkflowRun({owner, repo, run_id: run.id}); }
+              catch (error) { if (error.status !== 409) throw error; }
             }
   publish:
+    concurrency:
+      group: musinsa-dashboard-publisher
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
