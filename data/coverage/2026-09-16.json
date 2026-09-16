@@ -1,0 +1,26 @@
+{
+  "date": "2026-09-16",
+  "slots": {
+    "3": {
+      "slot": 3,
+      "expected": 40601,
+      "success": 40601,
+      "failed": 0,
+      "coverage_pct": 100.0,
+      "status": "complete",
+      "stage": "primary",
+      "first_collected_at": "2026-09-16T12:08:39+09:00",
+      "last_updated_at": "2026-09-16T12:08:39+09:00",
+      "failed_goods_sample": []
+    }
+  },
+  "overall": {
+    "slots_collected": 1,
+    "complete_slots": 1,
+    "expected": 40601,
+    "success": 40601,
+    "failed": 0,
+    "coverage_pct": 100.0
+  },
+  "updated_at": "2026-09-16T12:08:39+09:00"
+}
