@@ -31,16 +31,6 @@
       "reason": "zero_baseline_unverified"
     },
     {
-      "goods_no": "4749421",
-      "brand_name": "워크온바디오프",
-      "from_at": "2026-09-10T09:59:06+09:00",
-      "to_at": "2026-09-14T11:43:44+09:00",
-      "before": 0,
-      "after": 5768,
-      "excluded_delta": 5768,
-      "reason": "collection_gap"
-    },
-    {
       "goods_no": "6948481",
       "brand_name": "트릴리온",
       "from_at": "2026-09-10T19:42:24+09:00",
@@ -998,6 +988,16 @@
       "before": 503109,
       "after": 503414,
       "excluded_delta": 305,
+      "reason": "collection_gap"
+    },
+    {
+      "goods_no": "2723767",
+      "brand_name": "수아레",
+      "from_at": "2026-09-10T19:44:14+09:00",
+      "to_at": "2026-09-14T13:01:06+09:00",
+      "before": 290110,
+      "after": 290411,
+      "excluded_delta": 301,
       "reason": "collection_gap"
     }
   ]
