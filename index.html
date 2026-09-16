@@ -127,22 +127,22 @@ dialog{width:min(1200px,96vw);max-height:92vh;border:0;border-radius:16px;paddin
 </div>
 
 <div class="kpis">
-<div class="card"><div class="label">최종 확정 날짜</div><div class="value" id="kDate">-</div><div class="small">KST 일일 기준</div></div>
+<div class="card"><div class="label">집계 기준일</div><div class="value" id="kDate">-</div><div class="small">KST 일일 기준</div></div>
 <div class="card"><div class="label">일일 추정 판매량</div><div class="value" id="kSales">-</div><div class="small">KST 00:00~24:00 · 선택 브랜드 합계</div></div>
 <div class="card"><div class="label">일일 추정 GMV</div><div class="value" id="kGmv">-</div><div class="small">KST 00:00~24:00 · 일일 기준</div></div>
-<div class="card"><div class="label">상품 완성도</div><div class="value" id="kCoverage">-</div><div class="small">99% 시간범위 이상 확보</div></div>
+<div class="card"><div class="label">계산 가능 상품</div><div class="value" id="kCoverage">-</div><div class="small">추적 상품 중 계산 가능한 상품 비율</div></div>
 <div class="card"><div class="label">가격 변경 상품</div><div class="value" id="kPriceChanges">-</div><div class="small">해당 날짜 변경 감지</div></div>
 <div class="card"><div class="label">추적 상품</div><div class="value" id="kProducts">-</div><div class="small" id="kBrands">-</div></div>
 </div>
 
 <div class="grid2">
 <section class="panel">
-<div class="head"><div><div class="title">전체 일별 추정 매출 추이</div><div class="small">최종화된 캘린더 날짜 기준</div></div></div>
+<div class="head"><div><div class="title">전체 일별 추정 매출 추이</div><div class="small">한국시간 날짜별 추정치 · 오늘은 마지막 관측 시각까지</div></div></div>
 <div class="body"><div class="chart" id="overallChart"></div></div>
 </section>
 <section class="panel">
-<div class="head"><div><div class="title">브랜드 최신 일판매 순위</div><div class="small">현재 추적 = 지금 catalog 기준 · 계산대상/완성도/매출 = 최신 Finalizer 날짜 기준 · 완성도 95% 미만은 매출을 확정값처럼 표시하지 않습니다.</div></div></div>
-<div class="tablewrap" style="max-height:760px;overflow:auto"><table><thead><tr><th>#</th><th>브랜드</th><th>현재 추적</th><th>계산대상</th><th>담당 slot</th><th>정규 수집시간</th><th>다음 수집</th><th>완성도</th><th><button class="sortbtn" id="brandSortSales">일일 추정판매 <span id="brandSortSalesIcon">▼</span></button></th><th><button class="sortbtn" id="brandSortGmv">일일 추정GMV <span id="brandSortGmvIcon"></span></button></th></tr></thead><tbody id="brandRank"></tbody></table></div>
+<div class="head"><div><div class="title">브랜드 최신 일판매 순위</div><div class="small">계산 가능한 상품은 즉시 합산합니다. 기준 수집·수집 공백 상품은 0으로 처리하지 않으며, 오늘 값은 마지막 관측 시각까지의 부분합계입니다.</div></div></div>
+<div class="tablewrap" style="max-height:760px;overflow:auto"><table><thead><tr><th>#</th><th>브랜드</th><th>현재 추적</th><th>계산대상</th><th>담당 slot</th><th>정규 수집시간</th><th>다음 수집</th><th>계산 가능</th><th><button class="sortbtn" id="brandSortSales">일일 추정판매 <span id="brandSortSalesIcon">▼</span></button></th><th><button class="sortbtn" id="brandSortGmv">일일 추정GMV <span id="brandSortGmvIcon"></span></button></th></tr></thead><tbody id="brandRank"></tbody></table></div>
 </section>
 </div>
 
@@ -169,14 +169,14 @@ dialog{width:min(1200px,96vw);max-height:92vh;border:0;border-radius:16px;paddin
 
 <section class="panel" id="brandSection">
 <div class="head"><div><div class="title">브랜드별 일일 판매량</div><div class="small">20일 · 21일 · 22일 식의 캘린더 날짜별 추정치</div></div><select id="brandDaily"><option value="">브랜드 선택</option></select></div>
-<div class="body brandlayout"><div class="chart" id="brandChart"></div><div class="tablewrap" style="max-height:310px"><table><thead><tr><th>날짜</th><th>추정판매</th><th>추정GMV</th><th>상품완성도</th><th>가격변경</th></tr></thead><tbody id="brandDailyBody"></tbody></table></div></div>
+<div class="body brandlayout"><div class="chart" id="brandChart"></div><div class="tablewrap" style="max-height:310px"><table><thead><tr><th>날짜</th><th>추정판매</th><th>추정GMV</th><th>계산 가능 비율</th><th>가격변경</th></tr></thead><tbody id="brandDailyBody"></tbody></table></div></div>
 </section>
 
 <section class="panel" id="productDailySection">
 <div class="head">
   <div>
     <div class="title">상품별 일일 판매량</div>
-    <div class="small" id="productDailyMeta">아래 상품별 최종 확정 일매출에서 상품명을 선택하세요.</div>
+    <div class="small" id="productDailyMeta">아래 상품별 일일 추정 판매량에서 상품명을 선택하세요.</div>
   </div>
   <select id="productDailyPeriod">
     <option value="30">30일</option>
@@ -226,7 +226,7 @@ dialog{width:min(1200px,96vw);max-height:92vh;border:0;border-radius:16px;paddin
 <section class="panel" id="productTableSection">
 <div class="head">
   <div>
-    <div class="title">상품별 최종 확정 일매출</div>
+    <div class="title">상품별 일일 추정 판매량</div>
     <div class="small">상품 데이터는 처음부터 9만+ 건을 모두 읽지 않고, 이 영역을 보거나 검색할 때 불러옵니다.</div>
   </div>
   <div class="productload">
@@ -235,7 +235,7 @@ dialog{width:min(1200px,96vw);max-height:92vh;border:0;border-radius:16px;paddin
     <span class="small" id="productCount"></span>
   </div>
 </div>
-<div class="tablewrap"><table><thead><tr><th>#</th><th>브랜드</th><th>상품명</th><th>상품명 변경</th><th>상품번호</th><th><button class="sortbtn" id="sortPurchase" type="button" data-sort="purchase_total">누적 구매수 <span class="arrow">↕</span></button></th><th>기준값 수집</th><th>마지막 수집시각</th><th><button class="sortbtn active" id="sortSales" type="button" data-sort="estimated_sales">일일 추정판매 <span class="arrow">▼</span></button></th><th><button class="sortbtn" id="sortRollingSales" type="button" data-sort="raw_daily_sales">24h 구매증가 <span class="arrow">↕</span></button></th><th><button class="sortbtn" id="sortGmv" type="button" data-sort="estimated_gmv">일일 추정GMV <span class="arrow">↕</span></button></th><th><button class="sortbtn" id="sortRollingGmv" type="button" data-sort="raw_daily_estimated_gmv">24h 추정GMV <span class="arrow">↕</span></button></th><th>판매가</th><th>가격변화</th><th>시간범위</th><th>신뢰도</th></tr></thead><tbody id="productBody"><tr class="deferrow"><td colspan="16">상품 데이터는 필요할 때 불러옵니다.</td></tr></tbody></table></div>
+<div class="tablewrap"><table><thead><tr><th>#</th><th>브랜드</th><th>상품명</th><th>상품명 변경</th><th>상품번호</th><th><button class="sortbtn" id="sortPurchase" type="button" data-sort="purchase_total">누적 구매수 <span class="arrow">↕</span></button></th><th>기준값 수집</th><th>마지막 수집시각</th><th><button class="sortbtn active" id="sortSales" type="button" data-sort="estimated_sales">일일 추정판매 <span class="arrow">▼</span></button></th><th><button class="sortbtn" id="sortRollingSales" type="button" data-sort="raw_daily_sales">직전 수집 이후 증가 <span class="arrow">↕</span></button></th><th><button class="sortbtn" id="sortGmv" type="button" data-sort="estimated_gmv">일일 추정GMV <span class="arrow">↕</span></button></th><th><button class="sortbtn" id="sortRollingGmv" type="button" data-sort="raw_daily_estimated_gmv">직전 수집 이후 GMV <span class="arrow">↕</span></button></th><th>판매가</th><th>가격변화</th><th>시간범위</th><th>신뢰도</th></tr></thead><tbody id="productBody"><tr class="deferrow"><td colspan="16">상품 데이터는 필요할 때 불러옵니다.</td></tr></tbody></table></div>
 <div class="productpager" id="productPager" style="display:none">
   <button id="productPrev" type="button">이전</button>
   <span id="productPageInfo" class="small">-</span>
@@ -249,19 +249,19 @@ dialog{width:min(1200px,96vw);max-height:92vh;border:0;border-radius:16px;paddin
 
 
 <script>
-const F={latest:'musinsa_calendar_latest_products.csv',brands:'musinsa_calendar_brand_daily.csv',summary:'musinsa_calendar_summary.csv',manifest:'data/calendar/calendar_manifest.json',catalog:'musinsa_catalog.csv',raw:'musinsa_daily_product_sales.csv',watchlist:'musinsa_watchlist.txt',registeredBrands:'musinsa_brands.txt'};
+const F={latest:'data/dashboard/latest_products.csv.gz',brands:'data/dashboard/brand_daily.csv',summary:'data/dashboard/summary.csv',manifest:'data/dashboard/manifest.json',catalog:'musinsa_catalog.csv',raw:'musinsa_daily_product_sales.csv',watchlist:'musinsa_watchlist.txt',registeredBrands:'musinsa_brands.txt'};
 let products=[],brands=[],summary=[],manifest={},active=null;
-const SALES_POLICY_VERSION='2026-09-14-observed-baselines-v1';
+const SALES_POLICY_VERSION='2026-09-15-live-daily-v1';
 function calendarSalesReady(){return manifest.sales_policy_version===SALES_POLICY_VERSION;}
-function salesRepairNotice(){return calendarSalesReady()?'':'판매량 정정 중 · 이전 계산값은 표시하지 않습니다. ';}
+function salesRepairNotice(){return '';}
 function verifiedCalendarRows(rows){
- if(calendarSalesReady())return rows;
- return rows.map(r=>({...r,estimated_sales:'',estimated_gmv:'',coverage_pct:0,
-   product_coverage_pct:0,average_time_coverage_pct:0,calendar_complete:0,confidence:'pending'}));
-}
-function verifiedRawRows(rows){
  return rows.map(r=>r.sales_policy_version===SALES_POLICY_VERSION?r:
-   {...r,daily_sales:'',daily_estimated_gmv:'',daily_sales_status:'analytics_repair_pending'});
+   {...r,estimated_sales:'',estimated_gmv:'',calculation_status:'baseline_missing'});
+}
+function verifiedRawRows(rows){return rows;}
+function kstToday(){return new Date(Date.now()+9*3600000).toISOString().slice(0,10);}
+function liveStatus(){
+ return `기준일 ${manifest.latest_date||'-'}${manifest.latest_date!==kstToday()?' (오늘 수집 대기)':''} · 마지막 수집 ${checkedTime(manifest.last_observed_at)} · 집계 갱신 ${checkedTime(manifest.updated_at)} · 60초마다 새 데이터 확인`;
 }
 function nonnegative(v){const value=n(v);return value==null?null:Math.max(0,value);}
 let registeredBrands=[],discoveredBrands=[],missingBrands=[],aliasBrandGroups=[];
@@ -314,8 +314,8 @@ function n(v){
  return Number.isFinite(x)?x:null;
 }
 function salesUnknownText(r){
- const reason=r.raw_daily_sales_status||'';
- const labels={analytics_repair_pending:'판매량 정정 중',baseline_missing:'비교 기준 없음',collection_gap:'수집 공백',
+ const reason=r.calculation_status||r.raw_daily_sales_status||'';
+ const labels={baseline_missing:'기준 수집',uncollected:'미수집',reactivation_baseline:'재판매 기준 수집',collection_gap:'수집 공백',
    zero_baseline_unverified:'누적 기준 확인 중',counter_jump_unverified:'누적 변화 확인 중',
    counter_reset:'누적 기준 확인 중',counter_missing:'관측값 없음',
    timestamp_missing:'관측시각 없음',out_of_order:'비교시각 확인 중'};
@@ -598,7 +598,7 @@ async function txt(p,opt=false){
     try{
       const r=await fetch(url,{cache:'no-store'});
       if(!r.ok){lastErr=new Error(p+' HTTP '+r.status);continue}
-      return await r.text();
+      return p.endsWith('.gz') ? await new Response(r.body.pipeThrough(new DecompressionStream('gzip'))).text() : await r.text();
     }catch(e){
       lastErr=e;
     }
@@ -708,12 +708,12 @@ function renderK(){
 
  if(productsLoaded){
    const rows=filtered(),d=latestDate(products);
-   document.getElementById('kDate').textContent=d||manifest.latest_finalized_date||'-';
+   document.getElementById('kDate').textContent=manifest.latest_date||d||'-';
    const salesRows=rows.filter(r=>n(r.estimated_sales)!=null);
    const gmvRows=rows.filter(r=>n(r.estimated_gmv)!=null);
    document.getElementById('kSales').textContent=salesRows.length?f(salesRows.reduce((a,r)=>a+Math.max(0,n(r.estimated_sales)),0),1):'-';
    document.getElementById('kGmv').textContent=gmvRows.length?wonExact(gmvRows.reduce((a,r)=>a+Math.max(0,n(r.estimated_gmv)),0)):'-';
-   const c=rows.filter(r=>n(r.calendar_complete)===1).length;
+   const c=rows.filter(r=>n(r.estimated_sales)!=null).length;
    document.getElementById('kCoverage').textContent=rows.length?f(c/rows.length*100,1)+'%':'-';
    document.getElementById('kPriceChanges').textContent=f(rows.filter(r=>n(r.price_change_detected)===1).length);
    document.getElementById('kProducts').textContent=f(rows.length);
@@ -724,14 +724,14 @@ function renderK(){
  }
 
  // 빠른 초기 화면: 상품 9만+ 건을 읽기 전 summary/brand daily만으로 표시.
- const sd=latestDate(summary);
- const bd=latestDate(brands);
+ const sd=manifest.latest_date||latestDate(summary);
+ const bd=manifest.latest_date||latestDate(brands);
  const latestBrands=brands.filter(r=>r.date===bd);
  const row=b
    ? latestBrands.find(r=>r.brand_name===b)
    : summary.find(r=>r.date===sd);
 
- document.getElementById('kDate').textContent=(b?bd:sd)||manifest.latest_finalized_date||'-';
+ document.getElementById('kDate').textContent=(b?bd:sd)||manifest.latest_date||'-';
  if(b && row){
    const sales=n(row.estimated_sales),gmv=n(row.estimated_gmv);
    document.getElementById('kSales').textContent=sales==null?'-':f(Math.max(0,sales),1);
@@ -963,7 +963,7 @@ function currentBrandProductCount(brandName,fallback=null){
 
 function brandCalcState(r){
   const target=Math.max(0,n(r?.product_count)||0);
-  const complete=Math.max(0,n(r?.complete_product_count)||0);
+  const complete=Math.max(0,n(r?.calculated_product_count)||0);
   const coverage=n(r?.product_coverage_pct);
   const partial=target>0 && coverage!=null && coverage<100;
   return {partial,target,complete,coverage:coverage??0};
@@ -972,14 +972,14 @@ function brandSalesText(r){
   const st=brandCalcState(r);
   const v=n(r?.estimated_sales);
   if(v==null)return '<span class="muted">-</span>';
-  const title=`Finalizer 산출 부분합계 · 계산대상 ${f(st.target)}개 · 99% 이상 완료 ${f(st.complete)}개 · 완성도 ${f(st.coverage,1)}%`;
+  const title=`계산 가능한 상품 부분합계 · 계산대상 ${f(st.target)}개 · 판매량 계산 가능 ${f(st.complete)}개 · 완성도 ${f(st.coverage,1)}%`;
   return `<span title="${esc(title)}">${f(Math.max(0,v),1)}</span>`;
 }
 function brandGmvText(r){
   const st=brandCalcState(r);
   const v=n(r?.estimated_gmv);
   if(v==null)return '<span class="muted">-</span>';
-  const title=`Finalizer 산출 부분합계 · 계산대상 ${f(st.target)}개 · 99% 이상 완료 ${f(st.complete)}개 · 완성도 ${f(st.coverage,1)}%`;
+  const title=`계산 가능한 상품 부분합계 · 계산대상 ${f(st.target)}개 · 판매량 계산 가능 ${f(st.complete)}개 · 완성도 ${f(st.coverage,1)}%`;
   return `<span title="${esc(title)}">${wonExact(Math.max(0,v))}</span>`;
 }
 function brandSortValue(r,key){
@@ -988,7 +988,7 @@ function brandSortValue(r,key){
 }
 
 function renderBrandRank(){
-  const d=latestDate(brands);
+  const d=manifest.latest_date||latestDate(brands);
   const rows=brands.filter(r=>r.date===d).sort((a,b)=>{
     const av=brandSortValue(a,brandRankSort.key);
     const bv=brandSortValue(b,brandRankSort.key);
@@ -998,10 +998,10 @@ function renderBrandRank(){
   document.getElementById('brandRank').innerHTML=rows.map((r,i)=>{
     const slot=brandAssignedSlot(r.brand_name);
     const st=brandCalcState(r);
-    const current=currentBrandProductCount(r.brand_name,null);
-    const currentText=current==null?'로드중':f(current);
+    const current=currentBrandProductCount(r.brand_name,n(r.product_count));
+    const currentText=current==null?'-':f(current);
     const currentTitle=productsLoaded?'현재 catalog/추적 기준':'현재 catalog 상품 데이터를 불러오면 실제 추적 수로 갱신됩니다.';
-    const targetTitle=`최신 Finalizer 날짜 ${r.date||'-'} 기준 · 계산대상 ${f(st.target)}개 · 완성도 99% 이상 계산완료 ${f(st.complete)}개`;
+    const targetTitle=`현재 집계 날짜 ${r.date||'-'} 기준 · 계산대상 ${f(st.target)}개 · 판매량 계산 가능 ${f(st.complete)}개`;
     return `<tr>
       <td>${i+1}</td>
       <td><button class="link" data-brand="${esc(r.brand_name)}">${esc(r.brand_name)}</button></td>
@@ -1010,7 +1010,7 @@ function renderBrandRank(){
       <td>${slot==null?'-':`slot${slot}`}</td>
       <td>${slot==null?'-':slotTimeLabel(slot)}</td>
       <td>${slot==null?'-':nextSlotLabel(slot)}</td>
-      <td title="계산완료 ${f(st.complete)} / 계산대상 ${f(st.target)}">${f(st.coverage,1)}%</td>
+      <td title="계산완료 ${f(st.complete)} / 계산대상 ${f(st.target)}">${f(st.complete)} / ${f(st.target)} (${f(st.coverage,1)}%)</td>
       <td class="positive">${brandSalesText(r)}</td>
       <td>${brandGmvText(r)}</td>
     </tr>`;
@@ -1104,8 +1104,8 @@ function renderProducts(){
      <td>${collected?f(n(r.purchase_total)):'-'}</td>
      <td>${status}</td>
      <td>${checkedTime(r.last_checked_at)}</td>
-     <td class="${(calendarSalesValue||0)>0?'positive':''}">${calendarSalesValue==null?'-':f(calendarSalesValue,1)}</td>
-     <td class="${(rollingSalesValue||0)>0?'positive':''}">${rollingSalesValue==null?salesUnknownText(r):f(rollingSalesValue,0)}</td>
+     <td class="${(calendarSalesValue||0)>0?'positive':''}">${calendarSalesValue==null?salesUnknownText(r):f(calendarSalesValue,1)}</td>
+     <td title="직전 관측 이후 ${f(n(r.raw_interval_hours),2)}시간 동안의 증가분" class="${(rollingSalesValue||0)>0?'positive':''}">${rollingSalesValue==null?salesUnknownText({...r,calculation_status:r.raw_daily_sales_status}):f(rollingSalesValue,0)}</td>
      <td>${calendarGmvValue==null?'-':wonExact(calendarGmvValue)}</td>
      <td>${rollingGmvValue==null?'-':wonExact(rollingGmvValue)}</td>
      <td>${priceWon(n(r.display_price))}</td>
@@ -1146,11 +1146,11 @@ function showBrand(b){
   // 브랜드를 직접 선택한 것은 상품 조회 의도가 강하므로 뒤에서 상품 데이터를 준비한다.
   if(!productsLoaded)ensureProductsLoaded('brand');
 }
-function renderBrandDaily(){const b=document.getElementById('brandDaily').value;if(!b){document.getElementById('brandChart').innerHTML='<div class="empty">브랜드를 선택하세요.</div>';document.getElementById('brandDailyBody').innerHTML='';return}const rows=brands.filter(r=>r.brand_name===b).sort((a,c)=>a.date.localeCompare(c.date));chart(document.getElementById('brandChart'),rows.slice(-90),'estimated_sales');document.getElementById('brandDailyBody').innerHTML=[...rows].reverse().slice(0,180).map(r=>{const st=brandCalcState(r),sales=n(r.estimated_sales),gmv=n(r.estimated_gmv);return `<tr><td>${r.date}</td><td>${sales==null?'-':f(Math.max(0,sales),1)}</td><td>${gmv==null?'-':wonExact(Math.max(0,gmv))}</td><td title="99% 이상 완료 ${f(st.complete)} / 계산대상 ${f(st.target)}">${f(st.coverage,1)}%</td><td>${f(n(r.price_change_products))}</td></tr>`}).join('')}
+function renderBrandDaily(){const b=document.getElementById('brandDaily').value;if(!b){document.getElementById('brandChart').innerHTML='<div class="empty">브랜드를 선택하세요.</div>';document.getElementById('brandDailyBody').innerHTML='';return}const rows=brands.filter(r=>r.brand_name===b).sort((a,c)=>a.date.localeCompare(c.date));chart(document.getElementById('brandChart'),rows.slice(-90),'estimated_sales');document.getElementById('brandDailyBody').innerHTML=[...rows].reverse().slice(0,180).map(r=>{const st=brandCalcState(r),sales=n(r.estimated_sales),gmv=n(r.estimated_gmv);return `<tr><td>${r.date}</td><td>${sales==null?'-':f(Math.max(0,sales),1)}</td><td>${gmv==null?'-':wonExact(Math.max(0,gmv))}</td><td title="판매량 계산 가능 ${f(st.complete)} / 계산대상 ${f(st.target)}">${f(st.complete)} / ${f(st.target)} (${f(st.coverage,1)}%)</td><td>${f(n(r.price_change_products))}</td></tr>`}).join('')}
 
 function monthList(start,end){const out=[];let [y,m]=start.slice(0,7).split('-').map(Number),[ey,em]=end.slice(0,7).split('-').map(Number);while(y<ey||(y===ey&&m<=em)){out.push(`${y}-${String(m).padStart(2,'0')}`);m++;if(m===13){m=1;y++}}return out}
 function addDays(s,d){const x=new Date(s+'T00:00:00Z');x.setUTCDate(x.getUTCDate()+d);return x.toISOString().slice(0,10)}
-async function historyFor(p,days){const end=manifest.latest_finalized_date||latestDate(products),start=addDays(end,-days+1),months=monthList(start,end),bucket=String(p.history_bucket).padStart(2,'0'),rows=[];for(const m of months){const t=await txt(`data/calendar/history/${m}/bucket-${bucket}.csv`,true);if(t)rows.push(...csvParse(t).filter(r=>String(r.goods_no)===String(p.goods_no)&&r.date>=start&&r.date<=end))}rows.sort((a,b)=>a.date.localeCompare(b.date));return verifiedCalendarRows(rows)}
+async function historyFor(p,days){const end=manifest.latest_date||latestDate(products),start=addDays(end,-days+1),months=monthList(start,end),bucket=String(p.history_bucket).padStart(2,'0'),rows=[];for(const m of months){const t=await txt(`data/dashboard/history/${m}/bucket-${bucket}.csv.gz`,true);if(t)rows.push(...csvParse(t).filter(r=>String(r.goods_no)===String(p.goods_no)&&r.date>=start&&r.date<=end))}rows.sort((a,b)=>a.date.localeCompare(b.date));return verifiedCalendarRows(rows)}
 function detailHtml(p,h){const last=h.at(-1)||{},chg=h.filter(r=>n(r.price_change_detected)===1),avgCov=h.length?h.reduce((a,r)=>a+(n(r.coverage_pct)||0),0)/h.length:0;return `<div class="detailkpis"><div class="card"><div class="label">최근 추정판매</div><div class="value">${f(nonnegative(last.estimated_sales),1)}</div></div><div class="card"><div class="label">최근 추정GMV</div><div class="value">${wonExact(nonnegative(last.estimated_gmv))}</div></div><div class="card"><div class="label">현재 관측가</div><div class="value">${won(n(last.display_price))}</div></div><div class="card"><div class="label">기간 평균 시간범위</div><div class="value">${f(avgCov,1)}%</div></div><div class="card"><div class="label">가격변경 횟수</div><div class="value">${f(chg.length)}</div></div></div><div class="detailgrid"><div class="box"><h3>캘린더 일별 판매량</h3><div class="inside"><div class="chart smallchart" id="salesC"></div></div></div><div class="box"><h3>캘린더 일별 추정 GMV</h3><div class="inside"><div class="chart smallchart" id="gmvC"></div></div></div></div><div class="box" style="margin-top:11px"><h3>판매가 변화</h3><div class="inside"><div class="chart smallchart" id="priceC"></div></div></div><div class="detailgrid" style="margin-top:11px"><div class="box"><h3>가격 변경 감지일</h3><div class="tablewrap" style="max-height:300px"><table><thead><tr><th>날짜</th><th>이전가</th><th>변경가</th><th>변화</th></tr></thead><tbody>${chg.length?[...chg].reverse().map(r=>`<tr><td>${r.date}</td><td>${won(n(r.previous_display_price))}</td><td>${priceWon(n(r.display_price))}</td><td>${n(r.price_change_amount)>0?'+':''}${won(n(r.price_change_amount))} (${f(n(r.price_change_pct),1)}%)</td></tr>`).join(''):'<tr><td colspan="4" class="empty">가격 변경 없음</td></tr>'}</tbody></table></div></div><div class="box"><h3>일별 상세</h3><div class="tablewrap" style="max-height:300px"><table><thead><tr><th>날짜</th><th>추정판매</th><th>추정GMV</th><th>판매가</th><th>시간범위</th><th>신뢰도</th></tr></thead><tbody>${[...h].reverse().map(r=>`<tr><td>${r.date}</td><td>${f(nonnegative(r.estimated_sales),1)}</td><td>${wonExact(nonnegative(r.estimated_gmv))}</td><td>${priceWon(n(r.display_price))}</td><td>${f(n(r.coverage_pct),1)}%</td><td>${esc(r.confidence)}</td></tr>`).join('')}</tbody></table></div></div></div>`}
 async function renderSelectedProductDaily(){
  if(!active)return;
@@ -1162,10 +1162,10 @@ async function renderSelectedProductDaily(){
 
  meta.textContent=`${active.brand_name||'-'} · ${active.product_name||active.goods_no} · 상품번호 ${active.goods_no}`;
 
- if(!active.history_bucket){
+ if(active.history_bucket==null||active.history_bucket===''){
    salesEl.innerHTML='<div class="empty">아직 일별 데이터 없음</div>';
    gmvEl.innerHTML='<div class="empty">아직 일별 데이터 없음</div>';
-   body.innerHTML=`<tr><td colspan="9" class="empty">상품은 검색되었지만 아직 최종화된 캘린더 일별 기록이 없습니다. 다음 관측 후 Finalizer가 실행되면 날짜별 판매량이 표시됩니다.</td></tr>`;
+   body.innerHTML=`<tr><td colspan="9" class="empty">아직 비교 가능한 관측값이 없습니다. 다음 수집에서 증가분을 확인하면 날짜별 판매량에 반영합니다.</td></tr>`;
    return;
  }
 
@@ -1179,7 +1179,7 @@ async function renderSelectedProductDaily(){
    if(!h.length){
      salesEl.innerHTML='<div class="empty">아직 일별 데이터 없음</div>';
      gmvEl.innerHTML='<div class="empty">아직 일별 데이터 없음</div>';
-     body.innerHTML='<tr><td colspan="9" class="empty">아직 최종화된 일별 기록이 없습니다.</td></tr>';
+     body.innerHTML='<tr><td colspan="9" class="empty">아직 비교 가능한 일별 관측 기록이 없습니다.</td></tr>';
      return;
    }
 
@@ -1271,8 +1271,8 @@ async function loadShell(){
   manifest=m||{};
   brands=verifiedCalendarRows(b?csvParse(b):[]);
   summary=verifiedCalendarRows(s?csvParse(s):[]);
-  document.getElementById('dailyCsv').disabled=!calendarSalesReady();
-  document.getElementById('brandCsv').disabled=!calendarSalesReady();
+  document.getElementById('dailyCsv').disabled=false;
+  document.getElementById('brandCsv').disabled=false;
   registeredBrands=(rb||'').split(/\r?\n/).map(x=>x.trim()).filter(x=>x && !x.startsWith('#'));
 
   products=[];
@@ -1287,10 +1287,9 @@ async function loadShell(){
 
   renderShell();
 
-  const finalized=manifest.latest_finalized_date||latestDate(summary)||latestDate(brands)||'-';
+  const finalized=manifest.latest_date||latestDate(summary)||latestDate(brands)||'-';
   document.getElementById('updated').textContent=
-    salesRepairNotice()+
-    `최종 캘린더 날짜 ${finalized} · 빠른 화면 로드 완료 · 상품 상세 데이터는 검색/스크롤 시 로드 · UI v9.32`;
+    liveStatus();
   setProductLoadState('idle','빠른 화면 완료 · 상품 데이터는 필요 시 로드');
  }catch(e){
   er.textContent='초기 데이터 로드 실패: '+e.message;
@@ -1311,13 +1310,13 @@ async function loadProductsHeavy(reason='manual',force=false){
   const [p,c,rw,wl]=await Promise.all([
     txt(F.latest,true),
     txt(F.catalog,true),
-    txt(F.raw,true),
+    Promise.resolve(''),
     txt(F.watchlist,true)
   ]);
 
   const cal=verifiedCalendarRows(p?csvParse(p):[]);
   const catalog=c?csvParse(c):[];
-  const raw=verifiedRawRows(rw?csvParse(rw):[]);
+  const raw=cal.filter(x=>x.last_checked_at).map(x=>({...x,date:x.raw_date,checked_at:x.last_checked_at,daily_sales:x.raw_daily_sales,daily_sales_status:x.raw_daily_sales_status,daily_estimated_gmv:x.raw_daily_estimated_gmv}));
   const watch=(wl||'').split(/\r?\n/).map(x=>x.trim()).filter(x=>x && !x.startsWith('#'));
 
   latestRawDate=latestDate(raw);
@@ -1355,10 +1354,10 @@ async function loadProductsHeavy(reason='manual',force=false){
       calendar_complete:old.calendar_complete||'0',
       confidence:old.confidence||((rr.purchase_total!==''&&rr.purchase_total!=null)?'collected':'pending'),
       history_bucket:old.history_bucket||String(Number(g)%64),
-      previous_product_name:cc.previous_product_name||old.previous_product_name||'',
+      previous_product_name:old.previous_product_name||cc.previous_product_name||'',
       product_name_changed_at:cc.product_name_changed_at||old.product_name_changed_at||'',
-      product_name_change_count:cc.product_name_change_count||old.product_name_change_count||'0',
-      product_name_history:cc.product_name_history||old.product_name_history||'',
+      product_name_change_count:old.product_name_change_count||cc.product_name_change_count||'0',
+      product_name_history:old.product_name_history||cc.product_name_history||'',
       purchase_total:(rr.purchase_total!==''&&rr.purchase_total!=null)?rr.purchase_total:(old.purchase_total??''),
       raw_date:rr.date||old.raw_date||'',
       last_checked_at:rr.checked_at||old.last_checked_at||'',
@@ -1393,10 +1392,10 @@ async function loadProductsHeavy(reason='manual',force=false){
       calendar_complete:old.calendar_complete||'0',
       confidence:old.confidence||'catalog',
       history_bucket:old.history_bucket||String(Number(g)%64),
-      previous_product_name:cc.previous_product_name||old.previous_product_name||'',
+      previous_product_name:old.previous_product_name||cc.previous_product_name||'',
       product_name_changed_at:cc.product_name_changed_at||old.product_name_changed_at||'',
-      product_name_change_count:cc.product_name_change_count||old.product_name_change_count||'0',
-      product_name_history:cc.product_name_history||old.product_name_history||'',
+      product_name_change_count:old.product_name_change_count||cc.product_name_change_count||'0',
+      product_name_history:old.product_name_history||cc.product_name_history||'',
       purchase_total:old.purchase_total??rr.purchase_total??'',
       raw_date:old.raw_date||rr.date||'',
       last_checked_at:old.last_checked_at||rr.checked_at||'',
@@ -1431,14 +1430,10 @@ async function loadProductsHeavy(reason='manual',force=false){
   invalidateProductView();
   renderFull();
 
-  const finalized=manifest.latest_finalized_date||latestDate(cal)||'-';
+  const finalized=manifest.latest_date||latestDate(cal)||'-';
   const latestRawCount=raw.filter(r=>r.date===latestRawDate&&r.purchase_total!==''&&r.purchase_total!=null).length;
 
-  document.getElementById('updated').textContent=
-    salesRepairNotice()+
-    `최종 캘린더 날짜 ${finalized} · 검색 가능 ${f(products.length)}개 상품`+
-    ` · 판매통계 수집완료(${latestRawDate||'-'}) ${f(latestRawCount)} / ${f(products.length)}`+
-    ` · catalog ${f(catalog.length)}개 · 페이지당 ${f(PRODUCT_PAGE_SIZE)}개 렌더링 · UI v9.28`;
+  document.getElementById('updated').textContent=liveStatus();
 
   setProductLoadState('ready',`상품 데이터 준비 완료 · ${f(products.length)}개`);
   return true;
@@ -1465,9 +1460,25 @@ async function reloadDashboard(){
  if(wasLoaded)await loadProductsHeavy('reload',true);
 }
 
+let automaticRefreshRunning=false;
+setInterval(async()=>{
+ if(document.hidden||automaticRefreshRunning||productsLoading)return;
+ automaticRefreshRunning=true;
+ try{
+  const next=await jsn(F.manifest,true);
+  if(next && (next.source_fingerprint!==manifest.source_fingerprint||next.latest_date!==manifest.latest_date)){
+   const selected=active?.goods_no, scroll=window.scrollY;
+   await reloadDashboard();
+   if(selected){active=products.find(r=>String(r.goods_no)===String(selected))||null;if(active)await renderSelectedProductDaily();}
+   window.scrollTo(0,scroll);
+  }
+ }catch(e){console.warn('자동 갱신 실패; 현재 표시값 유지',e);}
+ finally{automaticRefreshRunning=false;}
+},60000);
+
 document.getElementById('reload').addEventListener('click',reloadDashboard);
 document.getElementById('catalogCsv').addEventListener('click',()=>window.open('./'+F.catalog,'_blank'));
-document.getElementById('dailyCsv').addEventListener('click',()=>window.open('./'+F.latest,'_blank'));
+document.getElementById('dailyCsv').addEventListener('click',async()=>{const data=await txt(F.latest);const url=URL.createObjectURL(new Blob(['\uFEFF'+data],{type:'text/csv;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download='musinsa_daily_estimates.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);});
 document.getElementById('brandCsv').addEventListener('click',()=>window.open('./'+F.brands,'_blank'));
 
 document.getElementById('loadProductsBtn').addEventListener('click',()=>{
