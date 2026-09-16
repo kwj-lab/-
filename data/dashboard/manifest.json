@@ -1,7 +1,7 @@
 {
   "sales_policy_version": "2026-09-15-live-daily-v1",
-  "source_fingerprint": "7b4ff1de86da26fc5609a9c4c74241c92cdf666cee11fc243b3f867bf34ac002",
-  "updated_at": "2026-09-17T06:00:54+09:00",
+  "source_fingerprint": "31ffb27018ce3df3f36e2b113c88f18a133fd36fb267aeedfb848478e9bbd5fa",
+  "updated_at": "2026-09-17T06:16:23+09:00",
   "as_of_date": "2026-09-17",
   "latest_date": "2026-09-17",
   "latest_finalized_date": "2026-09-17",
@@ -35,29 +35,29 @@
     "2026-09"
   ],
   "history_buckets": 64,
-  "last_observed_at": "2026-09-17T05:54:09+09:00",
-  "source_files": 347,
-  "source_rows": 4027134,
+  "last_observed_at": "2026-09-17T06:14:54+09:00",
+  "source_files": 348,
+  "source_rows": 4029865,
   "product_count": 244727,
   "excluded_boundaries": {
     "collection_gap": 321930,
-    "counter_reset": 4986,
+    "counter_reset": 4975,
     "zero_baseline_unverified": 1544,
     "counter_jump_unverified": 160
   },
   "latest_summary": {
     "date": "2026-09-17",
     "brand_name": "",
-    "checked_at": "2026-09-17T06:00:54+09:00",
+    "checked_at": "2026-09-17T06:16:23+09:00",
     "product_count": 244727,
     "calculated_product_count": 57991,
     "excluded_product_count": 186736,
     "complete_product_count": 0,
     "product_coverage_pct": 23.7,
-    "average_time_coverage_pct": 3.95,
-    "estimated_sales": 8471.88,
-    "estimated_gmv": 443755351,
-    "price_change_products": 9242,
+    "average_time_coverage_pct": 4.06,
+    "estimated_sales": 8910.88,
+    "estimated_gmv": 464508091,
+    "price_change_products": 9255,
     "sales_policy_version": "2026-09-15-live-daily-v1"
   },
   "method": "First cumulative value is a baseline; only verified subsequent deltas are allocated by KST day overlap. Current day is partial through the latest observation. Unknown is not zero."
