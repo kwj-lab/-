@@ -81,6 +81,16 @@
       "reason": "zero_baseline_unverified"
     },
     {
+      "goods_no": "4396299",
+      "brand_name": "알리스",
+      "from_at": "2026-09-17T00:26:10+09:00",
+      "to_at": "2026-09-17T22:37:34+09:00",
+      "before": 0,
+      "after": 2125,
+      "excluded_delta": 2125,
+      "reason": "zero_baseline_unverified"
+    },
+    {
       "goods_no": "4551885",
       "brand_name": "노티카",
       "from_at": "2026-09-01T15:28:51+09:00",
@@ -989,16 +999,6 @@
       "after": 320,
       "excluded_delta": 320,
       "reason": "zero_baseline_unverified"
-    },
-    {
-      "goods_no": "7210219",
-      "brand_name": "아워데이즈",
-      "from_at": "2026-09-10T19:19:35+09:00",
-      "to_at": "2026-09-14T22:00:32+09:00",
-      "before": 0,
-      "after": 320,
-      "excluded_delta": 320,
-      "reason": "collection_gap"
     }
   ]
 }
