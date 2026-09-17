@@ -521,6 +521,16 @@
       "reason": "zero_baseline_unverified"
     },
     {
+      "goods_no": "3555930",
+      "brand_name": "락케이크",
+      "from_at": "2026-09-17T07:17:15+09:00",
+      "to_at": "2026-09-18T07:15:39+09:00",
+      "before": 0,
+      "after": 490,
+      "excluded_delta": 490,
+      "reason": "zero_baseline_unverified"
+    },
+    {
       "goods_no": "7011607",
       "brand_name": "더니트컴퍼니",
       "from_at": "2026-09-10T19:17:40+09:00",
@@ -989,16 +999,6 @@
       "after": 194491,
       "excluded_delta": 321,
       "reason": "collection_gap"
-    },
-    {
-      "goods_no": "4799193",
-      "brand_name": "본투윈",
-      "from_at": "2026-09-03T17:27:38+09:00",
-      "to_at": "2026-09-04T03:46:21+09:00",
-      "before": 0,
-      "after": 320,
-      "excluded_delta": 320,
-      "reason": "zero_baseline_unverified"
     }
   ]
 }
