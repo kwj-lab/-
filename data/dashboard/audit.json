@@ -1,6 +1,16 @@
 {
   "largest_excluded_boundaries": [
     {
+      "goods_no": "2722805",
+      "brand_name": "브라운브레스",
+      "from_at": "2026-09-17T14:49:26+09:00",
+      "to_at": "2026-09-17T18:03:43+09:00",
+      "before": 0,
+      "after": 40040,
+      "excluded_delta": 40040,
+      "reason": "zero_baseline_unverified"
+    },
+    {
       "goods_no": "1547899",
       "brand_name": "아웃스탠딩",
       "from_at": "2026-08-31T03:17:25+09:00",
@@ -29,6 +39,16 @@
       "after": 16863,
       "excluded_delta": 4509,
       "reason": "collection_gap"
+    },
+    {
+      "goods_no": "5936556",
+      "brand_name": "웬즈데이오아시스",
+      "from_at": "2026-09-17T14:49:51+09:00",
+      "to_at": "2026-09-17T18:04:07+09:00",
+      "before": 0,
+      "after": 4089,
+      "excluded_delta": 4089,
+      "reason": "zero_baseline_unverified"
     },
     {
       "goods_no": "2349446",
@@ -978,26 +998,6 @@
       "before": 194170,
       "after": 194491,
       "excluded_delta": 321,
-      "reason": "collection_gap"
-    },
-    {
-      "goods_no": "4799193",
-      "brand_name": "본투윈",
-      "from_at": "2026-09-03T17:27:38+09:00",
-      "to_at": "2026-09-04T03:46:21+09:00",
-      "before": 0,
-      "after": 320,
-      "excluded_delta": 320,
-      "reason": "zero_baseline_unverified"
-    },
-    {
-      "goods_no": "7210219",
-      "brand_name": "아워데이즈",
-      "from_at": "2026-09-10T19:19:35+09:00",
-      "to_at": "2026-09-14T22:00:32+09:00",
-      "before": 0,
-      "after": 320,
-      "excluded_delta": 320,
       "reason": "collection_gap"
     }
   ]
