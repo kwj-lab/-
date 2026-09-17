@@ -61,6 +61,16 @@
       "reason": "collection_gap"
     },
     {
+      "goods_no": "4233894",
+      "brand_name": "노스페이스",
+      "from_at": "2026-09-16T14:06:02+09:00",
+      "to_at": "2026-09-17T13:42:35+09:00",
+      "before": 0,
+      "after": 2288,
+      "excluded_delta": 2288,
+      "reason": "zero_baseline_unverified"
+    },
+    {
       "goods_no": "4036581",
       "brand_name": "마뗑킴",
       "from_at": "2026-09-14T11:35:11+09:00",
@@ -558,16 +568,6 @@
       "before": 0,
       "after": 449,
       "excluded_delta": 449,
-      "reason": "zero_baseline_unverified"
-    },
-    {
-      "goods_no": "6022342",
-      "brand_name": "노스페이스",
-      "from_at": "2026-09-15T15:14:20+09:00",
-      "to_at": "2026-09-16T14:32:37+09:00",
-      "before": 0,
-      "after": 448,
-      "excluded_delta": 448,
       "reason": "zero_baseline_unverified"
     },
     {
