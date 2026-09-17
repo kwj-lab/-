@@ -1,11 +1,11 @@
 {
   "sales_policy_version": "2026-09-15-live-daily-v1",
   "source_fingerprint": "a9e388117fa5f9d34159ffb5c5b638ccbf5f4726b6be71c8e4fbf2fd7e9ffaed",
-  "updated_at": "2026-09-17T23:52:05+09:00",
-  "as_of_date": "2026-09-17",
+  "updated_at": "2026-09-18T00:01:14+09:00",
+  "as_of_date": "2026-09-18",
   "latest_date": "2026-09-17",
   "latest_finalized_date": "2026-09-17",
-  "latest_closed_date": "2026-09-16",
+  "latest_closed_date": "2026-09-17",
   "dates": [
     "2026-08-27",
     "2026-08-28",
@@ -28,7 +28,8 @@
     "2026-09-14",
     "2026-09-15",
     "2026-09-16",
-    "2026-09-17"
+    "2026-09-17",
+    "2026-09-18"
   ],
   "months": [
     "2026-08",
@@ -48,11 +49,11 @@
   "latest_summary": {
     "date": "2026-09-17",
     "brand_name": "",
-    "checked_at": "2026-09-17T23:52:05+09:00",
+    "checked_at": "2026-09-18T00:01:14+09:00",
     "product_count": 246360,
     "calculated_product_count": 221391,
     "excluded_product_count": 24969,
-    "complete_product_count": 0,
+    "complete_product_count": 1238,
     "product_coverage_pct": 89.86,
     "average_time_coverage_pct": 50.5,
     "estimated_sales": 41053.86,
