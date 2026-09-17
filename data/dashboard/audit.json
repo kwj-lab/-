@@ -241,6 +241,16 @@
       "reason": "zero_baseline_unverified"
     },
     {
+      "goods_no": "7013623",
+      "brand_name": "아디다스",
+      "from_at": "2026-09-16T17:47:26+09:00",
+      "to_at": "2026-09-17T17:41:31+09:00",
+      "before": 0,
+      "after": 771,
+      "excluded_delta": 771,
+      "reason": "zero_baseline_unverified"
+    },
+    {
       "goods_no": "3783092",
       "brand_name": "디미트리블랙",
       "from_at": "2026-09-10T19:42:28+09:00",
@@ -439,6 +449,16 @@
       "after": 506,
       "excluded_delta": 506,
       "reason": "collection_gap"
+    },
+    {
+      "goods_no": "6156277",
+      "brand_name": "르아르",
+      "from_at": "2026-09-16T17:30:45+09:00",
+      "to_at": "2026-09-17T17:25:37+09:00",
+      "before": 0,
+      "after": 505,
+      "excluded_delta": 505,
+      "reason": "zero_baseline_unverified"
     },
     {
       "goods_no": "6100901",
@@ -698,6 +718,16 @@
       "before": 0,
       "after": 385,
       "excluded_delta": 385,
+      "reason": "zero_baseline_unverified"
+    },
+    {
+      "goods_no": "6762719",
+      "brand_name": "아디다스",
+      "from_at": "2026-09-17T03:59:26+09:00",
+      "to_at": "2026-09-17T17:37:35+09:00",
+      "before": 0,
+      "after": 383,
+      "excluded_delta": 383,
       "reason": "zero_baseline_unverified"
     },
     {
@@ -968,36 +998,6 @@
       "before": 0,
       "after": 320,
       "excluded_delta": 320,
-      "reason": "collection_gap"
-    },
-    {
-      "goods_no": "7145771",
-      "brand_name": "스파오",
-      "from_at": "2026-09-05T07:16:02+09:00",
-      "to_at": "2026-09-06T07:15:40+09:00",
-      "before": 0,
-      "after": 319,
-      "excluded_delta": 319,
-      "reason": "zero_baseline_unverified"
-    },
-    {
-      "goods_no": "5314369",
-      "brand_name": "시그니처",
-      "from_at": "2026-09-10T19:02:26+09:00",
-      "to_at": "2026-09-14T13:00:33+09:00",
-      "before": 2915,
-      "after": 3233,
-      "excluded_delta": 318,
-      "reason": "collection_gap"
-    },
-    {
-      "goods_no": "6788126",
-      "brand_name": "스파오",
-      "from_at": "2026-09-10T19:43:40+09:00",
-      "to_at": "2026-09-14T13:00:23+09:00",
-      "before": 1229,
-      "after": 1547,
-      "excluded_delta": 318,
       "reason": "collection_gap"
     }
   ]
