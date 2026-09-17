@@ -181,6 +181,16 @@
       "reason": "zero_baseline_unverified"
     },
     {
+      "goods_no": "5361996",
+      "brand_name": "워크온바디오프",
+      "from_at": "2026-09-16T20:16:53+09:00",
+      "to_at": "2026-09-17T11:11:07+09:00",
+      "before": 0,
+      "after": 858,
+      "excluded_delta": 858,
+      "reason": "zero_baseline_unverified"
+    },
+    {
       "goods_no": "7210135",
       "brand_name": "아워데이즈",
       "from_at": "2026-09-10T19:19:36+09:00",
@@ -391,6 +401,16 @@
       "reason": "collection_gap"
     },
     {
+      "goods_no": "5362083",
+      "brand_name": "워크온바디오프",
+      "from_at": "2026-09-16T11:28:38+09:00",
+      "to_at": "2026-09-17T11:11:08+09:00",
+      "before": 0,
+      "after": 515,
+      "excluded_delta": 515,
+      "reason": "zero_baseline_unverified"
+    },
+    {
       "goods_no": "5523573",
       "brand_name": "노티카",
       "from_at": "2026-09-01T15:35:26+09:00",
@@ -428,6 +448,16 @@
       "before": 0,
       "after": 503,
       "excluded_delta": 503,
+      "reason": "zero_baseline_unverified"
+    },
+    {
+      "goods_no": "5224088",
+      "brand_name": "워크온바디오프",
+      "from_at": "2026-09-16T11:25:00+09:00",
+      "to_at": "2026-09-17T11:07:36+09:00",
+      "before": 0,
+      "after": 502,
+      "excluded_delta": 502,
       "reason": "zero_baseline_unverified"
     },
     {
@@ -548,16 +578,6 @@
       "before": 352,
       "after": 796,
       "excluded_delta": 444,
-      "reason": "collection_gap"
-    },
-    {
-      "goods_no": "6321111",
-      "brand_name": "워크온바디오프",
-      "from_at": "2026-09-10T10:29:55+09:00",
-      "to_at": "2026-09-14T12:13:37+09:00",
-      "before": 0,
-      "after": 443,
-      "excluded_delta": 443,
       "reason": "collection_gap"
     },
     {
@@ -705,6 +725,16 @@
       "brand_name": "미세키서울 맨",
       "from_at": "2026-09-15T17:43:20+09:00",
       "to_at": "2026-09-16T17:35:46+09:00",
+      "before": 0,
+      "after": 374,
+      "excluded_delta": 374,
+      "reason": "zero_baseline_unverified"
+    },
+    {
+      "goods_no": "5224177",
+      "brand_name": "워크온바디오프",
+      "from_at": "2026-09-16T11:25:01+09:00",
+      "to_at": "2026-09-17T11:07:38+09:00",
       "before": 0,
       "after": 374,
       "excluded_delta": 374,
@@ -968,36 +998,6 @@
       "before": 1229,
       "after": 1547,
       "excluded_delta": 318,
-      "reason": "collection_gap"
-    },
-    {
-      "goods_no": "5311114",
-      "brand_name": "언탭트 스튜디오",
-      "from_at": "2026-09-10T19:43:33+09:00",
-      "to_at": "2026-09-14T13:00:12+09:00",
-      "before": 20976,
-      "after": 21292,
-      "excluded_delta": 316,
-      "reason": "collection_gap"
-    },
-    {
-      "goods_no": "5899294",
-      "brand_name": "디미트리블랙",
-      "from_at": "2026-09-10T19:43:43+09:00",
-      "to_at": "2026-09-14T12:03:48+09:00",
-      "before": 5081,
-      "after": 5396,
-      "excluded_delta": 315,
-      "reason": "collection_gap"
-    },
-    {
-      "goods_no": "1551839",
-      "brand_name": "제로",
-      "from_at": "2026-09-10T19:42:39+09:00",
-      "to_at": "2026-09-14T12:58:32+09:00",
-      "before": 286109,
-      "after": 286421,
-      "excluded_delta": 312,
       "reason": "collection_gap"
     }
   ]
