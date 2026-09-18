@@ -1,7 +1,7 @@
 {
   "sales_policy_version": "2026-09-18-gap-reconstruction-v2",
-  "source_fingerprint": "0c4959824fd530c5f220f6143547ab71bc49990b9e9abc8cc7fdd3f5d4dfe8da",
-  "updated_at": "2026-09-18T19:01:26+09:00",
+  "source_fingerprint": "9e92d48b741005d962ebe545f4d0df9c1a39d63e44d016e21c6b823f392f1023",
+  "updated_at": "2026-09-18T19:15:00+09:00",
   "as_of_date": "2026-09-18",
   "latest_date": "2026-09-18",
   "latest_finalized_date": "2026-09-18",
@@ -36,28 +36,28 @@
     "2026-09"
   ],
   "history_buckets": 64,
-  "last_observed_at": "2026-09-18T18:52:09+09:00",
-  "source_files": 384,
-  "source_rows": 4500121,
+  "last_observed_at": "2026-09-18T19:14:14+09:00",
+  "source_files": 385,
+  "source_rows": 4501439,
   "product_count": 247596,
   "excluded_boundaries": {
-    "counter_reset": 8295,
+    "counter_reset": 8333,
     "zero_baseline_unverified": 2479,
-    "counter_jump_unverified": 173
+    "counter_jump_unverified": 174
   },
   "latest_summary": {
     "date": "2026-09-18",
     "brand_name": "",
-    "checked_at": "2026-09-18T19:01:26+09:00",
+    "checked_at": "2026-09-18T19:15:00+09:00",
     "product_count": 247596,
-    "calculated_product_count": 194653,
-    "excluded_product_count": 52943,
+    "calculated_product_count": 194682,
+    "excluded_product_count": 52914,
     "complete_product_count": 0,
-    "product_coverage_pct": 78.62,
-    "average_time_coverage_pct": 35.3,
-    "estimated_sales": 19722.09,
-    "estimated_gmv": 1133376898,
-    "price_change_products": 11528,
+    "product_coverage_pct": 78.63,
+    "average_time_coverage_pct": 35.43,
+    "estimated_sales": 22279.86,
+    "estimated_gmv": 1273424282,
+    "price_change_products": 11530,
     "sales_policy_version": "2026-09-18-gap-reconstruction-v2"
   },
   "method": "First cumulative value is a baseline; structurally valid deltas are allocated by KST day overlap. Gaps over 36h are reconstructed but excluded from observed coverage. Current day is partial through the latest observation. Unknown is not zero."
