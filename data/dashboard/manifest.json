@@ -1,7 +1,7 @@
 {
-  "sales_policy_version": "2026-09-15-live-daily-v1",
-  "source_fingerprint": "f2f24ccfa7196f95cb97decd4f614649f4414f6e770506cd9308904e49595550",
-  "updated_at": "2026-09-18T08:07:53+09:00",
+  "sales_policy_version": "2026-09-18-gap-reconstruction-v2",
+  "source_fingerprint": "3ce796f6e89fd78fe688e7d712b606d980bc4da94487cb3cbc5215576123a4af",
+  "updated_at": "2026-09-18T11:26:57+09:00",
   "as_of_date": "2026-09-18",
   "latest_date": "2026-09-18",
   "latest_finalized_date": "2026-09-18",
@@ -41,25 +41,24 @@
   "source_rows": 4343917,
   "product_count": 246798,
   "excluded_boundaries": {
-    "collection_gap": 344675,
-    "counter_reset": 5435,
-    "zero_baseline_unverified": 1703,
-    "counter_jump_unverified": 164
+    "counter_reset": 7886,
+    "zero_baseline_unverified": 2410,
+    "counter_jump_unverified": 172
   },
   "latest_summary": {
     "date": "2026-09-18",
     "brand_name": "",
-    "checked_at": "2026-09-18T08:07:53+09:00",
+    "checked_at": "2026-09-18T11:26:57+09:00",
     "product_count": 246798,
-    "calculated_product_count": 79633,
-    "excluded_product_count": 167165,
+    "calculated_product_count": 79850,
+    "excluded_product_count": 166948,
     "complete_product_count": 0,
-    "product_coverage_pct": 32.27,
+    "product_coverage_pct": 32.35,
     "average_time_coverage_pct": 5.95,
-    "estimated_sales": 7988.83,
-    "estimated_gmv": 437217829,
+    "estimated_sales": 7994.43,
+    "estimated_gmv": 437632736,
     "price_change_products": 3896,
-    "sales_policy_version": "2026-09-15-live-daily-v1"
+    "sales_policy_version": "2026-09-18-gap-reconstruction-v2"
   },
-  "method": "First cumulative value is a baseline; only verified subsequent deltas are allocated by KST day overlap. Current day is partial through the latest observation. Unknown is not zero."
+  "method": "First cumulative value is a baseline; structurally valid deltas are allocated by KST day overlap. Gaps over 36h are reconstructed but excluded from observed coverage. Current day is partial through the latest observation. Unknown is not zero."
 }
