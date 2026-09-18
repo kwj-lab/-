@@ -251,7 +251,7 @@ dialog{width:min(1200px,96vw);max-height:92vh;border:0;border-radius:16px;paddin
 <script>
 const F={latest:'data/dashboard/latest_products.csv.gz',brands:'data/dashboard/brand_daily.csv',summary:'data/dashboard/summary.csv',manifest:'data/dashboard/manifest.json',catalog:'musinsa_catalog.csv',raw:'musinsa_daily_product_sales.csv',watchlist:'musinsa_watchlist.txt',registeredBrands:'musinsa_brands.txt'};
 let products=[],brands=[],summary=[],manifest={},active=null;
-const SALES_POLICY_VERSION='2026-09-15-live-daily-v1';
+const SALES_POLICY_VERSION='2026-09-18-gap-reconstruction-v2';
 function calendarSalesReady(){return manifest.sales_policy_version===SALES_POLICY_VERSION;}
 function salesRepairNotice(){return '';}
 function verifiedCalendarRows(rows){
