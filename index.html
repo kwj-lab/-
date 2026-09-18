@@ -80,11 +80,15 @@ dialog{width:min(1200px,96vw);max-height:92vh;border:0;border-radius:16px;paddin
 <div><h1>무신사 캘린더 일별 판매 대시보드</h1><div class="sub" id="updated">데이터 불러오는 중...</div></div>
 <div class="actions"><button id="reload">새로고침</button><button id="catalogCsv">전체상품 CSV</button><button id="dailyCsv">일별판매 CSV</button><button id="brandCsv">브랜드 CSV</button></div>
 </header>
-<div class="notice"><b>날짜 기준:</b> 한국시간 00:00~24:00. 예를 들어 20일 수치는 20일 하루 전체를 뜻합니다. 누적구매수 관측 사이 증가량을 시간 비율로 나눈 <b>일일 추정치</b>이며, 판매속도에 따라 약 24시간/9시간/3시간 간격으로 추가 관측합니다. 일판매 3개 이상 상품에는 자정 앵커 관측을 추가해 날짜 경계 오차를 줄입니다.</div>
+<div class="notice"><b>날짜 기준:</b> 한국시간 00:00~24:00. 예를 들어 20일 수치는 20일 하루 전체를 뜻합니다. 누적구매수 관측 사이 증가량을 시간 비율로 나눈 <b>일일 추정치</b>이며, 판매속도에 따라 약 24시간/9시간/3시간 간격으로 추가 관측합니다. 일판매 3개 이상 상품에는 자정 앵커 관측을 추가해 날짜 경계 오차를 줄입니다. <b>상단 KPI·브랜드 순위는 기본적으로 최근 마감일을 표시</b>하며, ‘오늘 실시간’을 선택하면 현재 시각까지의 부분합계를 표시합니다.</div>
 <div class="error" id="err"></div>
 
 <div class="filters">
 <select id="brandFilter"><option value="">전체 브랜드</option></select>
+<select id="dateMode" title="상단 KPI와 브랜드 순위의 기준일">
+  <option value="closed" selected>최근 마감일</option>
+  <option value="live">오늘 실시간</option>
+</select>
 <input id="search" placeholder="브랜드 / 상품명 / 상품번호 검색">
 </div>
 
@@ -141,7 +145,7 @@ dialog{width:min(1200px,96vw);max-height:92vh;border:0;border-radius:16px;paddin
 <div class="body"><div class="chart" id="overallChart"></div></div>
 </section>
 <section class="panel">
-<div class="head"><div><div class="title">브랜드 최신 일판매 순위</div><div class="small">계산 가능한 상품은 즉시 합산합니다. 기준 수집·수집 공백 상품은 0으로 처리하지 않으며, 오늘 값은 마지막 관측 시각까지의 부분합계입니다.</div></div></div>
+<div class="head"><div><div class="title">브랜드 일판매 순위</div><div class="small" id="brandRankSubtitle">기준일 선택값에 따라 표시합니다.</div></div></div>
 <div class="tablewrap" style="max-height:760px;overflow:auto"><table><thead><tr><th>#</th><th>브랜드</th><th>현재 추적</th><th>계산대상</th><th>담당 slot</th><th>정규 수집시간</th><th>다음 수집</th><th>계산 가능</th><th><button class="sortbtn" id="brandSortSales">일일 추정판매 <span id="brandSortSalesIcon">▼</span></button></th><th><button class="sortbtn" id="brandSortGmv">일일 추정GMV <span id="brandSortGmvIcon"></span></button></th></tr></thead><tbody id="brandRank"></tbody></table></div>
 </section>
 </div>
@@ -261,7 +265,7 @@ function verifiedCalendarRows(rows){
 function verifiedRawRows(rows){return rows;}
 function kstToday(){return new Date(Date.now()+9*3600000).toISOString().slice(0,10);}
 function liveStatus(){
- return `기준일 ${manifest.latest_date||'-'}${manifest.latest_date!==kstToday()?' (오늘 수집 대기)':''} · 마지막 수집 ${checkedTime(manifest.last_observed_at)} · 집계 갱신 ${checkedTime(manifest.updated_at)} · 60초마다 새 데이터 확인`;
+ return `최신 ${manifest.latest_date||'-'}${manifest.latest_date===kstToday()?' (오늘 진행중)':' (오늘 수집 대기)'} · 최근 마감 ${manifest.latest_closed_date||'-'} · 마지막 수집 ${checkedTime(manifest.last_observed_at)} · 집계 갱신 ${checkedTime(manifest.updated_at)} · 60초마다 새 데이터 확인`;
 }
 function nonnegative(v){const value=n(v);return value==null?null:Math.max(0,value);}
 let registeredBrands=[],discoveredBrands=[],missingBrands=[],aliasBrandGroups=[];
@@ -401,6 +405,15 @@ function renderProductNameHistory(r){
 
 function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
 function latestDate(rows){return rows.map(r=>r.date).filter(Boolean).sort().at(-1)||''}
+function dashboardDate(){
+ const mode=document.getElementById('dateMode')?.value||'closed';
+ if(mode==='live') return manifest.latest_date||latestDate(summary)||latestDate(brands)||'';
+ return manifest.latest_closed_date||manifest.latest_date||latestDate(summary)||latestDate(brands)||'';
+}
+function dashboardDateLabel(d){
+ const mode=document.getElementById('dateMode')?.value||'closed';
+ return d ? `${d} (${mode==='live'?'오늘 진행중':'마감'})` : '-';
+}
 function brandKeys(v){
  const s=String(v||'').normalize('NFKC').toLowerCase().trim();
  if(!s)return[];
@@ -688,61 +701,38 @@ function populate(){
 
 function renderK(){
  const b=document.getElementById('brandFilter').value;
-
- if(productsLoaded){
-   const rows=filtered(),d=latestDate(products);
-   document.getElementById('kDate').textContent=manifest.latest_date||d||'-';
-   const salesRows=rows.filter(r=>n(r.estimated_sales)!=null);
-   const gmvRows=rows.filter(r=>n(r.estimated_gmv)!=null);
-   document.getElementById('kSales').textContent=salesRows.length?f(salesRows.reduce((a,r)=>a+Math.max(0,n(r.estimated_sales)),0),1):'-';
-   document.getElementById('kGmv').textContent=gmvRows.length?wonExact(gmvRows.reduce((a,r)=>a+Math.max(0,n(r.estimated_gmv)),0)):'-';
-   const c=rows.filter(r=>n(r.estimated_sales)!=null).length;
-   document.getElementById('kCoverage').textContent=rows.length?f(c/rows.length*100,1)+'%':'-';
-   document.getElementById('kPriceChanges').textContent=f(rows.filter(r=>n(r.price_change_detected)===1).length);
-   document.getElementById('kProducts').textContent=f(rows.length);
-   document.getElementById('kBrands').textContent=b
-     ? f(new Set(rows.map(r=>r.brand_name).filter(Boolean)).size)+'개 브랜드'
-     : `catalog 고유 ${f(discoveredBrands.length||new Set(rows.map(r=>r.brand_name).filter(Boolean)).size)} / 등록 ${registeredBrands.length?f(registeredBrands.length):'-'}`;
-   return;
- }
-
- // 빠른 초기 화면: 상품 9만+ 건을 읽기 전 summary/brand daily만으로 표시.
- const sd=manifest.latest_date||latestDate(summary);
- const bd=manifest.latest_date||latestDate(brands);
- const latestBrands=brands.filter(r=>r.date===bd);
+ const d=dashboardDate();
+ const dateBrands=brands.filter(r=>r.date===d);
  const row=b
-   ? latestBrands.find(r=>r.brand_name===b)
-   : summary.find(r=>r.date===sd);
+   ? dateBrands.find(r=>r.brand_name===b)
+   : summary.find(r=>r.date===d);
 
- document.getElementById('kDate').textContent=(b?bd:sd)||manifest.latest_date||'-';
- if(b && row){
-   const sales=n(row.estimated_sales),gmv=n(row.estimated_gmv);
-   document.getElementById('kSales').textContent=sales==null?'-':f(Math.max(0,sales),1);
-   document.getElementById('kGmv').textContent=gmv==null?'-':wonExact(Math.max(0,gmv));
- }else{
-   document.getElementById('kSales').textContent=n(row?.estimated_sales)==null?'-':f(Math.max(0,n(row.estimated_sales)),1);
-   document.getElementById('kGmv').textContent=n(row?.estimated_gmv)==null?'-':wonExact(Math.max(0,n(row.estimated_gmv)));
- }
+ document.getElementById('kDate').textContent=dashboardDateLabel(d);
+
+ const sales=n(row?.estimated_sales),gmv=n(row?.estimated_gmv);
+ document.getElementById('kSales').textContent=sales==null?'-':f(Math.max(0,sales),1);
+ document.getElementById('kGmv').textContent=gmv==null?'-':wonExact(Math.max(0,gmv));
 
  let coverage=null,priceChanges=null,productCount=null;
- if(b && row){
+ if(row){
    coverage=n(row.product_coverage_pct);
    priceChanges=n(row.price_change_products);
    productCount=n(row.product_count);
- }else if(!b){
-   const totalProducts=latestBrands.reduce((a,r)=>a+Math.max(0,n(r.product_count)||0),0);
-   const weighted=latestBrands.reduce((a,r)=>a+(Math.max(0,n(r.product_count)||0)*(n(r.product_coverage_pct)||0)),0);
+ }
+ if(!b && !row){
+   const totalProducts=dateBrands.reduce((a,r)=>a+Math.max(0,n(r.product_count)||0),0);
+   const weighted=dateBrands.reduce((a,r)=>a+(Math.max(0,n(r.product_count)||0)*(n(r.product_coverage_pct)||0)),0);
    coverage=totalProducts?weighted/totalProducts:null;
-   priceChanges=latestBrands.reduce((a,r)=>a+Math.max(0,n(r.price_change_products)||0),0);
-   productCount=totalProducts||n(row?.product_count);
+   priceChanges=dateBrands.reduce((a,r)=>a+Math.max(0,n(r.price_change_products)||0),0);
+   productCount=totalProducts||null;
  }
 
  document.getElementById('kCoverage').textContent=coverage==null?'-':f(coverage,1)+'%';
  document.getElementById('kPriceChanges').textContent=priceChanges==null?'-':f(priceChanges);
  document.getElementById('kProducts').textContent=productCount==null?'-':f(productCount);
  document.getElementById('kBrands').textContent=b
-   ? '브랜드 요약 · 상품 데이터 미로드'
-   : `캘린더 ${f(new Set(latestBrands.map(r=>r.brand_name).filter(Boolean)).size)} / 등록 ${registeredBrands.length?f(registeredBrands.length):'-'} · 빠른 모드`;
+   ? `${b} · ${document.getElementById('dateMode')?.value==='live'?'오늘 진행중':'최근 마감일'}`
+   : `캘린더 ${f(new Set(dateBrands.map(r=>r.brand_name).filter(Boolean)).size)} / 등록 ${registeredBrands.length?f(registeredBrands.length):'-'}`;
 }
 function renderOverall(){
   const rows=[...summary].sort((a,b)=>a.date.localeCompare(b.date)).slice(-45);
@@ -971,7 +961,12 @@ function brandSortValue(r,key){
 }
 
 function renderBrandRank(){
-  const d=manifest.latest_date||latestDate(brands);
+  const d=dashboardDate();
+  const mode=document.getElementById('dateMode')?.value||'closed';
+  const sub=document.getElementById('brandRankSubtitle');
+  if(sub)sub.textContent=mode==='live'
+    ? `${d||'-'} 오늘 진행중 · 마지막 관측 시각까지의 부분합계`
+    : `${d||'-'} 최근 마감일 · 하루 전체 추정치`;
   const rows=brands.filter(r=>r.date===d).sort((a,b)=>{
     const av=brandSortValue(a,brandRankSort.key);
     const bv=brandSortValue(b,brandRankSort.key);
@@ -1478,6 +1473,10 @@ document.getElementById('brandFilter').addEventListener('change',()=>{
   renderK();
   if(productsLoaded)renderProducts();
   renderBrandDaily();
+});
+document.getElementById('dateMode').addEventListener('change',()=>{
+  renderK();
+  renderBrandRank();
 });
 
 document.getElementById('search').addEventListener('input',()=>{
