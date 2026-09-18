@@ -41,14 +41,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          RUN_ANCHOR="$(python - <<'PY'
-from datetime import datetime, timedelta, timezone
-now = datetime.now(timezone(timedelta(hours=9)))
-mins = now.hour * 60 + now.minute
-in_window = mins >= (23 * 60 + 55) or mins <= 15
-print("1" if in_window else "0")
-PY
-          )"
+          RUN_ANCHOR="$(python -c 'from datetime import datetime,timedelta,timezone; now=datetime.now(timezone(timedelta(hours=9))); mins=now.hour*60+now.minute; print("1" if mins>=1435 or mins<=15 else "0")')"
 
           # Manual dry-run is allowed outside the live boundary window because it does not query products.
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.dry_run }}" = "true" ]; then
@@ -90,7 +83,7 @@ PY
           python musinsa_collector_v9.py collect-midnight-anchor $EXTRA
 
       - name: Commit midnight anchor observations
-        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run == true) }}
+        if: ${{ steps.window.outputs.run == '1' && !(github.event_name == 'workflow_dispatch' && inputs.dry_run == true) }}
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
@@ -113,7 +106,6 @@ PY
 
       - name: Upload anchor report
         if: ${{ always() && steps.window.outputs.run == '1' }}
-        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: v9-midnight-anchor-${{ github.run_id }}
