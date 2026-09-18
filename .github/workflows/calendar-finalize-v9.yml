@@ -2,9 +2,9 @@ name: Musinsa Calendar Daily Finalizer v9
 
 on:
   schedule:
-    # 14:30 UTC = KST 23:30
-    # 오늘 날짜를 억지로 확정하지 않고, 어제까지의 KST 00:00~24:00 추정치를 만듭니다.
-    - cron: '30 14 * * *'
+    # 15:30 UTC = KST 00:30
+    # 23:55 midnight anchor와 00:15 primary 관측을 먼저 확보한 뒤, 방금 끝난 KST 날짜까지 마감 계산합니다.
+    - cron: '30 15 * * *'
   workflow_dispatch:
     inputs:
       lookback_days:
