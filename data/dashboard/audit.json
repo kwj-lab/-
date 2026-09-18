@@ -161,6 +161,16 @@
       "reason": "zero_baseline_unverified"
     },
     {
+      "goods_no": "4448520",
+      "brand_name": "락케이크",
+      "from_at": "2026-09-18T07:20:25+09:00",
+      "to_at": "2026-09-19T07:29:49+09:00",
+      "before": 0,
+      "after": 935,
+      "excluded_delta": 935,
+      "reason": "zero_baseline_unverified"
+    },
+    {
       "goods_no": "5495049",
       "brand_name": "길라아카이브",
       "from_at": "2026-09-01T12:36:27+09:00",
@@ -501,6 +511,16 @@
       "reason": "zero_baseline_unverified"
     },
     {
+      "goods_no": "5406315",
+      "brand_name": "카키포인트",
+      "from_at": "2026-09-18T07:29:10+09:00",
+      "to_at": "2026-09-19T07:38:38+09:00",
+      "before": 0,
+      "after": 374,
+      "excluded_delta": 374,
+      "reason": "zero_baseline_unverified"
+    },
+    {
       "goods_no": "5224177",
       "brand_name": "워크온바디오프",
       "from_at": "2026-09-16T11:25:01+09:00",
@@ -708,6 +728,16 @@
       "before": 0,
       "after": 231,
       "excluded_delta": 231,
+      "reason": "zero_baseline_unverified"
+    },
+    {
+      "goods_no": "4959252",
+      "brand_name": "락케이크",
+      "from_at": "2026-09-18T07:24:23+09:00",
+      "to_at": "2026-09-19T07:33:50+09:00",
+      "before": 0,
+      "after": 227,
+      "excluded_delta": 227,
       "reason": "zero_baseline_unverified"
     },
     {
@@ -968,36 +998,6 @@
       "before": 0,
       "after": 156,
       "excluded_delta": 156,
-      "reason": "zero_baseline_unverified"
-    },
-    {
-      "goods_no": "7161034",
-      "brand_name": "디미트리블랙",
-      "from_at": "2026-08-30T09:44:12+09:00",
-      "to_at": "2026-08-31T09:44:44+09:00",
-      "before": 0,
-      "after": 156,
-      "excluded_delta": 156,
-      "reason": "zero_baseline_unverified"
-    },
-    {
-      "goods_no": "6980256",
-      "brand_name": "카키포인트",
-      "from_at": "2026-08-27T13:40:23+09:00",
-      "to_at": "2026-08-28T11:11:11+09:00",
-      "before": 0,
-      "after": 151,
-      "excluded_delta": 151,
-      "reason": "zero_baseline_unverified"
-    },
-    {
-      "goods_no": "6388286",
-      "brand_name": "아디다스",
-      "from_at": "2026-09-17T17:31:44+09:00",
-      "to_at": "2026-09-18T18:34:41+09:00",
-      "before": 0,
-      "after": 145,
-      "excluded_delta": 145,
       "reason": "zero_baseline_unverified"
     }
   ]
