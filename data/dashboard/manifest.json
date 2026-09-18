@@ -1,7 +1,7 @@
 {
   "sales_policy_version": "2026-09-18-gap-reconstruction-v2",
-  "source_fingerprint": "df86533a556ccb0ec94a92dac85a2ca16463e800c641268e16f5b35e5b89d2b7",
-  "updated_at": "2026-09-18T16:13:44+09:00",
+  "source_fingerprint": "aae95c0aa3bffc28cdf7225743355f8b2b6b9b57fbc543a15393aa7c4cc602d6",
+  "updated_at": "2026-09-18T16:27:53+09:00",
   "as_of_date": "2026-09-18",
   "latest_date": "2026-09-18",
   "latest_finalized_date": "2026-09-18",
@@ -36,28 +36,28 @@
     "2026-09"
   ],
   "history_buckets": 64,
-  "last_observed_at": "2026-09-18T16:07:25+09:00",
-  "source_files": 382,
-  "source_rows": 4455850,
+  "last_observed_at": "2026-09-18T16:27:16+09:00",
+  "source_files": 383,
+  "source_rows": 4457503,
   "product_count": 247232,
   "excluded_boundaries": {
-    "counter_reset": 8180,
-    "zero_baseline_unverified": 2450,
-    "counter_jump_unverified": 172
+    "counter_reset": 8188,
+    "zero_baseline_unverified": 2452,
+    "counter_jump_unverified": 173
   },
   "latest_summary": {
     "date": "2026-09-18",
     "brand_name": "",
-    "checked_at": "2026-09-18T16:13:44+09:00",
+    "checked_at": "2026-09-18T16:27:53+09:00",
     "product_count": 247232,
-    "calculated_product_count": 153333,
-    "excluded_product_count": 93899,
+    "calculated_product_count": 153631,
+    "excluded_product_count": 93601,
     "complete_product_count": 0,
-    "product_coverage_pct": 62.02,
-    "average_time_coverage_pct": 22.52,
-    "estimated_sales": 13846.43,
-    "estimated_gmv": 786506101,
-    "price_change_products": 9134,
+    "product_coverage_pct": 62.14,
+    "average_time_coverage_pct": 22.69,
+    "estimated_sales": 16817.65,
+    "estimated_gmv": 920322659,
+    "price_change_products": 9139,
     "sales_policy_version": "2026-09-18-gap-reconstruction-v2"
   },
   "method": "First cumulative value is a baseline; structurally valid deltas are allocated by KST day overlap. Gaps over 36h are reconstructed but excluded from observed coverage. Current day is partial through the latest observation. Unknown is not zero."
