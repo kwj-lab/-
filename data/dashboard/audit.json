@@ -651,16 +651,6 @@
       "reason": "zero_baseline_unverified"
     },
     {
-      "goods_no": "7010776",
-      "brand_name": "플레이스 스튜디오",
-      "from_at": "2026-09-18T12:00:12+09:00",
-      "to_at": "2026-09-18T18:44:23+09:00",
-      "before": 0,
-      "after": 282,
-      "excluded_delta": 282,
-      "reason": "zero_baseline_unverified"
-    },
-    {
       "goods_no": "7011617",
       "brand_name": "더니트컴퍼니",
       "from_at": "2026-08-31T18:36:14+09:00",
@@ -998,6 +988,16 @@
       "before": 0,
       "after": 151,
       "excluded_delta": 151,
+      "reason": "zero_baseline_unverified"
+    },
+    {
+      "goods_no": "6388286",
+      "brand_name": "아디다스",
+      "from_at": "2026-09-17T17:31:44+09:00",
+      "to_at": "2026-09-18T18:34:41+09:00",
+      "before": 0,
+      "after": 145,
+      "excluded_delta": 145,
       "reason": "zero_baseline_unverified"
     }
   ]
