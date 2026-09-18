@@ -2,10 +2,10 @@ name: Musinsa Midnight Anchor v9
 
 on:
   schedule:
-    # 23:50 KST = 14:50 UTC.
-    # 00:15 primary 수집보다 먼저 경계 관측을 확보해 날짜 귀속 오차를 줄입니다.
-    # GitHub schedule is only fallback; Cloudflare watchdog is primary.
-    - cron: '50 14 * * *'
+    # 23:55 KST = 14:55 UTC.
+    # 고판매 상품을 자정 직전에 우선 관측하고 00:15 primary 수집 전에 끝내는 전용 경계 슬롯입니다.
+    # GitHub schedule is the canonical boundary trigger; external watchdog runs outside the boundary window are ignored below.
+    - cron: '55 14 * * *'
   workflow_dispatch:
     inputs:
       max_products:
@@ -54,9 +54,31 @@ jobs:
           )
 
           # 자정 앵커는 날짜 경계와의 거리가 정확도에 직접 영향을 줍니다.
-          # 기존 작업이 곧 끝나면 잠깐 양보하되, 최대 10분을 넘겨 기다리지는 않습니다.
-          DEADLINE=$(( $(date +%s) + 600 ))
-          echo "Midnight-anchor priority wait: at most 10 minutes."
+          # 23:55~00:15 KST만 실제 경계 관측 시간대로 사용합니다.
+          # 늦게 들어온 외부 watchdog/수동 비-dry-run은 잘못된 midnight anchor를 만들지 않도록 종료합니다.
+          read -r WINDOW_OK DEADLINE <<< "$(python - <<'PY'
+from datetime import datetime, timedelta, timezone
+now = datetime.now(timezone(timedelta(hours=9)))
+mins = now.hour * 60 + now.minute
+if mins >= 23 * 60 + 55:
+    deadline = (now + timedelta(days=1)).replace(hour=0, minute=15, second=0, microsecond=0)
+    ok = 1
+elif mins <= 15:
+    deadline = now.replace(hour=0, minute=15, second=0, microsecond=0)
+    ok = 1
+else:
+    deadline = now
+    ok = 0
+print(ok, int(deadline.timestamp()))
+PY
+          )"
+
+          if [ "$WINDOW_OK" != "1" ] && ! { [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.dry_run }}" = "true" ]; }; then
+            echo "Outside 23:55~00:15 KST boundary window; skipping late midnight-anchor run."
+            exit 0
+          fi
+
+          echo "Midnight-anchor priority window: 23:55~00:15 KST."
 
           while true; do
             OLDER=""
@@ -105,12 +127,12 @@ jobs:
 
             NOW=$(date +%s)
             if [ "$NOW" -ge "$DEADLINE" ]; then
-              echo "10-minute grace period expired. Starting midnight anchor now to protect day-boundary accuracy."
+              echo "00:15 KST boundary deadline reached. Starting anchor immediately instead of joining the FIFO tail."
               printf '%s' "$OLDER"
               break
             fi
 
-            echo "Older Musinsa runs are active; waiting 20 seconds (anchor will not wait past 10 minutes):"
+            echo "Older Musinsa runs are active; short grace only (hard deadline 00:15 KST):"
             printf '%s' "$OLDER"
             sleep 20
           done
@@ -139,13 +161,7 @@ jobs:
           fi
           python musinsa_collector_v9.py collect-midnight-anchor $EXTRA
 
-      - name: Recalculate calendar estimates immediately
-        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run == true) }}
-        shell: bash
-        run: |
-          python musinsa_collector_v9.py finalize-calendar --lookback-days 2
-
-      - name: Commit anchor observations and refreshed calendar
+      - name: Commit midnight anchor observations
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run == true) }}
         shell: bash
         run: |
