@@ -51,7 +51,7 @@ class SalesBaselineTests(unittest.TestCase):
         self.assertEqual(self.latest(self.row("2026-09-14T12:00:00+09:00", 0),
                                      self.row("2026-09-13T12:00:00+09:00", 0))["daily_sales"], 0)
         self.assertEqual(self.latest(self.row("2026-09-14T12:00:00+09:00", 2466),
-                                     self.row("2026-09-13T12:00:00+09:00", 2459))["daily_sales"], 7)
+                                     self.row("2026-09-14T00:00:00+09:00", 2459))["daily_sales"], 7)
 
     def test_unverified_purchase_counter_does_not_erase_independent_metrics(self):
         result = self.latest(self.row("2026-09-14T12:00:00+09:00", 136, page_view_total=1000, review_count=20),
@@ -62,7 +62,7 @@ class SalesBaselineTests(unittest.TestCase):
 
     def test_large_sales_with_valid_established_baseline_are_not_capped(self):
         result = self.latest(self.row("2026-09-14T12:00:00+09:00", 14000),
-                             self.row("2026-09-13T12:00:00+09:00", 11000),
+                             self.row("2026-09-14T00:00:00+09:00", 11000),
                              self.row("2026-09-07T12:00:00+09:00", 2000))
         self.assertEqual(result["daily_sales"], 3000)
 

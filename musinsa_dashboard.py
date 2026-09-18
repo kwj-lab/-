@@ -171,7 +171,7 @@ def product_days(goods, source, catalog, today):
             last_price = acc["price"]
         last_name = acc["name"] or last_name
         valid = acc["attributed"] > 0
-        coverage = min(100., acc["seconds"]/86400.)
+        coverage = min(100., acc["seconds"]/86400.*100.)
         complete = day < today and coverage >= 99. and acc["reconstructed"] <= 0
         if complete:
             status = "complete"
