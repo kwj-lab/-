@@ -72,11 +72,17 @@ class SalesBaselineTests(unittest.TestCase):
                              self.row("2026-09-07T12:00:00+09:00", 999))
         self.assertIsNone(result["daily_sales"])
 
-    def test_multi_day_gap_is_not_calendar_coverage_or_sales(self):
-        rows = [self.row("2026-09-10T10:00:00+09:00", 0),
+    def test_multi_day_gap_is_reconstructed_without_claiming_coverage(self):
+        rows = [self.row("2026-09-10T10:00:00+09:00", 1000),
                 self.row("2026-09-14T11:43:45+09:00", 6356)]
         result = c.estimate_calendar_product(c.datetime(2026, 9, 13).date(), "3098417", rows)
-        self.assertIsNone(result)
+        self.assertIsNotNone(result)
+        duration = (rows[1]["_checked_dt"] - rows[0]["_checked_dt"]).total_seconds()
+        expected = (6356 - 1000) * 86400.0 / duration
+        self.assertAlmostEqual(result["estimated_sales"], round(expected, 2), places=2)
+        self.assertEqual(result["coverage_pct"], 0)
+        self.assertEqual(result["calendar_complete"], 0)
+        self.assertEqual(result["confidence"], "low")
 
     def test_restored_counter_after_many_zero_observations_stays_excluded(self):
         rows = [self.row(f"2026-09-{day:02d}T00:00:00+09:00", value)

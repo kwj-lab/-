@@ -44,17 +44,24 @@ class LiveDashboardTests(unittest.TestCase):
                 self.row("2026-09-15T03:00:00+09:00", 1012)]
         days, _, _ = self.daily(rows)
         self.assertEqual([r["estimated_sales"] for r in days], [6,6])
+        self.assertEqual([r["coverage_pct"] for r in days], [12.5,12.5])
         _, _, rejected = self.daily(rows+[dict(rows[-1])])
         self.assertEqual(rejected, [])
 
-    def test_gap_is_unknown_and_new_baseline_resumes_counting(self):
+    def test_gap_is_reconstructed_but_not_counted_as_observed_coverage(self):
         rows = [self.row("2026-09-11T12:00:00+09:00",1000),
                 self.row("2026-09-15T06:00:00+09:00",6000),
                 self.row("2026-09-15T09:00:00+09:00",6005)]
         days, _, rejected = self.daily(rows)
-        self.assertEqual(days[1]["estimated_sales"], "")
-        self.assertEqual(days[-1]["estimated_sales"],5)
-        self.assertEqual(rejected[0]["reason"], "collection_gap")
+        by_date = {r["date"]: r for r in days}
+        self.assertAlmostEqual(by_date["2026-09-14"]["estimated_sales"], 1333.3333, places=3)
+        self.assertEqual(by_date["2026-09-14"]["coverage_pct"], 0)
+        self.assertEqual(by_date["2026-09-14"]["calendar_complete"], 0)
+        self.assertEqual(by_date["2026-09-14"]["calculation_status"], "reconstructed_gap")
+        self.assertAlmostEqual(by_date["2026-09-15"]["estimated_sales"], 338.3333, places=3)
+        self.assertEqual(by_date["2026-09-15"]["coverage_pct"], 12.5)
+        self.assertEqual(by_date["2026-09-15"]["calculation_status"], "reconstructed_partial")
+        self.assertEqual(rejected, [])
 
     def test_known_sold_out_boundary_is_a_baseline(self):
         rows = [self.row("2026-09-15T00:00:00+09:00",200,availability="OutOfStock"),

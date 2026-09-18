@@ -20,7 +20,7 @@ from datetime import datetime, timedelta
 
 import musinsa_collector_v9 as c
 
-VERSION = "2026-09-15-live-daily-v1"
+VERSION = "2026-09-18-gap-reconstruction-v2"
 EXTRA_FIELDS = ["calculation_status", "last_observed_at", "covered_until",
                 "sales_policy_version"]
 DAY_FIELDS = c.CALENDAR_PRODUCT_FIELDS + EXTRA_FIELDS
@@ -82,7 +82,8 @@ def product_days(goods, source, catalog, today):
     days = {}
     cursor = original[0]["_checked_dt"].date()
     while cursor <= today:
-        days[cursor] = dict(sales=0., gmv=0., priced=0., seconds=0., intervals=0,
+        days[cursor] = dict(sales=0., gmv=0., priced=0., seconds=0.,
+                            attributed=0., reconstructed=0., intervals=0,
                             max_hours=0., count=0, until="", reason="uncollected",
                             price=None, start_price=None, price_changes=0, name="")
         cursor += timedelta(days=1)
@@ -118,13 +119,17 @@ def product_days(goods, source, catalog, today):
         if duration <= 0:
             continue
         delta = c.to_int(b["purchase_total"]) - c.to_int(a["purchase_total"])
-        status = c.purchase_baseline_status(b, a, c.MAX_SALES_INTERVAL_HOURS)
+        status = c.purchase_baseline_status(b, a, None)
         if a.get("_counter_segment") != b.get("_counter_segment") and status == "ok":
             status = "counter_jump_unverified"
         # An observed out-of-stock -> in-stock transition is a fresh baseline.
         if a.get("availability") == "OutOfStock" and b.get("availability") == "InStock":
             status = "reactivation_baseline"
-        if status != "ok":
+        reconstructed = status == "ok" and duration > c.MAX_SALES_INTERVAL_HOURS * 3600.0
+        if reconstructed:
+            status = "reconstructed_gap"
+        usable = status in ("ok", "reconstructed_gap")
+        if not usable:
             rejected.append(dict(goods_no=goods, brand_name=meta.get("brand_name") or b.get("brand_name"),
                                  from_at=t0.isoformat(), to_at=t1.isoformat(),
                                  before=c.to_int(a["purchase_total"]), after=c.to_int(b["purchase_total"]),
@@ -136,10 +141,15 @@ def product_days(goods, source, catalog, today):
             seconds = max(0., (end-start).total_seconds())
             if seconds > 0:
                 acc = days[cursor]
-                if status == "ok":
+                if usable:
                     value = delta * seconds / duration
                     acc["sales"] += value
-                    acc["seconds"] += seconds
+                    acc["attributed"] += seconds
+                    if reconstructed:
+                        acc["reconstructed"] += seconds
+                        acc["reason"] = "reconstructed_gap"
+                    else:
+                        acc["seconds"] += seconds
                     acc["intervals"] += 1
                     acc["max_hours"] = max(acc["max_hours"], duration/3600.)
                     acc["until"] = max(acc["until"], end.isoformat())
@@ -160,12 +170,23 @@ def product_days(goods, source, catalog, today):
         if acc["price"] is not None:
             last_price = acc["price"]
         last_name = acc["name"] or last_name
-        valid = acc["seconds"] > 0
-        coverage = min(100., acc["seconds"]/864.)
-        complete = day < today and coverage >= 99.
-        status = "complete" if complete else "observed_partial" if valid else acc["reason"]
+        valid = acc["attributed"] > 0
+        coverage = min(100., acc["seconds"]/86400.)
+        complete = day < today and coverage >= 99. and acc["reconstructed"] <= 0
+        if complete:
+            status = "complete"
+        elif acc["reconstructed"] > 0 and acc["seconds"] > 0:
+            status = "reconstructed_partial"
+        elif acc["reconstructed"] > 0:
+            status = "reconstructed_gap"
+        elif valid:
+            status = "observed_partial"
+        else:
+            status = acc["reason"]
         confidence = ("high" if complete and acc["max_hours"] <= 30 and not anomaly
-                      else "medium" if complete else "partial" if valid else "pending")
+                      else "medium" if complete
+                      else "reconstructed" if acc["reconstructed"] > 0
+                      else "partial" if valid else "pending")
         change = last_price-start_price if last_price is not None and start_price is not None else None
         output.append(dict(date=day.isoformat(), brand_name=brand, goods_no=goods,
                            product_name=last_name or meta.get("product_name", ""),
@@ -329,7 +350,7 @@ def build(root=None, today=None):
                         history_buckets=64, last_observed_at=max((r.get("last_checked_at", "") for r in latest), default=""),
                         source_files=len(inputs), source_rows=input_rows, product_count=len(latest),
                         excluded_boundaries=dict(reject_counts), latest_summary=next((r for r in summary if r["date"] == display_date), {}),
-                        method="First cumulative value is a baseline; only verified subsequent deltas are allocated by KST day overlap. Current day is partial through the latest observation. Unknown is not zero.")
+                        method="First cumulative value is a baseline; structurally valid deltas are allocated by KST day overlap. Gaps over 36h are reconstructed but excluded from observed coverage. Current day is partial through the latest observation. Unknown is not zero.")
         (staged/"audit.json").write_text(json.dumps(dict(largest_excluded_boundaries=largest), ensure_ascii=False, indent=2), encoding="utf-8")
         # Validate gzip CRC and complete row count before making any output visible.
         count = sum(1 for _ in read_rows(staged/"latest_products.csv.gz"))

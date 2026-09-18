@@ -317,6 +317,7 @@ function salesUnknownText(r){
  const reason=r.calculation_status||r.raw_daily_sales_status||'';
  const labels={baseline_missing:'기준 수집',uncollected:'미수집',reactivation_baseline:'재판매 기준 수집',collection_gap:'수집 공백',
    zero_baseline_unverified:'누적 기준 확인 중',counter_jump_unverified:'누적 변화 확인 중',
+   reconstructed_gap:'수집 공백 복원',reconstructed_partial:'부분 수집+공백 복원',
    counter_reset:'누적 기준 확인 중',counter_missing:'관측값 없음',
    timestamp_missing:'관측시각 없음',out_of_order:'비교시각 확인 중'};
  const label=labels[reason];
@@ -331,19 +332,10 @@ function effectiveSales(r){
  const calDate=String(r.date||'');
  const rawDate=String(r.raw_date||'');
 
- // 최신 raw 관측일이 캘린더 날짜보다 새로우면 raw 증가량을 우선 표시
- if(raw!=null && rawDate && (!calDate || rawDate>calDate)){
-   return {value:raw,source:'rolling24h'};
- }
-
- // 같은 날짜라도 캘린더가 아직 완성되지 않았으면 raw를 우선
- if(raw!=null && rawDate===calDate && !complete){
-   return {value:raw,source:'rolling24h'};
- }
-
- if(complete && cal!=null)return {value:cal,source:'calendar'};
+ // 캘린더 값은 정확한 KST 날짜 겹침으로 계산된다. 부분/복원값이라도
+ // 직전 관측 전체 증가량(raw rolling)보다 날짜 귀속이 정확하므로 우선한다.
+ if(cal!=null)return {value:cal,source:complete?'calendar':'calendar_partial'};
  if(raw!=null)return {value:raw,source:'rolling24h'};
- if(cal!=null)return {value:cal,source:'calendar_partial'};
  return {value:null,source:'none'};
 }
 function effectiveGmv(r){
@@ -355,17 +347,8 @@ function effectiveGmv(r){
  const calDate=String(r.date||'');
  const rawDate=String(r.raw_date||'');
 
- if(raw!=null && rawDate && (!calDate || rawDate>calDate)){
-   return {value:raw,source:'rolling24h'};
- }
-
- if(raw!=null && rawDate===calDate && !complete){
-   return {value:raw,source:'rolling24h'};
- }
-
- if(complete && cal!=null)return {value:cal,source:'calendar'};
+ if(cal!=null)return {value:cal,source:complete?'calendar':'calendar_partial'};
  if(raw!=null)return {value:raw,source:'rolling24h'};
- if(cal!=null)return {value:cal,source:'calendar_partial'};
  return {value:null,source:'none'};
 }
 function sortValue(r,key){

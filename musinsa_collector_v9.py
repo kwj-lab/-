@@ -153,10 +153,11 @@ MIDSTREAM_JUMP_PLATEAU_RATIO = float(os.environ.get("MUSINSA_MIDSTREAM_JUMP_PLAT
 MIDSTREAM_JUMP_GENUINE_RATIO = float(os.environ.get("MUSINSA_MIDSTREAM_JUMP_GENUINE_RATIO", "0.10"))
 MIDSTREAM_JUMP_GENUINE_MIN_FOLLOW = int(os.environ.get("MUSINSA_MIDSTREAM_JUMP_GENUINE_MIN_FOLLOW", "100"))
 
-# Daily attribution needs an actual adjacent observation. A missed daily crawl
-# must not become a week of sales or fabricated coverage over the outage.
+# Intervals up to this length count as directly observed coverage. Longer
+# structurally valid intervals may still be allocated across KST calendar days
+# as reconstructed estimates, but they never count as observed coverage.
 MAX_SALES_INTERVAL_HOURS = 36.0
-SALES_POLICY_VERSION = "2026-09-14-observed-baselines-v1"
+SALES_POLICY_VERSION = "2026-09-18-calendar-gap-reconstruction-v2"
 SALES_POLICY_FILE = BASE_DIR / "data" / "sales_policy.json"
 
 # Tracker-start boundary. In the real repository the earliest stored snapshot is
@@ -2442,6 +2443,19 @@ def build_latest_row(raw, prev, b7, b30, today, slot, catalog_row=None):
     ):
         daily_sales = None
 
+    # The rolling file is keyed by calendar date, so an interval that crosses
+    # midnight must contribute only its KST-day fraction instead of the entire
+    # counter delta to the later date.
+    if daily_sales is not None and prev_checked is not None:
+        duration_seconds = (raw_checked - prev_checked).total_seconds()
+        day_start = datetime(today.year, today.month, today.day, tzinfo=KST)
+        day_end = day_start + timedelta(days=1)
+        overlap = overlap_seconds(prev_checked, raw_checked, day_start, day_end)
+        if duration_seconds > 0 and overlap > 0:
+            daily_sales = round(daily_sales * overlap / duration_seconds, 4)
+        else:
+            daily_sales = None
+
     sales7 = guarded_purchase_delta(raw, b7, (b30,))
     sales30 = guarded_purchase_delta(raw, b30)
     if daily_status == "ok" and daily_sales is None:
@@ -2531,7 +2545,7 @@ def brand_rows_for_date(all_latest, new_delta, today):
             v = valid(key)
             return sum(v) if v else 0
 
-        daily = [x for x in items if to_int(x.get("daily_sales")) is not None]
+        daily = [x for x in items if to_float(x.get("daily_sales")) is not None]
         d7 = [x for x in items if to_int(x.get("sales_7d")) is not None]
         d30 = [x for x in items if to_int(x.get("sales_30d")) is not None]
         s7 = sum(to_int(x.get("sales_7d")) or 0 for x in d7)
@@ -2543,8 +2557,8 @@ def brand_rows_for_date(all_latest, new_delta, today):
             "daily_baseline_product_count": len(daily),
             "purchase_total_sum": sm("purchase_total"),
             "simple_gmv_sum": sm("simple_gmv"),
-            "daily_sales_sum": sum(to_int(x.get("daily_sales")) or 0 for x in daily),
-            "daily_estimated_gmv_sum": sum(to_int(x.get("daily_estimated_gmv")) or 0 for x in daily),
+            "daily_sales_sum": round(sum(to_float(x.get("daily_sales")) or 0.0 for x in daily), 2) if daily else "",
+            "daily_estimated_gmv_sum": round(sum(to_float(x.get("daily_estimated_gmv")) or 0.0 for x in daily)) if daily else "",
             "daily_page_view_increase_sum": sum(to_int(x.get("daily_page_view_increase")) or 0 for x in daily),
             "daily_review_increase_sum": sum(to_int(x.get("daily_review_increase")) or 0 for x in daily),
             "daily_like_increase_sum": 0,
@@ -2761,7 +2775,7 @@ def rebuild_date_aggregates(date_value, rows=None, write_daily_snapshot=True):
     brand_all.sort(key=lambda r: (str(r.get("date") or ""), str(r.get("brand_name") or "")))
     write_csv(BRAND_HISTORY_FILE, brand_all, BRAND_FIELDS)
 
-    daily_valid = [r for r in rows if to_int(r.get("daily_sales")) is not None]
+    daily_valid = [r for r in rows if to_float(r.get("daily_sales")) is not None]
     summary = {
         "checked_at": now_kst().isoformat(timespec="seconds"),
         "date": date_value.isoformat(),
@@ -2769,8 +2783,8 @@ def rebuild_date_aggregates(date_value, rows=None, write_daily_snapshot=True):
         "daily_baseline_product_count": len(daily_valid),
         "purchase_total_sum": sum(to_int(r.get("purchase_total")) or 0 for r in rows),
         "simple_gmv_sum": sum(to_int(r.get("simple_gmv")) or 0 for r in rows),
-        "daily_sales_sum": sum(to_int(r.get("daily_sales")) or 0 for r in daily_valid),
-        "daily_estimated_gmv_sum": sum(to_int(r.get("daily_estimated_gmv")) or 0 for r in daily_valid),
+        "daily_sales_sum": round(sum(to_float(r.get("daily_sales")) or 0.0 for r in daily_valid), 2) if daily_valid else "",
+        "daily_estimated_gmv_sum": round(sum(to_float(r.get("daily_estimated_gmv")) or 0.0 for r in daily_valid)) if daily_valid else "",
         "sales_7d_sum": sum(to_int(r.get("sales_7d")) or 0 for r in rows if to_int(r.get("sales_7d")) is not None),
         "sales_30d_sum": sum(to_int(r.get("sales_30d")) or 0 for r in rows if to_int(r.get("sales_30d")) is not None),
         "new_products": len(new_delta),
@@ -3268,8 +3282,11 @@ def sanitize_purchase_observations(observations, catalog_row=None):
     previous = None
     for row in clean:
         original_segment = row.get("_counter_segment")
-        boundary = previous is not None and purchase_baseline_status(
-            row, previous, MAX_SALES_INTERVAL_HOURS) != "ok"
+        structural_status = (
+            purchase_baseline_status(row, previous, None)
+            if previous is not None else "ok"
+        )
+        boundary = previous is not None and structural_status != "ok"
         if original_segment != old_segment or boundary:
             segment += 1
         if boundary:
@@ -3346,6 +3363,8 @@ def estimate_calendar_product(target_date, goods_no, observations, catalog_row=N
     gmv_est = 0.0
     gmv_seconds = 0.0
     coverage_seconds = 0.0
+    attributed_seconds = 0.0
+    reconstructed_seconds = 0.0
     contributing = 0
     max_interval_hours = 0.0
     negative_delta = bool(counter_anomaly)
@@ -3387,9 +3406,14 @@ def estimate_calendar_product(target_date, goods_no, observations, catalog_row=N
         fraction = overlap / duration
 
         sales_est += delta * fraction
-        coverage_seconds += overlap
+        attributed_seconds += overlap
+        interval_hours = duration / 3600.0
+        if interval_hours <= MAX_SALES_INTERVAL_HOURS:
+            coverage_seconds += overlap
+        else:
+            reconstructed_seconds += overlap
         contributing += 1
-        max_interval_hours = max(max_interval_hours, duration / 3600.0)
+        max_interval_hours = max(max_interval_hours, interval_hours)
 
         gmv_piece, priced_seconds = interval_gmv_contribution(
             a, b, overlap_start, overlap_end, delta, duration
@@ -3399,7 +3423,7 @@ def estimate_calendar_product(target_date, goods_no, observations, catalog_row=N
             gmv_seconds += priced_seconds
 
     coverage_pct = min(100.0, coverage_seconds / 86400.0 * 100.0)
-    if coverage_seconds <= 0:
+    if attributed_seconds <= 0:
         return None
 
     start_price = price_at_or_before(original_observations, day_start)
@@ -3427,10 +3451,10 @@ def estimate_calendar_product(target_date, goods_no, observations, catalog_row=N
         else None
     )
 
-    complete = coverage_pct >= 99.0
+    complete = coverage_pct >= 99.0 and reconstructed_seconds <= 0
     if complete and max_interval_hours <= 30 and not price_change and not negative_delta:
         confidence = "high"
-    elif coverage_pct >= 95.0 and max_interval_hours <= 48 and not negative_delta:
+    elif complete and max_interval_hours <= 48 and not negative_delta:
         confidence = "medium"
     else:
         confidence = "low"
@@ -3555,7 +3579,7 @@ def write_calendar_manifest():
         "finalized_dates": dates,
         "months": months,
         "history_buckets": CALENDAR_HISTORY_BUCKETS,
-        "method": "purchaseTotal deltas within verified counter segments, maximum 36h observation gap; KST overlap allocation; price uses last-observation-carried-forward",
+        "method": "purchaseTotal deltas within verified counter segments; KST overlap allocation; gaps over 36h are reconstructed estimates and excluded from observed coverage; price uses last-observation-carried-forward",
         "sales_policy_version": SALES_POLICY_VERSION,
     }
     CALENDAR_MANIFEST_FILE.parent.mkdir(parents=True, exist_ok=True)
