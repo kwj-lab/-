@@ -36,119 +36,47 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 360
     steps:
-      - name: Give older Musinsa jobs a short grace period
+      - name: Check KST midnight-anchor window
+        id: window
         shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-
-          SELF_ID="$GITHUB_RUN_ID"
-          SELF_CREATED="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${SELF_ID}" --jq '.created_at')"
-          WORKFLOWS=(
-            "collect-distributed-v9.yml"
-            "recover-distributed-v9.yml"
-            "adaptive-sampling-v9.yml"
-            "calendar-finalize-v9.yml"
-            "midnight-anchor-v9.yml"
-          )
-
-          # 자정 앵커는 날짜 경계와의 거리가 정확도에 직접 영향을 줍니다.
-          # 23:55~00:15 KST만 실제 경계 관측 시간대로 사용합니다.
-          # 늦게 들어온 외부 watchdog/수동 비-dry-run은 잘못된 midnight anchor를 만들지 않도록 종료합니다.
-          read -r WINDOW_OK DEADLINE <<< "$(python - <<'PY'
+          RUN_ANCHOR="$(python - <<'PY'
 from datetime import datetime, timedelta, timezone
 now = datetime.now(timezone(timedelta(hours=9)))
 mins = now.hour * 60 + now.minute
-if mins >= 23 * 60 + 55:
-    deadline = (now + timedelta(days=1)).replace(hour=0, minute=15, second=0, microsecond=0)
-    ok = 1
-elif mins <= 15:
-    deadline = now.replace(hour=0, minute=15, second=0, microsecond=0)
-    ok = 1
-else:
-    deadline = now
-    ok = 0
-print(ok, int(deadline.timestamp()))
+in_window = mins >= (23 * 60 + 55) or mins <= 15
+print("1" if in_window else "0")
 PY
           )"
 
-          if [ "$WINDOW_OK" != "1" ] && ! { [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.dry_run }}" = "true" ]; }; then
-            echo "Outside 23:55~00:15 KST boundary window; skipping late midnight-anchor run."
-            exit 0
+          # Manual dry-run is allowed outside the live boundary window because it does not query products.
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.dry_run }}" = "true" ]; then
+            RUN_ANCHOR="1"
           fi
 
-          echo "Midnight-anchor priority window: 23:55~00:15 KST."
-
-          while true; do
-            OLDER=""
-
-            for WF in "${WORKFLOWS[@]}"; do
-              MATCHES="$(
-                gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/${WF}/runs?branch=${GITHUB_REF_NAME}&per_page=100" \
-                | jq -r --arg sid "$SELF_ID" --arg sc "$SELF_CREATED" '
-                    .workflow_runs[]
-                    | select(
-                        (.status == "queued" or
-                         .status == "in_progress" or
-                         .status == "waiting" or
-                         .status == "pending" or
-                         .status == "requested")
-                        and ((.id | tostring) != $sid)
-                        and (
-                          (.created_at < $sc)
-                          or (.created_at == $sc and .id < ($sid | tonumber))
-                        )
-                      )
-                    | "\(.id)\t\(.status)\t\(.name)\t\(.created_at)"
-                  '
-              )"
-
-              while IFS=$'\t' read -r RUN_ID RUN_STATUS RUN_NAME RUN_CREATED; do
-                if [ -z "$RUN_ID" ]; then continue; fi
-                if [ "$RUN_STATUS" = "queued" ]; then
-                  AGE=$(( $(date +%s) - $(date -d "$RUN_CREATED" +%s) ))
-                  if [ "$AGE" -ge 5400 ]; then
-                    JOBS="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/jobs?per_page=1" --jq '.total_count')"
-                    if [ "$JOBS" = "0" ]; then
-                      echo "Ignoring abandoned queued run ${RUN_ID}: no jobs after ${AGE}s"
-                      continue
-                    fi
-                  fi
-                fi
-                OLDER="${OLDER}${RUN_ID}"$'\t'"${RUN_STATUS}"$'\t'"${RUN_NAME}"$'\t'"${RUN_CREATED}"$'\n'
-              done <<< "$MATCHES"
-            done
-
-            if [ -z "${OLDER//$'\n'/}" ]; then
-              echo "No older Musinsa writer is active; anchor starts now."
-              break
-            fi
-
-            NOW=$(date +%s)
-            if [ "$NOW" -ge "$DEADLINE" ]; then
-              echo "00:15 KST boundary deadline reached. Starting anchor immediately instead of joining the FIFO tail."
-              printf '%s' "$OLDER"
-              break
-            fi
-
-            echo "Older Musinsa runs are active; short grace only (hard deadline 00:15 KST):"
-            printf '%s' "$OLDER"
-            sleep 20
-          done
+          echo "run=${RUN_ANCHOR}" >> "$GITHUB_OUTPUT"
+          if [ "$RUN_ANCHOR" = "1" ]; then
+            echo "Midnight anchor is allowed now (23:55~00:15 KST)."
+          else
+            echo "Outside 23:55~00:15 KST; skipping this late/early midnight-anchor trigger."
+          fi
 
       - name: Checkout repository
+        if: ${{ steps.window.outputs.run == '1' }}
         uses: actions/checkout@v4
         with:
           ref: ${{ github.ref_name }}
           fetch-depth: 1
 
       - name: Set up Python
+        if: ${{ steps.window.outputs.run == '1' }}
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
       - name: Collect midnight anchor observations
+        if: ${{ steps.window.outputs.run == '1' }}
         shell: bash
         run: |
           EXTRA=""
@@ -169,17 +97,8 @@ PY
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           for p in \
-            musinsa_daily_product_sales.csv \
-            musinsa_daily_brand_sales.csv \
-            musinsa_daily_summary.csv \
-            data/latest_slots \
-            data/sales_policy.json \
             data/observations \
-            data/anchor \
-            data/calendar \
-            musinsa_calendar_latest_products.csv \
-            musinsa_calendar_brand_daily.csv \
-            musinsa_calendar_summary.csv; do
+            data/anchor; do
             if [ -e "$p" ]; then git add -- "$p"; fi
           done
 
@@ -193,6 +112,7 @@ PY
           git push origin "HEAD:$GITHUB_REF_NAME"
 
       - name: Upload anchor report
+        if: ${{ always() && steps.window.outputs.run == '1' }}
         if: always()
         uses: actions/upload-artifact@v4
         with:
