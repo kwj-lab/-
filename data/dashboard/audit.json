@@ -231,6 +231,16 @@
       "reason": "zero_baseline_unverified"
     },
     {
+      "goods_no": "4803082",
+      "brand_name": "뉴발란스",
+      "from_at": "2026-09-18T10:58:57+09:00",
+      "to_at": "2026-09-19T10:56:21+09:00",
+      "before": 0,
+      "after": 730,
+      "excluded_delta": 730,
+      "reason": "zero_baseline_unverified"
+    },
+    {
       "goods_no": "7184070",
       "brand_name": "스파오",
       "from_at": "2026-09-05T07:16:16+09:00",
@@ -308,16 +318,6 @@
       "before": 0,
       "after": 518,
       "excluded_delta": 518,
-      "reason": "zero_baseline_unverified"
-    },
-    {
-      "goods_no": "5362083",
-      "brand_name": "워크온바디오프",
-      "from_at": "2026-09-16T11:28:38+09:00",
-      "to_at": "2026-09-17T11:11:08+09:00",
-      "before": 0,
-      "after": 515,
-      "excluded_delta": 515,
       "reason": "zero_baseline_unverified"
     },
     {
