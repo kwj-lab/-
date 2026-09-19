@@ -141,6 +141,16 @@
       "reason": "zero_baseline_unverified"
     },
     {
+      "goods_no": "6562364",
+      "brand_name": "인더스트",
+      "from_at": "2026-09-18T18:37:37+09:00",
+      "to_at": "2026-09-19T19:00:22+09:00",
+      "before": 0,
+      "after": 1013,
+      "excluded_delta": 1013,
+      "reason": "zero_baseline_unverified"
+    },
+    {
       "goods_no": "5523599",
       "brand_name": "노티카",
       "from_at": "2026-09-01T15:35:26+09:00",
@@ -985,16 +995,6 @@
       "brand_name": "다이브인",
       "from_at": "2026-09-10T10:42:15+09:00",
       "to_at": "2026-09-14T12:25:39+09:00",
-      "before": 0,
-      "after": 156,
-      "excluded_delta": 156,
-      "reason": "zero_baseline_unverified"
-    },
-    {
-      "goods_no": "7161034",
-      "brand_name": "디미트리블랙",
-      "from_at": "2026-08-30T09:44:12+09:00",
-      "to_at": "2026-08-31T09:44:44+09:00",
       "before": 0,
       "after": 156,
       "excluded_delta": 156,
