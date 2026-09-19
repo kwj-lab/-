@@ -1,7 +1,7 @@
 {
   "sales_policy_version": "2026-09-18-gap-reconstruction-v2",
-  "source_fingerprint": "df179daef82b64af7123f61067cdc1ef978702be71eb4ea3365c278f70346503",
-  "updated_at": "2026-09-19T16:40:21+09:00",
+  "source_fingerprint": "8041b013a5f29381eb7e266e1a710c55a0052b0f443ce1f0b0a8017a8ee1e293",
+  "updated_at": "2026-09-19T16:49:15+09:00",
   "as_of_date": "2026-09-19",
   "latest_date": "2026-09-19",
   "latest_finalized_date": "2026-09-19",
@@ -37,12 +37,12 @@
     "2026-09"
   ],
   "history_buckets": 64,
-  "last_observed_at": "2026-09-19T16:33:00+09:00",
-  "source_files": 407,
-  "source_rows": 4785350,
+  "last_observed_at": "2026-09-19T16:48:39+09:00",
+  "source_files": 408,
+  "source_rows": 4786071,
   "product_count": 249029,
   "excluded_boundaries": {
-    "counter_reset": 9089,
+    "counter_reset": 9082,
     "zero_baseline_unverified": 2561,
     "counter_jump_unverified": 177,
     "reactivation_baseline": 4
@@ -50,16 +50,16 @@
   "latest_summary": {
     "date": "2026-09-19",
     "brand_name": "",
-    "checked_at": "2026-09-19T16:40:21+09:00",
+    "checked_at": "2026-09-19T16:49:15+09:00",
     "product_count": 249029,
     "calculated_product_count": 154821,
     "excluded_product_count": 94208,
     "complete_product_count": 0,
     "product_coverage_pct": 62.17,
-    "average_time_coverage_pct": 24.7,
-    "estimated_sales": 13445.95,
-    "estimated_gmv": 745581712,
-    "price_change_products": 9398,
+    "average_time_coverage_pct": 24.79,
+    "estimated_sales": 15582.79,
+    "estimated_gmv": 841311360,
+    "price_change_products": 9409,
     "sales_policy_version": "2026-09-18-gap-reconstruction-v2"
   },
   "method": "First cumulative value is a baseline; structurally valid deltas are allocated by KST day overlap. Gaps over 36h are reconstructed but excluded from observed coverage. Current day is partial through the latest observation. Unknown is not zero."
