@@ -401,6 +401,16 @@
       "reason": "zero_baseline_unverified"
     },
     {
+      "goods_no": "7050459",
+      "brand_name": "웬즈데이오아시스",
+      "from_at": "2026-09-20T09:18:18+09:00",
+      "to_at": "2026-09-21T08:08:12+09:00",
+      "before": 0,
+      "after": 480,
+      "excluded_delta": 480,
+      "reason": "zero_baseline_unverified"
+    },
+    {
       "goods_no": "7109260",
       "brand_name": "수아레",
       "from_at": "2026-09-06T22:22:58+09:00",
@@ -468,6 +478,16 @@
       "before": 0,
       "after": 403,
       "excluded_delta": 403,
+      "reason": "zero_baseline_unverified"
+    },
+    {
+      "goods_no": "7050416",
+      "brand_name": "웬즈데이오아시스",
+      "from_at": "2026-09-20T09:18:18+09:00",
+      "to_at": "2026-09-21T08:08:11+09:00",
+      "before": 0,
+      "after": 391,
+      "excluded_delta": 391,
       "reason": "zero_baseline_unverified"
     },
     {
@@ -841,6 +861,16 @@
       "reason": "zero_baseline_unverified"
     },
     {
+      "goods_no": "7050461",
+      "brand_name": "웬즈데이오아시스",
+      "from_at": "2026-09-20T09:18:18+09:00",
+      "to_at": "2026-09-21T08:08:12+09:00",
+      "before": 0,
+      "after": 210,
+      "excluded_delta": 210,
+      "reason": "zero_baseline_unverified"
+    },
+    {
       "goods_no": "7192707",
       "brand_name": "라코스테",
       "from_at": "2026-09-15T17:59:11+09:00",
@@ -968,36 +998,6 @@
       "before": 0,
       "after": 160,
       "excluded_delta": 160,
-      "reason": "zero_baseline_unverified"
-    },
-    {
-      "goods_no": "5523590",
-      "brand_name": "노티카",
-      "from_at": "2026-09-01T15:35:27+09:00",
-      "to_at": "2026-09-02T15:34:41+09:00",
-      "before": 0,
-      "after": 157,
-      "excluded_delta": 157,
-      "reason": "zero_baseline_unverified"
-    },
-    {
-      "goods_no": "7219758",
-      "brand_name": "아웃스탠딩",
-      "from_at": "2026-09-17T05:53:12+09:00",
-      "to_at": "2026-09-18T04:54:56+09:00",
-      "before": 0,
-      "after": 157,
-      "excluded_delta": 157,
-      "reason": "zero_baseline_unverified"
-    },
-    {
-      "goods_no": "7105353",
-      "brand_name": "다이브인",
-      "from_at": "2026-09-10T10:42:15+09:00",
-      "to_at": "2026-09-14T12:25:39+09:00",
-      "before": 0,
-      "after": 156,
-      "excluded_delta": 156,
       "reason": "zero_baseline_unverified"
     }
   ]
