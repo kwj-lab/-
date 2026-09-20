@@ -841,16 +841,6 @@
       "reason": "zero_baseline_unverified"
     },
     {
-      "goods_no": "7013613",
-      "brand_name": "아디다스",
-      "from_at": "2026-09-17T04:05:48+09:00",
-      "to_at": "2026-09-17T17:41:30+09:00",
-      "before": 0,
-      "after": 202,
-      "excluded_delta": 202,
-      "reason": "zero_baseline_unverified"
-    },
-    {
       "goods_no": "7192679",
       "brand_name": "라코스테",
       "from_at": "2026-09-16T17:52:33+09:00",
@@ -995,6 +985,16 @@
       "brand_name": "다이브인",
       "from_at": "2026-09-10T10:42:15+09:00",
       "to_at": "2026-09-14T12:25:39+09:00",
+      "before": 0,
+      "after": 156,
+      "excluded_delta": 156,
+      "reason": "zero_baseline_unverified"
+    },
+    {
+      "goods_no": "7161034",
+      "brand_name": "디미트리블랙",
+      "from_at": "2026-08-30T09:44:12+09:00",
+      "to_at": "2026-08-31T09:44:44+09:00",
       "before": 0,
       "after": 156,
       "excluded_delta": 156,
