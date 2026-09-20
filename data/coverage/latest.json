@@ -82,7 +82,7 @@
       "status": "complete",
       "stage": "primary",
       "first_collected_at": "2026-09-20T21:03:20+09:00",
-      "last_updated_at": "2026-09-20T21:03:20+09:00",
+      "last_updated_at": "2026-09-20T22:55:15+09:00",
       "failed_goods_sample": []
     }
   },
@@ -94,5 +94,5 @@
     "failed": 0,
     "coverage_pct": 100.0
   },
-  "updated_at": "2026-09-20T21:03:20+09:00"
+  "updated_at": "2026-09-20T22:55:15+09:00"
 }
