@@ -231,6 +231,16 @@
       "reason": "zero_baseline_unverified"
     },
     {
+      "goods_no": "6947522",
+      "brand_name": "웬즈데이오아시스 포 우먼",
+      "from_at": "2026-09-20T03:08:57+09:00",
+      "to_at": "2026-09-21T02:58:16+09:00",
+      "before": 0,
+      "after": 730,
+      "excluded_delta": 730,
+      "reason": "zero_baseline_unverified"
+    },
+    {
       "goods_no": "4803082",
       "brand_name": "뉴발란스",
       "from_at": "2026-09-18T10:58:57+09:00",
@@ -985,16 +995,6 @@
       "brand_name": "다이브인",
       "from_at": "2026-09-10T10:42:15+09:00",
       "to_at": "2026-09-14T12:25:39+09:00",
-      "before": 0,
-      "after": 156,
-      "excluded_delta": 156,
-      "reason": "zero_baseline_unverified"
-    },
-    {
-      "goods_no": "7161034",
-      "brand_name": "디미트리블랙",
-      "from_at": "2026-08-30T09:44:12+09:00",
-      "to_at": "2026-08-31T09:44:44+09:00",
       "before": 0,
       "after": 156,
       "excluded_delta": 156,
