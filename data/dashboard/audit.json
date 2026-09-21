@@ -371,6 +371,16 @@
       "reason": "zero_baseline_unverified"
     },
     {
+      "goods_no": "2690691",
+      "brand_name": "허그본",
+      "from_at": "2026-09-21T15:13:49+09:00",
+      "to_at": "2026-09-22T00:01:34+09:00",
+      "before": 271262,
+      "after": 271762,
+      "excluded_delta": 500,
+      "reason": "counter_jump_unverified"
+    },
+    {
       "goods_no": "5793808",
       "brand_name": "아캄",
       "from_at": "2026-09-02T15:35:52+09:00",
@@ -988,16 +998,6 @@
       "before": 0,
       "after": 205,
       "excluded_delta": 205,
-      "reason": "zero_baseline_unverified"
-    },
-    {
-      "goods_no": "7090063",
-      "brand_name": "베이프",
-      "from_at": "2026-09-20T16:20:29+09:00",
-      "to_at": "2026-09-21T14:46:48+09:00",
-      "before": 0,
-      "after": 204,
-      "excluded_delta": 204,
       "reason": "zero_baseline_unverified"
     }
   ]
