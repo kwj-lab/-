@@ -871,16 +871,6 @@
       "reason": "zero_baseline_unverified"
     },
     {
-      "goods_no": "5892146",
-      "brand_name": "아웃스탠딩",
-      "from_at": "2026-09-17T05:38:51+09:00",
-      "to_at": "2026-09-18T04:40:38+09:00",
-      "before": 0,
-      "after": 226,
-      "excluded_delta": 226,
-      "reason": "zero_baseline_unverified"
-    },
-    {
       "goods_no": "5394891",
       "brand_name": "노스페이스",
       "from_at": "2026-09-16T14:20:44+09:00",
@@ -998,6 +988,16 @@
       "before": 0,
       "after": 204,
       "excluded_delta": 204,
+      "reason": "zero_baseline_unverified"
+    },
+    {
+      "goods_no": "7192707",
+      "brand_name": "라코스테",
+      "from_at": "2026-09-15T17:59:11+09:00",
+      "to_at": "2026-09-16T17:52:33+09:00",
+      "before": 0,
+      "after": 203,
+      "excluded_delta": 203,
       "reason": "zero_baseline_unverified"
     }
   ]
