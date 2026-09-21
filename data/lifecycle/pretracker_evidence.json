@@ -38757,5 +38757,19 @@
     "evidence_date": "2026-06-16",
     "tracker_start_date": "2026-08-27",
     "checked_at": "2026-09-21T21:05:13+09:00"
+  },
+  "6746949": {
+    "status": "preexisting_probable",
+    "evidence_type": "goods_no_before_start_ceiling",
+    "evidence_date": "2026-08-27",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-21T23:34:14+09:00"
+  },
+  "6746905": {
+    "status": "preexisting_probable",
+    "evidence_type": "goods_no_before_start_ceiling",
+    "evidence_date": "2026-08-27",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-21T23:34:20+09:00"
   }
 }
