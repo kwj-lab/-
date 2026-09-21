@@ -241,16 +241,6 @@
       "reason": "zero_baseline_unverified"
     },
     {
-      "goods_no": "5529562",
-      "brand_name": "노스페이스",
-      "from_at": "2026-09-20T15:53:54+09:00",
-      "to_at": "2026-09-21T14:19:42+09:00",
-      "before": 0,
-      "after": 665,
-      "excluded_delta": 665,
-      "reason": "zero_baseline_unverified"
-    },
-    {
       "goods_no": "7184070",
       "brand_name": "스파오",
       "from_at": "2026-09-05T07:16:16+09:00",
@@ -758,6 +748,16 @@
       "before": 0,
       "after": 283,
       "excluded_delta": 283,
+      "reason": "zero_baseline_unverified"
+    },
+    {
+      "goods_no": "6071326",
+      "brand_name": "미레코",
+      "from_at": "2026-09-21T14:30:51+09:00",
+      "to_at": "2026-09-21T16:45:10+09:00",
+      "before": 0,
+      "after": 279,
+      "excluded_delta": 279,
       "reason": "zero_baseline_unverified"
     },
     {
