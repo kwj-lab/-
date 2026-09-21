@@ -241,16 +241,6 @@
       "reason": "zero_baseline_unverified"
     },
     {
-      "goods_no": "4803082",
-      "brand_name": "뉴발란스",
-      "from_at": "2026-09-18T10:58:57+09:00",
-      "to_at": "2026-09-19T10:56:21+09:00",
-      "before": 0,
-      "after": 730,
-      "excluded_delta": 730,
-      "reason": "zero_baseline_unverified"
-    },
-    {
       "goods_no": "7184070",
       "brand_name": "스파오",
       "from_at": "2026-09-05T07:16:16+09:00",
@@ -408,6 +398,16 @@
       "before": 0,
       "after": 480,
       "excluded_delta": 480,
+      "reason": "zero_baseline_unverified"
+    },
+    {
+      "goods_no": "7282189",
+      "brand_name": "디미트리블랙",
+      "from_at": "2026-09-20T11:55:20+09:00",
+      "to_at": "2026-09-21T12:16:10+09:00",
+      "before": 0,
+      "after": 476,
+      "excluded_delta": 476,
       "reason": "zero_baseline_unverified"
     },
     {
