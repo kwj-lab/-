@@ -101,16 +101,6 @@
       "reason": "zero_baseline_unverified"
     },
     {
-      "goods_no": "5944339",
-      "brand_name": "르아르",
-      "from_at": "2026-09-17T17:18:11+09:00",
-      "to_at": "2026-09-18T18:21:07+09:00",
-      "before": 0,
-      "after": 1502,
-      "excluded_delta": 1502,
-      "reason": "zero_baseline_unverified"
-    },
-    {
       "goods_no": "5217527",
       "brand_name": "르아르",
       "from_at": "2026-09-17T17:04:04+09:00",
@@ -138,16 +128,6 @@
       "before": 0,
       "after": 1017,
       "excluded_delta": 1017,
-      "reason": "zero_baseline_unverified"
-    },
-    {
-      "goods_no": "6562364",
-      "brand_name": "인더스트",
-      "from_at": "2026-09-18T18:37:37+09:00",
-      "to_at": "2026-09-19T19:00:22+09:00",
-      "before": 0,
-      "after": 1013,
-      "excluded_delta": 1013,
       "reason": "zero_baseline_unverified"
     },
     {
@@ -408,6 +388,16 @@
       "before": 0,
       "after": 476,
       "excluded_delta": 476,
+      "reason": "zero_baseline_unverified"
+    },
+    {
+      "goods_no": "2623965",
+      "brand_name": "아디다스",
+      "from_at": "2026-09-20T18:00:37+09:00",
+      "to_at": "2026-09-21T18:30:15+09:00",
+      "before": 0,
+      "after": 460,
+      "excluded_delta": 460,
       "reason": "zero_baseline_unverified"
     },
     {
@@ -998,6 +988,16 @@
       "before": 0,
       "after": 203,
       "excluded_delta": 203,
+      "reason": "zero_baseline_unverified"
+    },
+    {
+      "goods_no": "7192679",
+      "brand_name": "라코스테",
+      "from_at": "2026-09-16T17:52:33+09:00",
+      "to_at": "2026-09-17T17:46:23+09:00",
+      "before": 0,
+      "after": 197,
+      "excluded_delta": 197,
       "reason": "zero_baseline_unverified"
     }
   ]
