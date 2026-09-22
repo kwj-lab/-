@@ -2,8 +2,9 @@ name: Musinsa Recovery v9
 
 on:
   schedule:
-    # 각 main slot 시작 45분 뒤: KST 01:00,04:00,07:00,10:00,13:00,16:00,19:00,22:00
-    - cron: '0 1,4,7,10,13,16,19,22 * * *'
+    # Recovery is intentionally later than primary/adaptive collection so it cannot steal their observation window.
+    # KST 02:00,05:00,08:00,11:00,14:00,17:00,20:00,23:00
+    - cron: '0 2,5,8,11,14,17,20,23 * * *'
   workflow_dispatch:
     inputs:
       lookback_days:
@@ -27,7 +28,24 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 360
     steps:
-      - name: Wait for older Musinsa workflows (FIFO)
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 1
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Recover pending goods only
+        shell: bash
+        run: |
+          DAYS="2"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.lookback_days }}" ]; then
+            DAYS="${{ inputs.lookback_days }}"
+          fi
+          python musinsa_collector_v9.py recover-pending --lookback-days "$DAYS" --max-queues 4
+      - name: Wait for older Musinsa workflows before write (writer FIFO)
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -71,7 +89,33 @@ jobs:
               )"
 
               # FIFO ignores stale queued runs without jobs.
-              while IFS=$'\t' read -r RUN_ID RUN_STATUS RUN_NAME RUN_CREATED; do
+              while IFS=        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A -- data
+          for p in musinsa_daily_product_sales.csv musinsa_daily_brand_sales.csv musinsa_daily_summary.csv musinsa_calendar_latest_products.csv musinsa_calendar_brand_daily.csv musinsa_calendar_summary.csv; do
+            if [ -e "$p" ]; then git add -- "$p"; fi
+          done
+          if git diff --cached --quiet; then
+            echo "No recovery changes."
+            exit 0
+          fi
+          git commit -m "chore(data): Musinsa v9 recovery [skip ci]"
+          git pull --rebase origin "$GITHUB_REF_NAME"
+          git push origin "HEAD:$GITHUB_REF_NAME"
+      - name: Recovery backup
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v9-recovery-${{ github.run_id }}
+          retention-days: 7
+          if-no-files-found: ignore
+          path: |
+            data/coverage/*.json
+            data/recovery/**/*.csv
+            musinsa_daily_product_sales.csv
+\t' read -r RUN_ID RUN_STATUS RUN_NAME RUN_CREATED; do
                 if [ -z "$RUN_ID" ]; then continue; fi
                 if [ "$RUN_STATUS" = "queued" ]; then
                   AGE=$(( $(date +%s) - $(date -d "$RUN_CREATED" +%s) ))
@@ -83,11 +127,141 @@ jobs:
                     fi
                   fi
                 fi
-                OLDER="${OLDER}${RUN_ID}"$'\t'"${RUN_STATUS}"$'\t'"${RUN_NAME}"$'\t'"${RUN_CREATED}"$'\n'
+                OLDER="${OLDER}${RUN_ID}"        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A -- data
+          for p in musinsa_daily_product_sales.csv musinsa_daily_brand_sales.csv musinsa_daily_summary.csv musinsa_calendar_latest_products.csv musinsa_calendar_brand_daily.csv musinsa_calendar_summary.csv; do
+            if [ -e "$p" ]; then git add -- "$p"; fi
+          done
+          if git diff --cached --quiet; then
+            echo "No recovery changes."
+            exit 0
+          fi
+          git commit -m "chore(data): Musinsa v9 recovery [skip ci]"
+          git pull --rebase origin "$GITHUB_REF_NAME"
+          git push origin "HEAD:$GITHUB_REF_NAME"
+      - name: Recovery backup
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v9-recovery-${{ github.run_id }}
+          retention-days: 7
+          if-no-files-found: ignore
+          path: |
+            data/coverage/*.json
+            data/recovery/**/*.csv
+            musinsa_daily_product_sales.csv
+\t'"${RUN_STATUS}"        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A -- data
+          for p in musinsa_daily_product_sales.csv musinsa_daily_brand_sales.csv musinsa_daily_summary.csv musinsa_calendar_latest_products.csv musinsa_calendar_brand_daily.csv musinsa_calendar_summary.csv; do
+            if [ -e "$p" ]; then git add -- "$p"; fi
+          done
+          if git diff --cached --quiet; then
+            echo "No recovery changes."
+            exit 0
+          fi
+          git commit -m "chore(data): Musinsa v9 recovery [skip ci]"
+          git pull --rebase origin "$GITHUB_REF_NAME"
+          git push origin "HEAD:$GITHUB_REF_NAME"
+      - name: Recovery backup
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v9-recovery-${{ github.run_id }}
+          retention-days: 7
+          if-no-files-found: ignore
+          path: |
+            data/coverage/*.json
+            data/recovery/**/*.csv
+            musinsa_daily_product_sales.csv
+\t'"${RUN_NAME}"        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A -- data
+          for p in musinsa_daily_product_sales.csv musinsa_daily_brand_sales.csv musinsa_daily_summary.csv musinsa_calendar_latest_products.csv musinsa_calendar_brand_daily.csv musinsa_calendar_summary.csv; do
+            if [ -e "$p" ]; then git add -- "$p"; fi
+          done
+          if git diff --cached --quiet; then
+            echo "No recovery changes."
+            exit 0
+          fi
+          git commit -m "chore(data): Musinsa v9 recovery [skip ci]"
+          git pull --rebase origin "$GITHUB_REF_NAME"
+          git push origin "HEAD:$GITHUB_REF_NAME"
+      - name: Recovery backup
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v9-recovery-${{ github.run_id }}
+          retention-days: 7
+          if-no-files-found: ignore
+          path: |
+            data/coverage/*.json
+            data/recovery/**/*.csv
+            musinsa_daily_product_sales.csv
+\t'"${RUN_CREATED}"        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A -- data
+          for p in musinsa_daily_product_sales.csv musinsa_daily_brand_sales.csv musinsa_daily_summary.csv musinsa_calendar_latest_products.csv musinsa_calendar_brand_daily.csv musinsa_calendar_summary.csv; do
+            if [ -e "$p" ]; then git add -- "$p"; fi
+          done
+          if git diff --cached --quiet; then
+            echo "No recovery changes."
+            exit 0
+          fi
+          git commit -m "chore(data): Musinsa v9 recovery [skip ci]"
+          git pull --rebase origin "$GITHUB_REF_NAME"
+          git push origin "HEAD:$GITHUB_REF_NAME"
+      - name: Recovery backup
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v9-recovery-${{ github.run_id }}
+          retention-days: 7
+          if-no-files-found: ignore
+          path: |
+            data/coverage/*.json
+            data/recovery/**/*.csv
+            musinsa_daily_product_sales.csv
+\n'
               done <<< "$MATCHES"
             done
 
-            if [ -z "${OLDER//$'\n'/}" ]; then
+            if [ -z "${OLDER//        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A -- data
+          for p in musinsa_daily_product_sales.csv musinsa_daily_brand_sales.csv musinsa_daily_summary.csv musinsa_calendar_latest_products.csv musinsa_calendar_brand_daily.csv musinsa_calendar_summary.csv; do
+            if [ -e "$p" ]; then git add -- "$p"; fi
+          done
+          if git diff --cached --quiet; then
+            echo "No recovery changes."
+            exit 0
+          fi
+          git commit -m "chore(data): Musinsa v9 recovery [skip ci]"
+          git pull --rebase origin "$GITHUB_REF_NAME"
+          git push origin "HEAD:$GITHUB_REF_NAME"
+      - name: Recovery backup
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v9-recovery-${{ github.run_id }}
+          retention-days: 7
+          if-no-files-found: ignore
+          path: |
+            data/coverage/*.json
+            data/recovery/**/*.csv
+            musinsa_daily_product_sales.csv
+\n'/}" ]; then
               echo "Musinsa FIFO turn acquired."
               break
             fi
@@ -97,23 +271,6 @@ jobs:
             sleep 20
           done
 
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.ref_name }}
-          fetch-depth: 1
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - name: Recover pending goods only
-        shell: bash
-        run: |
-          DAYS="2"
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.lookback_days }}" ]; then
-            DAYS="${{ inputs.lookback_days }}"
-          fi
-          python musinsa_collector_v9.py recover-pending --lookback-days "$DAYS" --max-queues 8
       - name: Commit recovered data
         shell: bash
         run: |
