@@ -166,6 +166,7 @@ jobs:
     timeout-minutes: 45
     concurrency:
       group: musinsa-data-writer
+      queue: max
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
