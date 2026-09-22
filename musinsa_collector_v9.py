@@ -1266,13 +1266,14 @@ def collect_adaptive(clock_slot, max_products=None, dry_run=False):
         if r.get("goods_no")
     }
 
-    probation_goods = {
-        str(row.get("goods_no") or "").strip()
+    latest_by_goods = {
+        str(row.get("goods_no") or "").strip(): row
         for row in latest_rows
         if str(row.get("goods_no") or "").strip()
-        and product_in_probation(
-            catalog.get(str(row.get("goods_no") or "").strip())
-        )
+    }
+    probation_goods = {
+        g for g, cat in catalog.items()
+        if g and product_in_probation(cat)
     }
     recent_extra = load_recent_extra_observations(probation_goods)
 
@@ -1330,6 +1331,24 @@ def collect_adaptive(clock_slot, max_products=None, dry_run=False):
             "reason": "first_probe",
         })
 
+    # A product discovered after today's primary run would otherwise wait
+    # roughly 24 hours for its first cumulative baseline. Take one lightweight
+    # baseline at the next adaptive run so calendar attribution can start today.
+    for g in sorted(
+        probation_goods - set(latest_by_goods),
+        key=lambda x: int(x) if x.isdigit() else 10**30,
+    ):
+        cat = catalog.get(g)
+        if probation_has_probe(cat, recent_extra.get(g, [])):
+            continue
+        probe_due.append({
+            "goods_no": g,
+            "tier": "probe_baseline",
+            "score": 0.0,
+            "base_slot": effective_goods_slot(g, cat),
+            "reason": "catalog_only_baseline",
+        })
+
     # Proven sellers always have priority over discovery probes.
     active_due.sort(
         key=lambda x: (
@@ -1349,9 +1368,11 @@ def collect_adaptive(clock_slot, max_products=None, dry_run=False):
     probe_cap = max(0, NEW_PRODUCT_PROBE_MAX_PER_RUN)
     probe_take = min(remaining, probe_cap) if max_products > 0 else probe_cap
 
-    # Oldest unprobed items first; goodsNo breaks ties deterministically.
+    # Catalog-only baseline probes come first, then the normal ~6h probe.
+    # Within each class, oldest unprobed items go first.
     probe_due.sort(
         key=lambda x: (
+            0 if x["tier"] == "probe_baseline" else 1,
             _catalog_first_seen(catalog.get(x["goods_no"])) or now_kst(),
             int(x["goods_no"]) if x["goods_no"].isdigit() else 10**30,
         )
@@ -1380,7 +1401,12 @@ def collect_adaptive(clock_slot, max_products=None, dry_run=False):
         "probe_due_before_cap": len(probe_due),
         "due_before_cap": total_due,
         "selected": len(selected),
-        "selected_probe_6h": len(selected_probe),
+        "selected_probe_6h": sum(
+            1 for x in selected_probe if x["tier"] == "probe_6h"
+        ),
+        "selected_probe_baseline": sum(
+            1 for x in selected_probe if x["tier"] == "probe_baseline"
+        ),
         "selected_3h": sum(1 for x in selected if x["tier"] == "3h"),
         "selected_9h": sum(1 for x in selected if x["tier"] == "9h"),
         "deferred_probes": max(0, len(probe_due) - len(selected_probe)),
