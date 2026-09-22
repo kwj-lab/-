@@ -528,6 +528,52 @@ class IsolatedCollectorTests(unittest.TestCase):
             ],
         )
 
+    def test_catalog_only_new_product_gets_one_adaptive_baseline(self):
+        catalog = {
+            **self.catalog,
+            "first_seen_at": self.now.isoformat(),
+            "last_seen_at": self.now.isoformat(),
+            "lifecycle_status": "first_seen_unverified",
+        }
+        collector.write_csv(
+            collector.CATALOG_FILE,
+            [catalog],
+            collector.CATALOG_FIELDS,
+        )
+        collector.write_csv(
+            collector.LATEST_PRODUCT_FILE,
+            [],
+            collector.LATEST_FIELDS,
+        )
+        collector.write_csv(
+            collector.CALENDAR_LATEST_PRODUCT_FILE,
+            [],
+            collector.CALENDAR_PRODUCT_FIELDS,
+        )
+
+        row = self.raw(self.now.isoformat(), 100)
+        with patch.object(collector, "collect_one", return_value=row) as fetch:
+            self.assertEqual(
+                collector.collect_adaptive(4, max_products=10),
+                0,
+            )
+
+        fetch.assert_called_once()
+        observations = list(collector.OBSERVATION_DIR.glob("*/*.csv.gz"))
+        self.assertEqual(len(observations), 1)
+        saved = collector.read_csv(observations[0])
+        self.assertEqual(len(saved), 1)
+        self.assertEqual(saved[0]["goods_no"], "1000001")
+        self.assertEqual(saved[0]["sampling_tier"], "probe_baseline")
+
+        # A second adaptive run sees the saved probe and must not baseline it again.
+        with patch.object(collector, "collect_one", return_value=row) as second_fetch:
+            self.assertEqual(
+                collector.collect_adaptive(5, max_products=10),
+                0,
+            )
+        second_fetch.assert_not_called()
+
     def test_adaptive_collects_and_calendar_reads_its_observation(self):
         self.seed_selection()
         row = self.raw(self.now.isoformat(), 112)
