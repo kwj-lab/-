@@ -2,9 +2,9 @@ name: Musinsa Recovery v9
 
 on:
   schedule:
-    # Recovery runs after primary/adaptive observation windows.
-    # KST 02:00,05:00,08:00,11:00,14:00,17:00,20:00,23:00
-    - cron: '0 2,5,8,11,14,17,20,23 * * *'
+    # Recovery is low priority and starts 45 minutes after adaptive sampling.
+    # KST 02:30,05:30,08:30,11:30,14:30,17:30,20:30,23:30
+    - cron: '30 2,5,8,11,14,17,20,23 * * *'
   workflow_dispatch:
     inputs:
       lookback_days:
@@ -41,6 +41,46 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Yield to active priority observations
+        id: priority
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          SAFE="1"
+          RUN_IDS="$(
+            gh api "repos/${GITHUB_REPOSITORY}/actions/runs?branch=${GITHUB_REF_NAME}&status=in_progress&per_page=100" \
+              --jq '.workflow_runs[]
+                | select(
+                    .name == "Distributed Musinsa Collection v9"
+                    or .name == "Musinsa Adaptive Sampling v9"
+                    or .name == "Musinsa Midnight Anchor v9"
+                  )
+                | .id'
+          )"
+
+          for RUN_ID in $RUN_IDS; do
+            ACTIVE_API_JOB="$(
+              gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/jobs?per_page=100" \
+                --jq '.jobs[]
+                  | select(
+                      .status == "in_progress"
+                      and (.name == "discover" or .name == "collect")
+                    )
+                  | .name' || true
+            )"
+
+            if [ -n "$ACTIVE_API_JOB" ]; then
+              echo "Recovery yields to priority observation run ${RUN_ID}: ${ACTIVE_API_JOB}"
+              SAFE="0"
+              break
+            fi
+          done
+
+          echo "safe=${SAFE}" >> "$GITHUB_OUTPUT"
+
       - name: Calculate dynamic recovery budget
         id: window
         shell: bash
@@ -91,7 +131,7 @@ jobs:
           )
           PY
       - name: Recover pending goods only
-        if: ${{ steps.window.outputs.run == '1' }}
+        if: ${{ steps.window.outputs.run == '1' && steps.priority.outputs.safe == '1' }}
         shell: bash
         run: |
           DAYS="2"
@@ -104,7 +144,7 @@ jobs:
             --max-queues 32 \
             --time-budget-minutes "$BUDGET"
       - name: Commit recovered data
-        if: ${{ steps.window.outputs.run == '1' }}
+        if: ${{ steps.window.outputs.run == '1' && steps.priority.outputs.safe == '1' }}
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
