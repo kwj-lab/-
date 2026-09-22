@@ -31,6 +31,16 @@
       "reason": "zero_baseline_unverified"
     },
     {
+      "goods_no": "5132747",
+      "brand_name": "에트오소메",
+      "from_at": "2026-09-21T11:35:37+09:00",
+      "to_at": "2026-09-22T11:59:28+09:00",
+      "before": 0,
+      "after": 4413,
+      "excluded_delta": 4413,
+      "reason": "zero_baseline_unverified"
+    },
+    {
       "goods_no": "2349446",
       "brand_name": "아웃스탠딩",
       "from_at": "2026-08-31T03:17:33+09:00",
@@ -221,6 +231,16 @@
       "reason": "counter_jump_unverified"
     },
     {
+      "goods_no": "5023282",
+      "brand_name": "마뗑킴",
+      "from_at": "2026-09-21T11:33:36+09:00",
+      "to_at": "2026-09-22T11:57:27+09:00",
+      "before": 1469,
+      "after": 2110,
+      "excluded_delta": 641,
+      "reason": "counter_jump_unverified"
+    },
+    {
       "goods_no": "7184070",
       "brand_name": "스파오",
       "from_at": "2026-09-05T07:16:16+09:00",
@@ -311,6 +331,16 @@
       "reason": "zero_baseline_unverified"
     },
     {
+      "goods_no": "3773909",
+      "brand_name": "커버낫",
+      "from_at": "2026-09-21T11:14:51+09:00",
+      "to_at": "2026-09-22T11:38:46+09:00",
+      "before": 90,
+      "after": 601,
+      "excluded_delta": 511,
+      "reason": "counter_jump_unverified"
+    },
+    {
       "goods_no": "5523573",
       "brand_name": "노티카",
       "from_at": "2026-09-01T15:35:26+09:00",
@@ -348,16 +378,6 @@
       "before": 0,
       "after": 503,
       "excluded_delta": 503,
-      "reason": "zero_baseline_unverified"
-    },
-    {
-      "goods_no": "5224088",
-      "brand_name": "워크온바디오프",
-      "from_at": "2026-09-16T11:25:00+09:00",
-      "to_at": "2026-09-17T11:07:36+09:00",
-      "before": 0,
-      "after": 502,
-      "excluded_delta": 502,
       "reason": "zero_baseline_unverified"
     },
     {
@@ -571,16 +591,6 @@
       "reason": "zero_baseline_unverified"
     },
     {
-      "goods_no": "5224177",
-      "brand_name": "워크온바디오프",
-      "from_at": "2026-09-16T11:25:01+09:00",
-      "to_at": "2026-09-17T11:07:38+09:00",
-      "before": 0,
-      "after": 374,
-      "excluded_delta": 374,
-      "reason": "zero_baseline_unverified"
-    },
-    {
       "goods_no": "7090068",
       "brand_name": "베이프",
       "from_at": "2026-09-20T16:20:30+09:00",
@@ -698,16 +708,6 @@
       "before": 0,
       "after": 319,
       "excluded_delta": 319,
-      "reason": "zero_baseline_unverified"
-    },
-    {
-      "goods_no": "7014390",
-      "brand_name": "무드인사이드 우먼",
-      "from_at": "2026-09-17T11:41:13+09:00",
-      "to_at": "2026-09-18T11:40:08+09:00",
-      "before": 0,
-      "after": 314,
-      "excluded_delta": 314,
       "reason": "zero_baseline_unverified"
     },
     {
@@ -941,6 +941,16 @@
       "reason": "zero_baseline_unverified"
     },
     {
+      "goods_no": "3773908",
+      "brand_name": "커버낫",
+      "from_at": "2026-09-21T11:14:51+09:00",
+      "to_at": "2026-09-22T11:38:45+09:00",
+      "before": 0,
+      "after": 214,
+      "excluded_delta": 214,
+      "reason": "zero_baseline_unverified"
+    },
+    {
       "goods_no": "7148796",
       "brand_name": "후브스",
       "from_at": "2026-09-07T12:13:17+09:00",
@@ -988,16 +998,6 @@
       "before": 0,
       "after": 204,
       "excluded_delta": 204,
-      "reason": "zero_baseline_unverified"
-    },
-    {
-      "goods_no": "7192707",
-      "brand_name": "라코스테",
-      "from_at": "2026-09-15T17:59:11+09:00",
-      "to_at": "2026-09-16T17:52:33+09:00",
-      "before": 0,
-      "after": 203,
-      "excluded_delta": 203,
       "reason": "zero_baseline_unverified"
     }
   ]
