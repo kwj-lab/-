@@ -2827,7 +2827,7 @@ def refresh_latest_slot_from_snapshot(date_value, slot):
     return latest
 
 
-def recover_queue_file(path, deadline=None, batch_size=50):
+def recover_queue_file(path, deadline=None, batch_size=25):
     path = Path(path)
     queue = read_csv(path)
     if not queue:
@@ -2957,7 +2957,7 @@ def recover_pending(lookback_days=2, max_queues=32, time_budget_minutes=50):
             stop_reason = "time_budget"
             break
 
-        result = recover_queue_file(path, deadline=deadline, batch_size=50)
+        result = recover_queue_file(path, deadline=deadline, batch_size=25)
         results.append(result)
 
         # If a queue itself was only partially attempted, the recovery budget is
