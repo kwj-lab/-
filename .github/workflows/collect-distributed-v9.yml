@@ -103,12 +103,46 @@ jobs:
               f.write(f"slot={slot}\n")
           print(f"Intended slot: {slot} ({source})")
           PY2
+
+      - name: Resolve intended KST snapshot date
+        id: snapshot
+        shell: bash
+        run: |
+          python - <<'PY2'
+          import os
+          from datetime import datetime, timedelta, timezone
+
+          KST = timezone(timedelta(hours=9))
+          now = datetime.now(KST)
+
+          if os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch":
+              intended = now
+          else:
+              slot = int("${{ steps.slot.outputs.slot }}")
+              scheduled_hour = slot * 3
+              intended = now.replace(
+                  hour=scheduled_hour,
+                  minute=15,
+                  second=0,
+                  microsecond=0,
+              )
+              if intended > now:
+                  intended -= timedelta(days=1)
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+              f.write(f"snapshot_date={intended.date().isoformat()}\n")
+          print("Intended KST snapshot date:", intended.date().isoformat())
+          PY2
       - name: Discover and refresh prices
         shell: bash
         run: |
           EXTRA=""
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.full_discovery }}" = "true" ]; then EXTRA="--full-discovery"; fi
-          python musinsa_collector_v9.py discover-slot --state-dir run_state --slot "${{ steps.slot.outputs.slot }}" $EXTRA
+          python musinsa_collector_v9.py discover-slot \
+            --state-dir run_state \
+            --slot "${{ steps.slot.outputs.slot }}" \
+            --snapshot-date "${{ steps.snapshot.outputs.snapshot_date }}" \
+            $EXTRA
           if [ -d data/lifecycle ]; then cp -R data/lifecycle run_state/lifecycle; fi
       - uses: actions/upload-artifact@v4
         with:
