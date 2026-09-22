@@ -26,78 +26,11 @@ env:
 jobs:
   finalize:
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    timeout-minutes: 120
+    concurrency:
+      group: musinsa-data-writer
+      cancel-in-progress: false
     steps:
-      - name: Wait for older Musinsa workflows (FIFO)
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-
-          SELF_ID="$GITHUB_RUN_ID"
-          SELF_CREATED="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${SELF_ID}" --jq '.created_at')"
-          WORKFLOWS=(
-            "collect-distributed-v9.yml"
-            "recover-distributed-v9.yml"
-            "adaptive-sampling-v9.yml"
-            "calendar-finalize-v9.yml"
-            "midnight-anchor-v9.yml"
-          )
-
-          echo "Musinsa FIFO: run=${SELF_ID}, created=${SELF_CREATED}"
-
-          while true; do
-            OLDER=""
-
-            for WF in "${WORKFLOWS[@]}"; do
-              MATCHES="$(
-                gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/${WF}/runs?branch=${GITHUB_REF_NAME}&per_page=100" \
-                | jq -r --arg sid "$SELF_ID" --arg sc "$SELF_CREATED" '
-                    .workflow_runs[]
-                    | select(
-                        (.status == "queued" or
-                         .status == "in_progress" or
-                         .status == "waiting" or
-                         .status == "pending" or
-                         .status == "requested")
-                        and ((.id | tostring) != $sid)
-                        and (
-                          (.created_at < $sc)
-                          or (.created_at == $sc and .id < ($sid | tonumber))
-                        )
-                      )
-                    | "\(.id)\t\(.status)\t\(.name)\t\(.created_at)"
-                  '
-              )"
-
-              # FIFO ignores stale queued runs without jobs.
-              while IFS=$'\t' read -r RUN_ID RUN_STATUS RUN_NAME RUN_CREATED; do
-                if [ -z "$RUN_ID" ]; then continue; fi
-                if [ "$RUN_STATUS" = "queued" ]; then
-                  AGE=$(( $(date +%s) - $(date -d "$RUN_CREATED" +%s) ))
-                  if [ "$AGE" -ge 5400 ]; then
-                    JOBS="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/jobs?per_page=1" --jq '.total_count')"
-                    if [ "$JOBS" = "0" ]; then
-                      echo "Ignoring abandoned queued run ${RUN_ID}: no jobs after ${AGE}s"
-                      continue
-                    fi
-                  fi
-                fi
-                OLDER="${OLDER}${RUN_ID}"$'\t'"${RUN_STATUS}"$'\t'"${RUN_NAME}"$'\t'"${RUN_CREATED}"$'\n'
-              done <<< "$MATCHES"
-            done
-
-            if [ -z "${OLDER//$'\n'/}" ]; then
-              echo "Musinsa FIFO turn acquired."
-              break
-            fi
-
-            echo "Older Musinsa runs are active; waiting 20 seconds:"
-            printf '%s' "$OLDER"
-            sleep 20
-          done
-
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
