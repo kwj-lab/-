@@ -29,6 +29,7 @@ jobs:
     timeout-minutes: 60
     concurrency:
       group: musinsa-data-writer
+      queue: max
       cancel-in-progress: false
     steps:
       - name: Checkout repository
