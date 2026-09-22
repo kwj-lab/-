@@ -3,8 +3,7 @@ name: Musinsa Midnight Anchor v9
 on:
   schedule:
     # 23:55 KST = 14:55 UTC.
-    # 고판매 상품을 자정 직전에 우선 관측하고 00:15 primary 수집 전에 끝내는 전용 경계 슬롯입니다.
-    # GitHub schedule is the canonical boundary trigger; external watchdog runs outside the boundary window are ignored below.
+    # High-selling products get a dedicated observation before the KST day boundary.
     - cron: '55 14 * * *'
   workflow_dispatch:
     inputs:
@@ -19,7 +18,6 @@ on:
         default: false
 
 permissions:
-  actions: read
   contents: write
 
 env:
@@ -34,7 +32,7 @@ env:
 jobs:
   collect:
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    timeout-minutes: 90
     outputs:
       run: ${{ steps.window.outputs.run }}
     steps:
@@ -44,22 +42,22 @@ jobs:
         run: |
           set -euo pipefail
           if [ "${{ github.event_name }}" = "schedule" ]; then
-            # A scheduled 23:55 run remains valid even if GitHub starts the runner a little late.
+            # The trigger itself represents the intended 23:55 observation.
+            # Do not discard it only because GitHub started the runner a little late.
             RUN_ANCHOR="1"
           else
             RUN_ANCHOR="$(python -c 'from datetime import datetime,timedelta,timezone; now=datetime.now(timezone(timedelta(hours=9))); mins=now.hour*60+now.minute; print("1" if mins>=1435 or mins<=15 else "0")')"
           fi
 
-          # Manual dry-run is allowed outside the live boundary window because it does not query products.
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.dry_run }}" = "true" ]; then
             RUN_ANCHOR="1"
           fi
 
           echo "run=${RUN_ANCHOR}" >> "$GITHUB_OUTPUT"
           if [ "$RUN_ANCHOR" = "1" ]; then
-            echo "Midnight anchor is allowed now (23:55~00:15 KST)."
+            echo "Midnight anchor observation enabled."
           else
-            echo "Outside 23:55~00:15 KST; skipping this late/early midnight-anchor trigger."
+            echo "Outside 23:55~00:15 KST; manual live anchor skipped."
           fi
 
       - name: Checkout repository
@@ -89,51 +87,7 @@ jobs:
           fi
           python musinsa_collector_v9.py collect-midnight-anchor $EXTRA
 
-      - name: Wait for older Musinsa workflows before write (writer FIFO)
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-
-          SELF_ID="$GITHUB_RUN_ID"
-          SELF_CREATED="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${SELF_ID}" --jq '.created_at')"
-          WORKFLOWS=(
-            "collect-distributed-v9.yml"
-            "recover-distributed-v9.yml"
-            "adaptive-sampling-v9.yml"
-            "calendar-finalize-v9.yml"
-            "midnight-anchor-v9.yml"
-          )
-
-          echo "Musinsa FIFO: run=${SELF_ID}, created=${SELF_CREATED}"
-
-          while true; do
-            OLDER=""
-
-            for WF in "${WORKFLOWS[@]}"; do
-              MATCHES="$(
-                gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/${WF}/runs?branch=${GITHUB_REF_NAME}&per_page=100" \
-                | jq -r --arg sid "$SELF_ID" --arg sc "$SELF_CREATED" '
-                    .workflow_runs[]
-                    | select(
-                        (.status == "queued" or
-                         .status == "in_progress" or
-                         .status == "waiting" or
-                         .status == "pending" or
-                         .status == "requested")
-                        and ((.id | tostring) != $sid)
-                        and (
-                          (.created_at < $sc)
-                          or (.created_at == $sc and .id < ($sid | tonumber))
-                        )
-                      )
-                    | "\(.id)\t\(.status)\t\(.name)\t\(.created_at)"
-                  '
-              )"
-
-              # FIFO ignores stale queued runs without jobs.
-              while IFS=      - name: Package midnight-anchor payload
+      - name: Package midnight-anchor payload
         if: ${{ steps.window.outputs.run == '1' && !(github.event_name == 'workflow_dispatch' && inputs.dry_run == true) }}
         shell: bash
         run: |
