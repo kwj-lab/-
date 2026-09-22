@@ -49,26 +49,43 @@ jobs:
           import os
           from datetime import datetime, timedelta, timezone
 
-          now = datetime.now(timezone(timedelta(hours=9)))
+          KST = timezone(timedelta(hours=9))
+          now = datetime.now(KST)
+
+          # Scheduled recovery belongs to the KST xx:00 hour where hour % 3 == 2
+          # (02:00,05:00,...,23:00). If writer contention delayed it into a
+          # different 3-hour phase, skip instead of colliding with a new primary.
+          in_recovery_phase = (now.hour % 3 == 2)
+
           base_hour = (now.hour // 3) * 3
-          nxt = now.replace(hour=base_hour, minute=15, second=0, microsecond=0)
-          if nxt <= now:
-              nxt += timedelta(hours=3)
+          next_primary = now.replace(
+              hour=base_hour, minute=15, second=0, microsecond=0
+          )
+          if next_primary <= now:
+              next_primary += timedelta(hours=3)
 
-          minutes = (nxt - now).total_seconds() / 60.0
+          critical_times = [next_primary]
 
-          # Never let recovery consume the final 10 minutes before the next
-          # primary observation. Use at most 50 minutes even when there is more
-          # room so the workflow still has time to write/commit cleanly.
+          # 23:55 midnight anchor is higher priority than recovery. Protect a
+          # 10-minute lead-in before it just like the regular primary window.
+          anchor = now.replace(hour=23, minute=55, second=0, microsecond=0)
+          if anchor <= now:
+              anchor += timedelta(days=1)
+          critical_times.append(anchor)
+
+          next_critical = min(critical_times)
+          minutes = (next_critical - now).total_seconds() / 60.0
+
           budget = max(0, min(50, math.floor(minutes - 10)))
-          run = "1" if budget >= 15 else "0"
+          run = "1" if in_recovery_phase and budget >= 15 else "0"
 
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
               fh.write(f"run={run}\n")
               fh.write(f"budget_minutes={budget}\n")
 
           print(
-              f"minutes_to_next_primary={minutes:.1f}, "
+              f"in_recovery_phase={in_recovery_phase}, "
+              f"minutes_to_next_critical={minutes:.1f}, "
               f"recovery_budget_minutes={budget}, recovery_run={run}"
           )
           PY
