@@ -2827,11 +2827,14 @@ def refresh_latest_slot_from_snapshot(date_value, slot):
     return latest
 
 
-def recover_queue_file(path):
+def recover_queue_file(path, deadline=None, batch_size=50):
     path = Path(path)
     queue = read_csv(path)
     if not queue:
-        return {"queue": str(path), "attempted": 0, "recovered": 0, "remaining": 0}
+        return {
+            "queue": str(path), "attempted": 0, "recovered": 0,
+            "remaining": 0, "deferred": 0,
+        }
 
     first = queue[0]
     date_value = datetime.strptime(str(first.get("date")), "%Y-%m-%d").date()
@@ -2841,26 +2844,53 @@ def recover_queue_file(path):
 
     THROTTLE.recovery_mode()
     results = {}
-    with ThreadPoolExecutor(max_workers=max(1, RECOVERY_WORKERS)) as executor:
-        futures = {
-            executor.submit(collect_one, str(r.get("goods_no")), catalog.get(str(r.get("goods_no"))), 4): r
-            for r in queue if r.get("goods_no")
-        }
-        for fut in as_completed(futures):
-            old = futures[fut]
-            g = str(old.get("goods_no"))
-            try:
-                results[g] = fut.result()
-            except Exception as e:
-                results[g] = synthetic_failed_row(g, catalog.get(g), str(e))
+    attempted_ids = set()
+    batch_size = max(1, int(batch_size))
+
+    # Process a large failed queue in small chunks so recovery can stop near the
+    # next primary observation window without losing already recovered results.
+    queued_rows = [r for r in queue if r.get("goods_no")]
+    for offset in range(0, len(queued_rows), batch_size):
+        # Keep 90 seconds for the current batch to settle and for local files /
+        # aggregates to be written before returning to the workflow.
+        if deadline is not None and time.monotonic() >= deadline - 90:
+            break
+
+        batch = queued_rows[offset:offset + batch_size]
+        with ThreadPoolExecutor(max_workers=max(1, RECOVERY_WORKERS)) as executor:
+            futures = {
+                executor.submit(
+                    collect_one,
+                    str(r.get("goods_no")),
+                    catalog.get(str(r.get("goods_no"))),
+                    4,
+                ): r
+                for r in batch
+            }
+            for fut in as_completed(futures):
+                old = futures[fut]
+                g = str(old.get("goods_no"))
+                attempted_ids.add(g)
+                try:
+                    results[g] = fut.result()
+                except Exception as e:
+                    results[g] = synthetic_failed_row(g, catalog.get(g), str(e))
 
     snap_path = SLOT_DIR / f"slot-{slot}" / f"{date_value.isoformat()}.csv.gz"
     snapshot = {str(r.get("goods_no") or ""): r for r in read_csv(snap_path) if r.get("goods_no")}
     remaining = []
     recovered = 0
     now = now_kst().isoformat(timespec="seconds")
+
     for old in queue:
         g = str(old.get("goods_no") or "")
+
+        # Not attempted because the time budget expired: leave it untouched so
+        # the next recovery run resumes it without inflating retry counts.
+        if not g or g not in attempted_ids:
+            remaining.append(old)
+            continue
+
         r = results.get(g) or synthetic_failed_row(g, catalog.get(g), "recovery result missing")
         if to_int(r.get("purchase_total")) is not None:
             snapshot[g] = compact_from_raw(r, date_value, slot)
@@ -2887,13 +2917,15 @@ def recover_queue_file(path):
 
     return {
         "queue": str(path), "date": date_value.isoformat(), "slot": slot,
-        "attempted": len(queue), "recovered": recovered, "remaining": len(remaining),
+        "attempted": len(attempted_ids), "recovered": recovered,
+        "remaining": len(remaining),
+        "deferred": max(0, len(queue) - len(attempted_ids)),
         "coverage_pct": round((success / expected * 100.0), 4) if expected else 100.0,
         "adaptive_interval_seconds": round(THROTTLE.interval, 3),
     }
 
 
-def recover_pending(lookback_days=2, max_queues=8):
+def recover_pending(lookback_days=2, max_queues=32, time_budget_minutes=50):
     today = now_kst().date()
     cutoff = today - timedelta(days=max(0, int(lookback_days)))
     candidates = []
@@ -2907,11 +2939,45 @@ def recover_pending(lookback_days=2, max_queues=8):
                 continue
             if read_csv(path):
                 candidates.append((d, path))
+
+    # Oldest failed observations are repaired first.
     candidates.sort(key=lambda x: (x[0], str(x[1])))
+
+    max_queues = max(1, int(max_queues))
+    budget_seconds = max(0.0, float(time_budget_minutes) * 60.0)
+    started = time.monotonic()
+    deadline = started + budget_seconds if budget_seconds > 0 else started
+
     results = []
-    for _, path in candidates[:max(1, int(max_queues))]:
-        results.append(recover_queue_file(path))
-    print(json.dumps({"pending_queues": len(candidates), "processed": results}, ensure_ascii=False))
+    stop_reason = "no_pending_queues" if not candidates else "max_queues"
+
+    for _, path in candidates[:max_queues]:
+        remaining_seconds = deadline - time.monotonic()
+        if remaining_seconds <= 120:
+            stop_reason = "time_budget"
+            break
+
+        result = recover_queue_file(path, deadline=deadline, batch_size=50)
+        results.append(result)
+
+        # If a queue itself was only partially attempted, the recovery budget is
+        # effectively exhausted; resume that same queue on the next run.
+        if result.get("deferred", 0):
+            stop_reason = "time_budget"
+            break
+    else:
+        if candidates and len(results) >= min(len(candidates), max_queues):
+            stop_reason = "all_candidates" if len(candidates) <= max_queues else "max_queues"
+
+    elapsed = time.monotonic() - started
+    print(json.dumps({
+        "pending_queues": len(candidates),
+        "processed_queue_count": len(results),
+        "processed": results,
+        "time_budget_minutes": round(budget_seconds / 60.0, 2),
+        "elapsed_seconds": round(elapsed, 1),
+        "stop_reason": stop_reason,
+    }, ensure_ascii=False))
     return 0
 
 
@@ -3827,7 +3893,8 @@ def main():
 
     p = sub.add_parser("recover-pending")
     p.add_argument("--lookback-days", type=int, default=2)
-    p.add_argument("--max-queues", type=int, default=8)
+    p.add_argument("--max-queues", type=int, default=32)
+    p.add_argument("--time-budget-minutes", type=float, default=50.0)
 
     p = sub.add_parser("collect-adaptive")
     p.add_argument("--clock-slot", type=int, required=True, choices=range(SLOT_COUNT))
@@ -3860,7 +3927,11 @@ def main():
     if args.cmd == "aggregate-slot":
         return aggregate_slot(args.state_dir, args.shard_dir)
     if args.cmd == "recover-pending":
-        return recover_pending(args.lookback_days, args.max_queues)
+        return recover_pending(
+            args.lookback_days,
+            args.max_queues,
+            args.time_budget_minutes,
+        )
     if args.cmd == "collect-adaptive":
         return collect_adaptive(args.clock_slot, args.max_products, args.dry_run)
     if args.cmd == "collect-midnight-anchor":
