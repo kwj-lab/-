@@ -8,6 +8,11 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: musinsa-data-writer
+  queue: max
+  cancel-in-progress: false
+
 jobs:
   canonicalize:
     runs-on: ubuntu-latest
