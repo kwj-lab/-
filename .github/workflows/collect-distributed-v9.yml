@@ -63,76 +63,6 @@ jobs:
       collector_sha: ${{ steps.revision.outputs.sha }}
       slot: ${{ steps.slot.outputs.slot }}
     steps:
-      - name: Wait for older Musinsa workflows (FIFO)
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-
-          SELF_ID="$GITHUB_RUN_ID"
-          SELF_CREATED="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${SELF_ID}" --jq '.created_at')"
-          WORKFLOWS=(
-            "collect-distributed-v9.yml"
-            "recover-distributed-v9.yml"
-            "adaptive-sampling-v9.yml"
-            "calendar-finalize-v9.yml"
-            "midnight-anchor-v9.yml"
-          )
-
-          echo "Musinsa FIFO: run=${SELF_ID}, created=${SELF_CREATED}"
-
-          while true; do
-            OLDER=""
-
-            for WF in "${WORKFLOWS[@]}"; do
-              MATCHES="$(
-                gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/${WF}/runs?branch=${GITHUB_REF_NAME}&per_page=100" \
-                | jq -r --arg sid "$SELF_ID" --arg sc "$SELF_CREATED" '
-                    .workflow_runs[]
-                    | select(
-                        (.status == "queued" or
-                         .status == "in_progress" or
-                         .status == "waiting" or
-                         .status == "pending" or
-                         .status == "requested")
-                        and ((.id | tostring) != $sid)
-                        and (
-                          (.created_at < $sc)
-                          or (.created_at == $sc and .id < ($sid | tonumber))
-                        )
-                      )
-                    | "\(.id)\t\(.status)\t\(.name)\t\(.created_at)"
-                  '
-              )"
-
-              # FIFO ignores stale queued runs without jobs.
-              while IFS=$'\t' read -r RUN_ID RUN_STATUS RUN_NAME RUN_CREATED; do
-                if [ -z "$RUN_ID" ]; then continue; fi
-                if [ "$RUN_STATUS" = "queued" ]; then
-                  AGE=$(( $(date +%s) - $(date -d "$RUN_CREATED" +%s) ))
-                  if [ "$AGE" -ge 5400 ]; then
-                    JOBS="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/jobs?per_page=1" --jq '.total_count')"
-                    if [ "$JOBS" = "0" ]; then
-                      echo "Ignoring abandoned queued run ${RUN_ID}: no jobs after ${AGE}s"
-                      continue
-                    fi
-                  fi
-                fi
-                OLDER="${OLDER}${RUN_ID}"$'\t'"${RUN_STATUS}"$'\t'"${RUN_NAME}"$'\t'"${RUN_CREATED}"$'\n'
-              done <<< "$MATCHES"
-            done
-
-            if [ -z "${OLDER//$'\n'/}" ]; then
-              echo "Musinsa FIFO turn acquired."
-              break
-            fi
-
-            echo "Older Musinsa runs are active; waiting 20 seconds:"
-            printf '%s' "$OLDER"
-            sleep 20
-          done
-
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.ref_name }}
@@ -243,6 +173,406 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
+      - name: Wait for older Musinsa workflows before write (writer FIFO)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          SELF_ID="$GITHUB_RUN_ID"
+          SELF_CREATED="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${SELF_ID}" --jq '.created_at')"
+          WORKFLOWS=(
+            "collect-distributed-v9.yml"
+            "recover-distributed-v9.yml"
+            "adaptive-sampling-v9.yml"
+            "calendar-finalize-v9.yml"
+            "midnight-anchor-v9.yml"
+          )
+
+          echo "Musinsa FIFO: run=${SELF_ID}, created=${SELF_CREATED}"
+
+          while true; do
+            OLDER=""
+
+            for WF in "${WORKFLOWS[@]}"; do
+              MATCHES="$(
+                gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/${WF}/runs?branch=${GITHUB_REF_NAME}&per_page=100" \
+                | jq -r --arg sid "$SELF_ID" --arg sc "$SELF_CREATED" '
+                    .workflow_runs[]
+                    | select(
+                        (.status == "queued" or
+                         .status == "in_progress" or
+                         .status == "waiting" or
+                         .status == "pending" or
+                         .status == "requested")
+                        and ((.id | tostring) != $sid)
+                        and (
+                          (.created_at < $sc)
+                          or (.created_at == $sc and .id < ($sid | tonumber))
+                        )
+                      )
+                    | "\(.id)\t\(.status)\t\(.name)\t\(.created_at)"
+                  '
+              )"
+
+              # FIFO ignores stale queued runs without jobs.
+              while IFS=      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: v9-discovery-state
+          path: run_state
+      - run: mkdir -p shard_results
+      - name: Download available primary result
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: v9-slot-${{ needs.discover.outputs.slot }}-primary
+          path: shard_results
+      - name: Aggregate and create recovery queue
+        run: |
+          if [ -d run_state/lifecycle ]; then mkdir -p data; cp -R run_state/lifecycle data/; fi
+          python musinsa_collector_v9.py aggregate-slot --state-dir run_state --shard-dir shard_results
+
+      - name: Recalculate recent calendar-day estimates immediately
+        shell: bash
+        run: |
+          python musinsa_collector_v9.py finalize-calendar --lookback-days 3
+
+      - name: Commit primary data and coverage
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A -- data
+          for p in             musinsa_watchlist.txt             musinsa_catalog.csv             musinsa_brand_audit.csv             musinsa_daily_product_sales.csv             musinsa_daily_brand_sales.csv             musinsa_daily_summary.csv             musinsa_new_products.csv             musinsa_calendar_latest_products.csv             musinsa_calendar_brand_daily.csv             musinsa_calendar_summary.csv             data/calendar; do
+            if [ -e "$p" ]; then git add -- "$p"; fi
+          done
+          if git diff --cached --quiet; then echo "No collected changes."; exit 0; fi
+          git commit -m "chore(data): Musinsa v9 slot ${{ needs.discover.outputs.slot }} [skip ci]"
+          git pull --rebase origin "$GITHUB_REF_NAME"
+          git push origin "HEAD:$GITHUB_REF_NAME"
+      - name: Backup artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v9-backup-slot-${{ needs.discover.outputs.slot }}-${{ github.run_id }}
+          retention-days: 7
+          if-no-files-found: ignore
+          path: |
+            musinsa_daily_product_sales.csv
+            musinsa_daily_brand_sales.csv
+            musinsa_daily_summary.csv
+            data/coverage/*.json
+            data/recovery/**/*.csv
+            data/latest_slots/*.csv.gz
+\t' read -r RUN_ID RUN_STATUS RUN_NAME RUN_CREATED; do
+                if [ -z "$RUN_ID" ]; then continue; fi
+                if [ "$RUN_STATUS" = "queued" ]; then
+                  AGE=$(( $(date +%s) - $(date -d "$RUN_CREATED" +%s) ))
+                  if [ "$AGE" -ge 5400 ]; then
+                    JOBS="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/jobs?per_page=1" --jq '.total_count')"
+                    if [ "$JOBS" = "0" ]; then
+                      echo "Ignoring abandoned queued run ${RUN_ID}: no jobs after ${AGE}s"
+                      continue
+                    fi
+                  fi
+                fi
+                OLDER="${OLDER}${RUN_ID}"      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: v9-discovery-state
+          path: run_state
+      - run: mkdir -p shard_results
+      - name: Download available primary result
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: v9-slot-${{ needs.discover.outputs.slot }}-primary
+          path: shard_results
+      - name: Aggregate and create recovery queue
+        run: |
+          if [ -d run_state/lifecycle ]; then mkdir -p data; cp -R run_state/lifecycle data/; fi
+          python musinsa_collector_v9.py aggregate-slot --state-dir run_state --shard-dir shard_results
+
+      - name: Recalculate recent calendar-day estimates immediately
+        shell: bash
+        run: |
+          python musinsa_collector_v9.py finalize-calendar --lookback-days 3
+
+      - name: Commit primary data and coverage
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A -- data
+          for p in             musinsa_watchlist.txt             musinsa_catalog.csv             musinsa_brand_audit.csv             musinsa_daily_product_sales.csv             musinsa_daily_brand_sales.csv             musinsa_daily_summary.csv             musinsa_new_products.csv             musinsa_calendar_latest_products.csv             musinsa_calendar_brand_daily.csv             musinsa_calendar_summary.csv             data/calendar; do
+            if [ -e "$p" ]; then git add -- "$p"; fi
+          done
+          if git diff --cached --quiet; then echo "No collected changes."; exit 0; fi
+          git commit -m "chore(data): Musinsa v9 slot ${{ needs.discover.outputs.slot }} [skip ci]"
+          git pull --rebase origin "$GITHUB_REF_NAME"
+          git push origin "HEAD:$GITHUB_REF_NAME"
+      - name: Backup artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v9-backup-slot-${{ needs.discover.outputs.slot }}-${{ github.run_id }}
+          retention-days: 7
+          if-no-files-found: ignore
+          path: |
+            musinsa_daily_product_sales.csv
+            musinsa_daily_brand_sales.csv
+            musinsa_daily_summary.csv
+            data/coverage/*.json
+            data/recovery/**/*.csv
+            data/latest_slots/*.csv.gz
+\t'"${RUN_STATUS}"      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: v9-discovery-state
+          path: run_state
+      - run: mkdir -p shard_results
+      - name: Download available primary result
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: v9-slot-${{ needs.discover.outputs.slot }}-primary
+          path: shard_results
+      - name: Aggregate and create recovery queue
+        run: |
+          if [ -d run_state/lifecycle ]; then mkdir -p data; cp -R run_state/lifecycle data/; fi
+          python musinsa_collector_v9.py aggregate-slot --state-dir run_state --shard-dir shard_results
+
+      - name: Recalculate recent calendar-day estimates immediately
+        shell: bash
+        run: |
+          python musinsa_collector_v9.py finalize-calendar --lookback-days 3
+
+      - name: Commit primary data and coverage
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A -- data
+          for p in             musinsa_watchlist.txt             musinsa_catalog.csv             musinsa_brand_audit.csv             musinsa_daily_product_sales.csv             musinsa_daily_brand_sales.csv             musinsa_daily_summary.csv             musinsa_new_products.csv             musinsa_calendar_latest_products.csv             musinsa_calendar_brand_daily.csv             musinsa_calendar_summary.csv             data/calendar; do
+            if [ -e "$p" ]; then git add -- "$p"; fi
+          done
+          if git diff --cached --quiet; then echo "No collected changes."; exit 0; fi
+          git commit -m "chore(data): Musinsa v9 slot ${{ needs.discover.outputs.slot }} [skip ci]"
+          git pull --rebase origin "$GITHUB_REF_NAME"
+          git push origin "HEAD:$GITHUB_REF_NAME"
+      - name: Backup artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v9-backup-slot-${{ needs.discover.outputs.slot }}-${{ github.run_id }}
+          retention-days: 7
+          if-no-files-found: ignore
+          path: |
+            musinsa_daily_product_sales.csv
+            musinsa_daily_brand_sales.csv
+            musinsa_daily_summary.csv
+            data/coverage/*.json
+            data/recovery/**/*.csv
+            data/latest_slots/*.csv.gz
+\t'"${RUN_NAME}"      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: v9-discovery-state
+          path: run_state
+      - run: mkdir -p shard_results
+      - name: Download available primary result
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: v9-slot-${{ needs.discover.outputs.slot }}-primary
+          path: shard_results
+      - name: Aggregate and create recovery queue
+        run: |
+          if [ -d run_state/lifecycle ]; then mkdir -p data; cp -R run_state/lifecycle data/; fi
+          python musinsa_collector_v9.py aggregate-slot --state-dir run_state --shard-dir shard_results
+
+      - name: Recalculate recent calendar-day estimates immediately
+        shell: bash
+        run: |
+          python musinsa_collector_v9.py finalize-calendar --lookback-days 3
+
+      - name: Commit primary data and coverage
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A -- data
+          for p in             musinsa_watchlist.txt             musinsa_catalog.csv             musinsa_brand_audit.csv             musinsa_daily_product_sales.csv             musinsa_daily_brand_sales.csv             musinsa_daily_summary.csv             musinsa_new_products.csv             musinsa_calendar_latest_products.csv             musinsa_calendar_brand_daily.csv             musinsa_calendar_summary.csv             data/calendar; do
+            if [ -e "$p" ]; then git add -- "$p"; fi
+          done
+          if git diff --cached --quiet; then echo "No collected changes."; exit 0; fi
+          git commit -m "chore(data): Musinsa v9 slot ${{ needs.discover.outputs.slot }} [skip ci]"
+          git pull --rebase origin "$GITHUB_REF_NAME"
+          git push origin "HEAD:$GITHUB_REF_NAME"
+      - name: Backup artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v9-backup-slot-${{ needs.discover.outputs.slot }}-${{ github.run_id }}
+          retention-days: 7
+          if-no-files-found: ignore
+          path: |
+            musinsa_daily_product_sales.csv
+            musinsa_daily_brand_sales.csv
+            musinsa_daily_summary.csv
+            data/coverage/*.json
+            data/recovery/**/*.csv
+            data/latest_slots/*.csv.gz
+\t'"${RUN_CREATED}"      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: v9-discovery-state
+          path: run_state
+      - run: mkdir -p shard_results
+      - name: Download available primary result
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: v9-slot-${{ needs.discover.outputs.slot }}-primary
+          path: shard_results
+      - name: Aggregate and create recovery queue
+        run: |
+          if [ -d run_state/lifecycle ]; then mkdir -p data; cp -R run_state/lifecycle data/; fi
+          python musinsa_collector_v9.py aggregate-slot --state-dir run_state --shard-dir shard_results
+
+      - name: Recalculate recent calendar-day estimates immediately
+        shell: bash
+        run: |
+          python musinsa_collector_v9.py finalize-calendar --lookback-days 3
+
+      - name: Commit primary data and coverage
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A -- data
+          for p in             musinsa_watchlist.txt             musinsa_catalog.csv             musinsa_brand_audit.csv             musinsa_daily_product_sales.csv             musinsa_daily_brand_sales.csv             musinsa_daily_summary.csv             musinsa_new_products.csv             musinsa_calendar_latest_products.csv             musinsa_calendar_brand_daily.csv             musinsa_calendar_summary.csv             data/calendar; do
+            if [ -e "$p" ]; then git add -- "$p"; fi
+          done
+          if git diff --cached --quiet; then echo "No collected changes."; exit 0; fi
+          git commit -m "chore(data): Musinsa v9 slot ${{ needs.discover.outputs.slot }} [skip ci]"
+          git pull --rebase origin "$GITHUB_REF_NAME"
+          git push origin "HEAD:$GITHUB_REF_NAME"
+      - name: Backup artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v9-backup-slot-${{ needs.discover.outputs.slot }}-${{ github.run_id }}
+          retention-days: 7
+          if-no-files-found: ignore
+          path: |
+            musinsa_daily_product_sales.csv
+            musinsa_daily_brand_sales.csv
+            musinsa_daily_summary.csv
+            data/coverage/*.json
+            data/recovery/**/*.csv
+            data/latest_slots/*.csv.gz
+\n'
+              done <<< "$MATCHES"
+            done
+
+            if [ -z "${OLDER//      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: v9-discovery-state
+          path: run_state
+      - run: mkdir -p shard_results
+      - name: Download available primary result
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: v9-slot-${{ needs.discover.outputs.slot }}-primary
+          path: shard_results
+      - name: Aggregate and create recovery queue
+        run: |
+          if [ -d run_state/lifecycle ]; then mkdir -p data; cp -R run_state/lifecycle data/; fi
+          python musinsa_collector_v9.py aggregate-slot --state-dir run_state --shard-dir shard_results
+
+      - name: Recalculate recent calendar-day estimates immediately
+        shell: bash
+        run: |
+          python musinsa_collector_v9.py finalize-calendar --lookback-days 3
+
+      - name: Commit primary data and coverage
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A -- data
+          for p in             musinsa_watchlist.txt             musinsa_catalog.csv             musinsa_brand_audit.csv             musinsa_daily_product_sales.csv             musinsa_daily_brand_sales.csv             musinsa_daily_summary.csv             musinsa_new_products.csv             musinsa_calendar_latest_products.csv             musinsa_calendar_brand_daily.csv             musinsa_calendar_summary.csv             data/calendar; do
+            if [ -e "$p" ]; then git add -- "$p"; fi
+          done
+          if git diff --cached --quiet; then echo "No collected changes."; exit 0; fi
+          git commit -m "chore(data): Musinsa v9 slot ${{ needs.discover.outputs.slot }} [skip ci]"
+          git pull --rebase origin "$GITHUB_REF_NAME"
+          git push origin "HEAD:$GITHUB_REF_NAME"
+      - name: Backup artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v9-backup-slot-${{ needs.discover.outputs.slot }}-${{ github.run_id }}
+          retention-days: 7
+          if-no-files-found: ignore
+          path: |
+            musinsa_daily_product_sales.csv
+            musinsa_daily_brand_sales.csv
+            musinsa_daily_summary.csv
+            data/coverage/*.json
+            data/recovery/**/*.csv
+            data/latest_slots/*.csv.gz
+\n'/}" ]; then
+              echo "Musinsa FIFO turn acquired."
+              break
+            fi
+
+            echo "Older Musinsa runs are active; waiting 20 seconds:"
+            printf '%s' "$OLDER"
+            sleep 20
+          done
+
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.ref_name }}
