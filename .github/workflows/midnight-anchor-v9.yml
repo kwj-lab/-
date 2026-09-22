@@ -32,16 +32,23 @@ env:
   MUSINSA_MIDNIGHT_ANCHOR_MAX_PER_RUN: '15000'
 
 jobs:
-  anchor:
+  collect:
     runs-on: ubuntu-latest
     timeout-minutes: 360
+    outputs:
+      run: ${{ steps.window.outputs.run }}
     steps:
       - name: Check KST midnight-anchor window
         id: window
         shell: bash
         run: |
           set -euo pipefail
-          RUN_ANCHOR="$(python -c 'from datetime import datetime,timedelta,timezone; now=datetime.now(timezone(timedelta(hours=9))); mins=now.hour*60+now.minute; print("1" if mins>=1435 or mins<=15 else "0")')"
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            # A scheduled 23:55 run remains valid even if GitHub starts the runner a little late.
+            RUN_ANCHOR="1"
+          else
+            RUN_ANCHOR="$(python -c 'from datetime import datetime,timedelta,timezone; now=datetime.now(timezone(timedelta(hours=9))); mins=now.hour*60+now.minute; print("1" if mins>=1435 or mins<=15 else "0")')"
+          fi
 
           # Manual dry-run is allowed outside the live boundary window because it does not query products.
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.dry_run }}" = "true" ]; then
@@ -126,27 +133,23 @@ jobs:
               )"
 
               # FIFO ignores stale queued runs without jobs.
-              while IFS=      - name: Commit midnight anchor observations
+              while IFS=      - name: Package midnight-anchor payload
         if: ${{ steps.window.outputs.run == '1' && !(github.event_name == 'workflow_dispatch' && inputs.dry_run == true) }}
         shell: bash
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-          for p in \
-            data/observations \
-            data/anchor; do
-            if [ -e "$p" ]; then git add -- "$p"; fi
-          done
-
-          if git diff --cached --quiet; then
-            echo "No midnight-anchor changes."
-            exit 0
+          git ls-files -m -o --exclude-standard -- data/observations data/anchor > anchor-files.txt
+          if [ -s anchor-files.txt ]; then
+            tar -czf anchor-payload.tgz -T anchor-files.txt
           fi
 
-          git commit -m "chore(data): midnight Musinsa anchor [skip ci]"
-          git pull --rebase origin "$GITHUB_REF_NAME"
-          git push origin "HEAD:$GITHUB_REF_NAME"
+      - name: Upload midnight-anchor payload
+        if: ${{ steps.window.outputs.run == '1' && !(github.event_name == 'workflow_dispatch' && inputs.dry_run == true) }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: v9-anchor-payload-${{ github.run_id }}
+          retention-days: 1
+          if-no-files-found: ignore
+          path: anchor-payload.tgz
 
       - name: Upload anchor report
         if: ${{ always() && steps.window.outputs.run == '1' }}
@@ -156,3 +159,47 @@ jobs:
           retention-days: 3
           if-no-files-found: ignore
           path: data/anchor/**/*.json
+
+  commit:
+    needs: collect
+    if: ${{ needs.collect.result == 'success' && needs.collect.outputs.run == '1' && !(github.event_name == 'workflow_dispatch' && inputs.dry_run == true) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: musinsa-data-writer
+      cancel-in-progress: false
+    steps:
+      - name: Checkout latest repository state
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 1
+
+      - name: Download midnight-anchor payload
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: v9-anchor-payload-${{ github.run_id }}
+          path: payload
+
+      - name: Restore midnight-anchor payload
+        shell: bash
+        run: |
+          if [ -f payload/anchor-payload.tgz ]; then
+            tar -xzf payload/anchor-payload.tgz
+          fi
+
+      - name: Commit midnight anchor observations
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ -e data/observations ]; then git add -- data/observations; fi
+          if [ -e data/anchor ]; then git add -- data/anchor; fi
+          if git diff --cached --quiet; then
+            echo "No midnight-anchor changes."
+            exit 0
+          fi
+          git commit -m "chore(data): midnight Musinsa anchor [skip ci]"
+          git pull --rebase origin "$GITHUB_REF_NAME"
+          git push origin "HEAD:$GITHUB_REF_NAME"
