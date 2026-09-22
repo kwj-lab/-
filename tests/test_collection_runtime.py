@@ -107,6 +107,16 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("hour=23, minute=55", source)
         self.assertIn("minutes_to_next_critical", source)
 
+    def test_primary_aggregate_does_not_copy_stale_lifecycle_tree(self):
+        source = (
+            ROOT / ".github/workflows" / "collect-distributed-v9.yml"
+        ).read_text()
+        self.assertNotIn("cp -R run_state/lifecycle data/", source)
+        self.assertIn(
+            "aggregate-slot --state-dir run_state --shard-dir shard_results",
+            source,
+        )
+
     def test_primary_workflow_passes_pinned_snapshot_date(self):
         source = (ROOT / ".github/workflows" / "collect-distributed-v9.yml").read_text()
         self.assertIn("Resolve intended KST snapshot date", source)
@@ -219,6 +229,161 @@ class IsolatedCollectorTests(unittest.TestCase):
         collector.write_csv(collector.LATEST_PRODUCT_FILE,
                             [{**self.raw("2026-09-14T03:00:00+09:00"), "slot": 1, "daily_sales": 30}],
                             collector.LATEST_FIELDS)
+
+    def test_discovery_merge_never_overwrites_newer_root_state(self):
+        state = self.base / "run_state"
+        state.mkdir(parents=True, exist_ok=True)
+
+        def catalog_row(goods_no, seen, price, first_seen, lifecycle_checked, lifecycle_type):
+            return {
+                "goods_no": str(goods_no),
+                "brand_name": "brand-a" if str(goods_no) == "100" else "brand-b",
+                "product_name": f"goods-{goods_no}",
+                "normal_price": price,
+                "current_price": price,
+                "sale_rate": 0,
+                "review_count": 0,
+                "rating": "",
+                "availability": "SALE",
+                "first_seen_at": first_seen,
+                "last_seen_at": seen,
+                "lifecycle_status": "reactivated_pretracker" if lifecycle_type else "",
+                "lifecycle_evidence_type": lifecycle_type,
+                "lifecycle_evidence_date": "2026-08-01" if lifecycle_type else "",
+                "lifecycle_checked_at": lifecycle_checked,
+                "product_url": f"https://www.musinsa.com/products/{goods_no}",
+            }
+
+        root_100 = catalog_row(
+            100,
+            "2026-09-22T14:00:00+09:00",
+            39000,
+            "2026-09-01T09:00:00+09:00",
+            "2026-09-22T14:00:00+09:00",
+            "root-newer",
+        )
+        stale_100 = catalog_row(
+            100,
+            "2026-09-22T13:00:00+09:00",
+            35000,
+            "2026-09-02T09:00:00+09:00",
+            "2026-09-22T13:00:00+09:00",
+            "state-stale",
+        )
+        new_200 = catalog_row(
+            200,
+            "2026-09-22T15:00:00+09:00",
+            32000,
+            "2026-09-22T15:00:00+09:00",
+            "2026-09-22T15:00:00+09:00",
+            "state-new",
+        )
+
+        collector.write_csv(collector.CATALOG_FILE, [root_100], collector.CATALOG_FIELDS)
+        collector.write_csv(
+            state / "musinsa_catalog.csv",
+            [stale_100, new_200],
+            collector.CATALOG_FIELDS,
+        )
+        collector.write_lines(collector.WATCHLIST_FILE, ["100", "999"])
+        collector.write_lines(state / "musinsa_watchlist.txt", ["100", "200"])
+
+        root_audit = {
+            field: "" for field in collector.BRAND_AUDIT_FIELDS
+        }
+        root_audit.update({
+            "checked_at": "2026-09-22T14:00:00+09:00",
+            "requested_brand": "brand-a",
+            "status": "root-newer",
+        })
+        stale_audit = dict(root_audit)
+        stale_audit.update({
+            "checked_at": "2026-09-22T13:00:00+09:00",
+            "status": "state-stale",
+        })
+        new_audit = {
+            field: "" for field in collector.BRAND_AUDIT_FIELDS
+        }
+        new_audit.update({
+            "checked_at": "2026-09-22T15:00:00+09:00",
+            "requested_brand": "brand-b",
+            "status": "state-new",
+        })
+        collector.write_csv(
+            collector.BRAND_AUDIT_FILE,
+            [root_audit],
+            collector.BRAND_AUDIT_FIELDS,
+        )
+        collector.write_csv(
+            state / "musinsa_brand_audit.csv",
+            [stale_audit, new_audit],
+            collector.BRAND_AUDIT_FIELDS,
+        )
+
+        collector.LIFECYCLE_DIR.mkdir(parents=True, exist_ok=True)
+        collector.LIFECYCLE_EVIDENCE_FILE.write_text(
+            json.dumps({
+                "100": {
+                    "checked_at": "2026-09-22T14:00:00+09:00",
+                    "status": "root-newer",
+                },
+                "999": {
+                    "checked_at": "2026-09-22T12:00:00+09:00",
+                    "status": "root-only",
+                },
+            }),
+            encoding="utf-8",
+        )
+        state_lifecycle = state / "lifecycle"
+        state_lifecycle.mkdir(parents=True, exist_ok=True)
+        (state_lifecycle / "pretracker_evidence.json").write_text(
+            json.dumps({
+                "100": {
+                    "checked_at": "2026-09-22T13:00:00+09:00",
+                    "status": "state-stale",
+                },
+                "200": {
+                    "checked_at": "2026-09-22T15:00:00+09:00",
+                    "status": "state-new",
+                },
+            }),
+            encoding="utf-8",
+        )
+
+        with patch.object(collector, "_LIFECYCLE_CACHE_MEMORY", None):
+            collector.merge_discovery_state_into_root(state)
+
+        merged = {
+            r["goods_no"]: r for r in collector.read_csv(collector.CATALOG_FILE)
+        }
+        self.assertEqual(merged["100"]["current_price"], "39000")
+        self.assertEqual(
+            merged["100"]["lifecycle_evidence_type"],
+            "root-newer",
+        )
+        self.assertEqual(
+            merged["100"]["first_seen_at"],
+            "2026-09-01T09:00:00+09:00",
+        )
+        self.assertEqual(merged["200"]["current_price"], "32000")
+        self.assertEqual(
+            collector.read_lines(collector.WATCHLIST_FILE),
+            ["100", "200", "999"],
+        )
+
+        audits = {
+            r["requested_brand"]: r
+            for r in collector.read_csv(collector.BRAND_AUDIT_FILE)
+        }
+        self.assertEqual(audits["brand-a"]["status"], "root-newer")
+        self.assertEqual(audits["brand-b"]["status"], "state-new")
+
+        lifecycle = json.loads(
+            collector.LIFECYCLE_EVIDENCE_FILE.read_text(encoding="utf-8")
+        )
+        self.assertEqual(lifecycle["100"]["status"], "root-newer")
+        self.assertEqual(lifecycle["200"]["status"], "state-new")
+        self.assertEqual(lifecycle["999"]["status"], "root-only")
 
     def test_discover_slot_honors_pinned_snapshot_date(self):
         state = self.base / "run_state"
