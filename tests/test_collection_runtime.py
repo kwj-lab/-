@@ -112,6 +112,40 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("Resolve intended KST snapshot date", source)
         self.assertIn('--snapshot-date "${{ steps.snapshot.outputs.snapshot_date }}"', source)
 
+    def test_delayed_slot7_keeps_previous_kst_snapshot_date(self):
+        data = yaml.safe_load(
+            (ROOT / ".github/workflows" / "collect-distributed-v9.yml").read_text()
+        )
+        discover = data["jobs"]["discover"]
+        step = next(s for s in discover["steps"] if s.get("id") == "snapshot")
+        match = re.search(r"python - <<'PY2'\n(.*?)\nPY2", step["run"], re.S)
+        self.assertIsNotNone(match)
+
+        code = match[1]
+        code = code.replace(
+            "now = datetime.now(KST)",
+            "now = datetime(2026, 9, 23, 0, 5, tzinfo=KST)",
+        )
+        code = code.replace("${{ steps.slot.outputs.slot }}", "7")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "output"
+            env = {
+                **os.environ,
+                "GITHUB_OUTPUT": str(output),
+                "GITHUB_EVENT_NAME": "schedule",
+            }
+            subprocess.run(
+                [sys.executable, "-c", code],
+                env=env,
+                check=True,
+                capture_output=True,
+            )
+            self.assertEqual(
+                output.read_text().strip(),
+                "snapshot_date=2026-09-22",
+            )
+
     def test_scheduled_primary_and_adaptive_slots_are_pinned_to_cron(self):
         cases = {
             "collect-distributed-v9.yml": {
