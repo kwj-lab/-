@@ -2507,6 +2507,179 @@ def build_latest_row(raw, prev, b7, b30, today, slot, catalog_row=None):
     }
 
 
+def _merge_row_by_timestamp(current, incoming, time_field, fields):
+    """Merge two CSV rows without letting an older discovery snapshot win."""
+    if not current:
+        return dict(incoming or {})
+    if not incoming:
+        return dict(current or {})
+
+    cur = dict(current)
+    inc = dict(incoming)
+
+    cur_time = parse_kst_datetime(cur.get(time_field))
+    inc_time = parse_kst_datetime(inc.get(time_field))
+
+    if inc_time is not None and (cur_time is None or inc_time > cur_time):
+        winner, loser = inc, cur
+    else:
+        winner, loser = cur, inc
+
+    merged = dict(winner)
+    for field in fields:
+        if merged.get(field) in (None, "") and loser.get(field) not in (None, ""):
+            merged[field] = loser.get(field)
+    return merged
+
+
+def merge_discovery_state_into_root(state_dir):
+    """Merge one discovery snapshot into the latest repository state.
+
+    Discovery jobs are allowed to run in parallel with other observations. By
+    the time this run reaches the serialized writer, the repository may contain
+    newer catalog/audit/lifecycle rows from another slot. Never replace those
+    newer rows with the full, older discovery snapshot.
+    """
+    state_dir = Path(state_dir)
+
+    current_catalog_rows = read_csv(CATALOG_FILE)
+    state_catalog_rows = read_csv(state_dir / "musinsa_catalog.csv")
+    current_catalog = {
+        str(r.get("goods_no") or ""): r
+        for r in current_catalog_rows if r.get("goods_no")
+    }
+    state_catalog = {
+        str(r.get("goods_no") or ""): r
+        for r in state_catalog_rows if r.get("goods_no")
+    }
+
+    merged_catalog = {}
+    for g in set(current_catalog) | set(state_catalog):
+        cur = current_catalog.get(g)
+        inc = state_catalog.get(g)
+        merged = _merge_row_by_timestamp(
+            cur, inc, "last_seen_at", CATALOG_FIELDS
+        )
+
+        # first_seen_at is historical identity, so preserve the earliest known
+        # timestamp even when another row wins on last_seen_at.
+        first_candidates = []
+        for row in (cur, inc):
+            dt = parse_kst_datetime((row or {}).get("first_seen_at"))
+            if dt is not None:
+                first_candidates.append(dt)
+        if first_candidates:
+            merged["first_seen_at"] = min(first_candidates).isoformat(timespec="seconds")
+
+        # Lifecycle evidence has its own timestamp and may be newer than the
+        # product metadata row chosen above.
+        lifecycle_fields = (
+            "lifecycle_status",
+            "lifecycle_evidence_type",
+            "lifecycle_evidence_date",
+            "lifecycle_checked_at",
+        )
+        cur_life = parse_kst_datetime((cur or {}).get("lifecycle_checked_at"))
+        inc_life = parse_kst_datetime((inc or {}).get("lifecycle_checked_at"))
+        life_source = None
+        if inc_life is not None and (cur_life is None or inc_life > cur_life):
+            life_source = inc
+        elif cur_life is not None:
+            life_source = cur
+        if life_source:
+            for field in lifecycle_fields:
+                if life_source.get(field) not in (None, ""):
+                    merged[field] = life_source.get(field)
+
+        merged_catalog[g] = merged
+
+    catalog_rows = [
+        merged_catalog[g]
+        for g in sorted(
+            merged_catalog,
+            key=lambda x: int(x) if str(x).isdigit() else 10**30,
+        )
+    ]
+    write_csv(CATALOG_FILE, catalog_rows, CATALOG_FIELDS)
+
+    # Watchlist is append-only in v9 collection. Union prevents a stale
+    # discovery state from deleting goods discovered by a different slot.
+    watchlist = []
+    seen = set()
+    for g in read_lines(WATCHLIST_FILE) + read_lines(state_dir / "musinsa_watchlist.txt"):
+        g = str(g).strip()
+        if g and g not in seen:
+            watchlist.append(g)
+            seen.add(g)
+    watchlist.sort(key=lambda x: int(x) if x.isdigit() else 10**30)
+    write_lines(WATCHLIST_FILE, watchlist)
+
+    # Audit rows are keyed by requested brand; newest checked_at wins.
+    current_audit = {
+        str(r.get("requested_brand") or "").strip().casefold(): r
+        for r in read_csv(BRAND_AUDIT_FILE)
+        if str(r.get("requested_brand") or "").strip()
+    }
+    state_audit = {
+        str(r.get("requested_brand") or "").strip().casefold(): r
+        for r in read_csv(state_dir / "musinsa_brand_audit.csv")
+        if str(r.get("requested_brand") or "").strip()
+    }
+    merged_audit = []
+    for key in sorted(set(current_audit) | set(state_audit)):
+        merged_audit.append(
+            _merge_row_by_timestamp(
+                current_audit.get(key),
+                state_audit.get(key),
+                "checked_at",
+                BRAND_AUDIT_FIELDS,
+            )
+        )
+    if merged_audit:
+        write_csv(BRAND_AUDIT_FILE, merged_audit, BRAND_AUDIT_FIELDS)
+
+    # Lifecycle cache is a dict keyed by goodsNo. Merge by its own checked_at
+    # instead of copying the whole run_state file over current main.
+    state_lifecycle = state_dir / "lifecycle" / "pretracker_evidence.json"
+    if state_lifecycle.exists():
+        try:
+            root_obj = {}
+            if LIFECYCLE_EVIDENCE_FILE.exists():
+                root_obj = json.loads(LIFECYCLE_EVIDENCE_FILE.read_text(encoding="utf-8"))
+                if not isinstance(root_obj, dict):
+                    root_obj = {}
+            incoming_obj = json.loads(state_lifecycle.read_text(encoding="utf-8"))
+            if not isinstance(incoming_obj, dict):
+                incoming_obj = {}
+
+            merged_obj = dict(root_obj)
+            for g, incoming in incoming_obj.items():
+                if not isinstance(incoming, dict):
+                    continue
+                current = merged_obj.get(g)
+                if not isinstance(current, dict):
+                    merged_obj[g] = incoming
+                    continue
+                cur_time = parse_kst_datetime(current.get("checked_at"))
+                inc_time = parse_kst_datetime(incoming.get("checked_at"))
+                if inc_time is not None and (cur_time is None or inc_time > cur_time):
+                    merged_obj[g] = incoming
+
+            LIFECYCLE_DIR.mkdir(parents=True, exist_ok=True)
+            tmp = LIFECYCLE_EVIDENCE_FILE.with_suffix(".tmp")
+            tmp.write_text(
+                json.dumps(merged_obj, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            tmp.replace(LIFECYCLE_EVIDENCE_FILE)
+            global _LIFECYCLE_CACHE_MEMORY
+            _LIFECYCLE_CACHE_MEMORY = merged_obj
+        except Exception as exc:
+            print(f"[lifecycle-merge] {exc}", file=sys.stderr)
+
+    return catalog_rows, watchlist
+
+
 def append_new_products(delta):
     if not delta:
         return
@@ -3147,12 +3320,10 @@ def aggregate_slot(state_dir, shard_dir):
     write_csv(LATEST_SLOT_DIR / f"slot-{slot}.csv.gz", latest, LATEST_FIELDS)
     write_history_manifest()
 
-    # discovery 상태 root 반영
-    write_lines(WATCHLIST_FILE, watchlist)
-    write_csv(CATALOG_FILE, catalog_rows, CATALOG_FIELDS)
-    audit_rows = read_csv(state_dir / "musinsa_brand_audit.csv")
-    if audit_rows:
-        write_csv(BRAND_AUDIT_FILE, audit_rows, BRAND_AUDIT_FIELDS)
+    # Merge discovery state into the latest serialized repository state.
+    # Do not overwrite other slots with the stale full snapshot captured when
+    # this discovery job began.
+    merge_discovery_state_into_root(state_dir)
     new_delta = read_csv(state_dir / "new_products_delta.csv")
     append_new_products(new_delta)
 
