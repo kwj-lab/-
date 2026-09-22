@@ -40,7 +40,30 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Check recovery safety window
+        id: window
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          from datetime import datetime, timedelta, timezone
+
+          now = datetime.now(timezone(timedelta(hours=9)))
+          base_hour = (now.hour // 3) * 3
+          nxt = now.replace(hour=base_hour, minute=15, second=0, microsecond=0)
+          if nxt <= now:
+              nxt += timedelta(hours=3)
+          minutes = (nxt - now).total_seconds() / 60.0
+
+          # Recovery may use up to 60 minutes. Keep at least a 5-minute buffer
+          # before the next primary observation window.
+          run = "1" if minutes >= 65 else "0"
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+              fh.write(f"run={run}\n")
+          print(f"minutes_to_next_primary={minutes:.1f}, recovery_run={run}")
+          PY
       - name: Recover pending goods only
+        if: ${{ steps.window.outputs.run == '1' }}
         shell: bash
         run: |
           DAYS="2"
@@ -49,6 +72,7 @@ jobs:
           fi
           python musinsa_collector_v9.py recover-pending --lookback-days "$DAYS" --max-queues 4
       - name: Commit recovered data
+        if: ${{ steps.window.outputs.run == '1' }}
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
