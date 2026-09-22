@@ -86,6 +86,7 @@ class WorkflowTests(unittest.TestCase):
                     job = jobs[job_name]
                     concurrency = job.get("concurrency", {})
                     self.assertEqual(concurrency.get("group"), "musinsa-data-writer")
+                    self.assertEqual(concurrency.get("queue"), "max")
                     self.assertFalse(concurrency.get("cancel-in-progress"))
 
                     steps = job["steps"]
