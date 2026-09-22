@@ -705,11 +705,15 @@ def search_brand_products(brand_name, known_goods=None, exhaustive=False):
     }
     return results, audit
 
-def discover_slot(state_dir, slot, force_full=False):
+def discover_slot(state_dir, slot, force_full=False, snapshot_date=None):
     state_dir = Path(state_dir)
     state_dir.mkdir(parents=True, exist_ok=True)
     slot = int(slot)
-    snapshot_date = now_kst().date()
+    if snapshot_date:
+        if isinstance(snapshot_date, str):
+            snapshot_date = datetime.strptime(snapshot_date, "%Y-%m-%d").date()
+    else:
+        snapshot_date = now_kst().date()
 
     (state_dir / "snapshot_date.txt").write_text(snapshot_date.isoformat() + "\n", encoding="utf-8")
     (state_dir / "slot.txt").write_text(str(slot) + "\n", encoding="utf-8")
@@ -3922,6 +3926,7 @@ def main():
     p.add_argument("--state-dir", default="run_state")
     p.add_argument("--slot", type=int, required=True, choices=range(8))
     p.add_argument("--full-discovery", action="store_true")
+    p.add_argument("--snapshot-date", default="")
 
     p = sub.add_parser("collect-slot-shard")
     p.add_argument("--state-dir", default="run_state")
@@ -3962,7 +3967,12 @@ def main():
     if args.cmd == "repair-sales":
         return 0
     if args.cmd == "discover-slot":
-        return discover_slot(args.state_dir, args.slot, args.full_discovery)
+        return discover_slot(
+            args.state_dir,
+            args.slot,
+            args.full_discovery,
+            args.snapshot_date or None,
+        )
     if args.cmd == "collect-slot-shard":
         return collect_slot_shard(
             args.state_dir, args.slot, args.shard_index, args.shard_count, args.output
