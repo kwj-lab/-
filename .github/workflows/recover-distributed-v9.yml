@@ -67,7 +67,7 @@ jobs:
                 --jq '.jobs[]
                   | select(
                       .status == "in_progress"
-                      and (.name == "discover" or .name == "collect")
+                      and .name == "collect"
                     )
                   | .name' || true
             )"
@@ -93,10 +93,11 @@ jobs:
           KST = timezone(timedelta(hours=9))
           now = datetime.now(KST)
 
-          # Scheduled recovery belongs to the KST xx:00 hour where hour % 3 == 2
-          # (02:00,05:00,...,23:00). If writer contention delayed it into a
-          # different 3-hour phase, skip instead of colliding with a new primary.
-          in_recovery_phase = (now.hour % 3 == 2)
+          # Scheduled recovery belongs to the KST hour where hour % 3 == 2
+          # (02:30,05:30,...,23:30). If writer contention delays it into a
+          # different phase, skip. Manual runs may use any otherwise-safe window.
+          manual = os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
+          in_recovery_phase = manual or (now.hour % 3 == 2)
 
           base_hour = (now.hour // 3) * 3
           next_primary = now.replace(
