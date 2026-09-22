@@ -59,20 +59,90 @@ class WorkflowTests(unittest.TestCase):
                                       command, "--help"], capture_output=True, text=True)
                 self.assertEqual(run.returncode, 0, run.stderr)
 
-    def test_writers_checkout_latest_data_after_fifo(self):
+    def test_observations_do_not_wait_for_writer_lock_and_writers_are_serialized(self):
+        writer_jobs = {
+            "collect-distributed-v9.yml": {"aggregate"},
+            "adaptive-sampling-v9.yml": {"commit"},
+            "midnight-anchor-v9.yml": {"commit"},
+            "recover-distributed-v9.yml": {"recover"},
+            "calendar-finalize-v9.yml": {"finalize"},
+        }
+        observation_jobs = {
+            "collect-distributed-v9.yml": {"discover", "collect"},
+            "adaptive-sampling-v9.yml": {"collect"},
+            "midnight-anchor-v9.yml": {"collect"},
+        }
+
         for filename in ACTIVE_WORKFLOWS:
-            data = yaml.safe_load((ROOT / ".github/workflows" / filename).read_text())
+            source = (ROOT / ".github/workflows" / filename).read_text()
+            self.assertNotIn("Wait for older Musinsa workflows (FIFO)", source)
+
+            data = yaml.safe_load(source)
             self.assertNotIn("concurrency", data)
             jobs = data["jobs"]
-            for job_name, job in jobs.items():
-                if job_name == "collect":
-                    continue
-                steps = job["steps"]
-                checkout = next(s for s in steps if s.get("uses", "").startswith("actions/checkout@"))
-                self.assertEqual(checkout["with"]["ref"], "${{ github.ref_name }}")
-                self.assertEqual(checkout["with"]["fetch-depth"], 1)
-                if job_name != "aggregate":
-                    self.assertIn("FIFO", steps[0]["name"])
+
+            for job_name in writer_jobs[filename]:
+                with self.subTest(workflow=filename, writer=job_name):
+                    job = jobs[job_name]
+                    concurrency = job.get("concurrency", {})
+                    self.assertEqual(concurrency.get("group"), "musinsa-data-writer")
+                    self.assertFalse(concurrency.get("cancel-in-progress"))
+
+                    steps = job["steps"]
+                    checkout = next(
+                        s for s in steps
+                        if s.get("uses", "").startswith("actions/checkout@")
+                    )
+                    self.assertEqual(checkout["with"]["ref"], "${{ github.ref_name }}")
+                    self.assertEqual(checkout["with"]["fetch-depth"], 1)
+
+            for job_name in observation_jobs.get(filename, set()):
+                with self.subTest(workflow=filename, observer=job_name):
+                    self.assertNotIn("concurrency", jobs[job_name])
+
+    def test_scheduled_primary_and_adaptive_slots_are_pinned_to_cron(self):
+        cases = {
+            "collect-distributed-v9.yml": {
+                "15 15 * * *": 0, "15 18 * * *": 1,
+                "15 21 * * *": 2, "15 0 * * *": 3,
+                "15 3 * * *": 4, "15 6 * * *": 5,
+                "15 9 * * *": 6, "15 12 * * *": 7,
+            },
+            "adaptive-sampling-v9.yml": {
+                "45 16 * * *": 0, "45 19 * * *": 1,
+                "45 22 * * *": 2, "45 1 * * *": 3,
+                "45 4 * * *": 4, "45 7 * * *": 5,
+                "45 10 * * *": 6, "45 13 * * *": 7,
+            },
+        }
+
+        for filename, schedule_map in cases.items():
+            data = yaml.safe_load((ROOT / ".github/workflows" / filename).read_text())
+            first_job = next(iter(data["jobs"].values()))
+            step = next(s for s in first_job["steps"] if s.get("id") == "slot")
+            match = re.search(r"python - <<'PY2'\n(.*?)\nPY2", step["run"], re.S)
+            self.assertIsNotNone(match)
+
+            for schedule, expected in schedule_map.items():
+                with self.subTest(workflow=filename, schedule=schedule), tempfile.TemporaryDirectory() as tmp:
+                    code = match[1]
+                    output = Path(tmp) / "output"
+                    env = {
+                        **os.environ,
+                        "GITHUB_OUTPUT": str(output),
+                        "GITHUB_EVENT_NAME": "schedule",
+                        "EVENT_SCHEDULE": schedule,
+                    }
+                    subprocess.run(
+                        [sys.executable, "-c", code],
+                        env=env,
+                        check=True,
+                        capture_output=True,
+                    )
+                    self.assertEqual(
+                        output.read_text().strip(),
+                        f"slot={expected}",
+                    )
 
 
 class IsolatedCollectorTests(unittest.TestCase):
