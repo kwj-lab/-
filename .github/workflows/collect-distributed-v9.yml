@@ -1,11 +1,6 @@
 name: Distributed Musinsa Collection v9
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'musinsa_collector_v9.py'
-      - '.github/workflows/collect-distributed-v9.yml'
   schedule:
     # Each KST slot has its own cron so FIFO delays cannot change the intended slot.
     # slot 0 = 00:15 KST = 15:15 UTC (previous UTC day)
@@ -102,10 +97,7 @@ jobs:
               slot = schedule_to_slot[schedule]
               source = f"scheduled:{schedule}"
           else:
-              # Push-triggered validation runs are not tied to a collection clock.
-              # Keep them deterministic instead of letting FIFO delay choose a different slot.
-              slot = 0
-              source = "push-default"
+              raise SystemExit(f"Unsupported event for collection: {os.environ.get('GITHUB_EVENT_NAME')!r}")
 
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
               f.write(f"slot={slot}\n")
