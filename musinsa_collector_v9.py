@@ -2827,7 +2827,7 @@ def refresh_latest_slot_from_snapshot(date_value, slot):
     return latest
 
 
-def recover_queue_file(path, deadline=None, batch_size=25):
+def recover_queue_file(path, deadline=None, batch_size=25, max_items=None, finalize=True):
     path = Path(path)
     queue = read_csv(path)
     if not queue:
@@ -2847,12 +2847,15 @@ def recover_queue_file(path, deadline=None, batch_size=25):
     attempted_ids = set()
     batch_size = max(1, int(batch_size))
 
-    # Process a large failed queue in small chunks so recovery can stop near the
-    # next primary observation window without losing already recovered results.
     queued_rows = [r for r in queue if r.get("goods_no")]
+    if max_items is not None:
+        queued_rows = queued_rows[:max(1, int(max_items))]
+
+    # Process only a small slice from one queue at a time. recover_pending()
+    # rotates across queues, so one huge queue cannot monopolize the whole run.
     for offset in range(0, len(queued_rows), batch_size):
-        # Keep 90 seconds for the current batch to settle and for local files /
-        # aggregates to be written before returning to the workflow.
+        # Keep time for the current batch to settle and for local CSV/coverage
+        # writes before returning control to the scheduler.
         if deadline is not None and time.monotonic() >= deadline - 90:
             break
 
@@ -2878,17 +2881,18 @@ def recover_queue_file(path, deadline=None, batch_size=25):
 
     snap_path = SLOT_DIR / f"slot-{slot}" / f"{date_value.isoformat()}.csv.gz"
     snapshot = {str(r.get("goods_no") or ""): r for r in read_csv(snap_path) if r.get("goods_no")}
-    remaining = []
+    deferred_rows = []
+    failed_rows = []
     recovered = 0
     now = now_kst().isoformat(timespec="seconds")
 
     for old in queue:
         g = str(old.get("goods_no") or "")
 
-        # Not attempted because the time budget expired: leave it untouched so
-        # the next recovery run resumes it without inflating retry counts.
+        # Unattempted rows go first so a later round-robin pass continues forward
+        # instead of immediately retrying the same failures.
         if not g or g not in attempted_ids:
-            remaining.append(old)
+            deferred_rows.append(old)
             continue
 
         r = results.get(g) or synthetic_failed_row(g, catalog.get(g), "recovery result missing")
@@ -2900,8 +2904,9 @@ def recover_queue_file(path, deadline=None, batch_size=25):
             row["last_failed_at"] = now
             row["attempts"] = (to_int(old.get("attempts")) or 0) + 1
             row["last_error"] = r.get("errors") or old.get("last_error") or "recovery failed"
-            remaining.append(row)
+            failed_rows.append(row)
 
+    remaining = deferred_rows + failed_rows
     rows = list(snapshot.values())
     rows.sort(key=lambda r: int(r["goods_no"]) if str(r.get("goods_no", "")).isdigit() else 10**30)
     write_csv(snap_path, rows, COMPACT_FIELDS)
@@ -2910,16 +2915,18 @@ def recover_queue_file(path, deadline=None, batch_size=25):
     expected = len(rows)
     success = sum(1 for r in rows if to_int(r.get("purchase_total")) is not None)
     update_coverage(date_value, slot, expected, success, remaining, "recovery")
-    refresh_latest_slot_from_snapshot(date_value, slot)
-    rebuild_latest_product_file()
-    rebuild_date_aggregates(date_value)
-    write_history_manifest()
+
+    if finalize:
+        refresh_latest_slot_from_snapshot(date_value, slot)
+        rebuild_latest_product_file()
+        rebuild_date_aggregates(date_value)
+        write_history_manifest()
 
     return {
         "queue": str(path), "date": date_value.isoformat(), "slot": slot,
         "attempted": len(attempted_ids), "recovered": recovered,
         "remaining": len(remaining),
-        "deferred": max(0, len(queue) - len(attempted_ids)),
+        "deferred": len(deferred_rows),
         "coverage_pct": round((success / expected * 100.0), 4) if expected else 100.0,
         "adaptive_interval_seconds": round(THROTTLE.interval, 3),
     }
@@ -2929,6 +2936,7 @@ def recover_pending(lookback_days=2, max_queues=32, time_budget_minutes=50):
     today = now_kst().date()
     cutoff = today - timedelta(days=max(0, int(lookback_days)))
     candidates = []
+
     if RECOVERY_DIR.exists():
         for path in RECOVERY_DIR.glob("*/slot-*-failed.csv"):
             try:
@@ -2937,42 +2945,77 @@ def recover_pending(lookback_days=2, max_queues=32, time_budget_minutes=50):
                 continue
             if d < cutoff or d > today:
                 continue
-            if read_csv(path):
-                candidates.append((d, path))
+            rows = read_csv(path)
+            if rows:
+                candidates.append((d, path, len(rows)))
 
-    # Oldest failed observations are repaired first.
-    candidates.sort(key=lambda x: (x[0], str(x[1])))
+    # Oldest day first, but within a day start with smaller queues so a single
+    # pathological queue cannot block every other slot.
+    candidates.sort(key=lambda x: (x[0], x[2], str(x[1])))
 
     max_queues = max(1, int(max_queues))
+    selected = candidates[:max_queues]
     budget_seconds = max(0.0, float(time_budget_minutes) * 60.0)
     started = time.monotonic()
     deadline = started + budget_seconds if budget_seconds > 0 else started
 
     results = []
-    stop_reason = "no_pending_queues" if not candidates else "max_queues"
+    touched = set()
+    active = [path for _, path, _ in selected]
+    stop_reason = "no_pending_queues" if not active else "all_candidates"
 
-    for _, path in candidates[:max_queues]:
-        remaining_seconds = deadline - time.monotonic()
-        if remaining_seconds <= 120:
-            stop_reason = "time_budget"
+    # Fair round-robin: each queue gets at most 25 goods per pass. A queue is
+    # revisited in the same run only while it still has unattempted goods.
+    while active:
+        next_active = []
+        budget_exhausted = False
+
+        for path in active:
+            if deadline - time.monotonic() <= 120:
+                stop_reason = "time_budget"
+                budget_exhausted = True
+                break
+
+            result = recover_queue_file(
+                path,
+                deadline=deadline,
+                batch_size=25,
+                max_items=25,
+                finalize=False,
+            )
+            results.append(result)
+
+            if result.get("attempted", 0):
+                touched.add((result.get("date"), int(result.get("slot"))))
+
+            if result.get("deferred", 0) > 0:
+                next_active.append(path)
+
+        if budget_exhausted:
+            break
+        if not next_active:
             break
 
-        result = recover_queue_file(path, deadline=deadline, batch_size=25)
-        results.append(result)
+        active = next_active
 
-        # If a queue itself was only partially attempted, the recovery budget is
-        # effectively exhausted; resume that same queue on the next run.
-        if result.get("deferred", 0):
-            stop_reason = "time_budget"
-            break
-    else:
-        if candidates and len(results) >= min(len(candidates), max_queues):
-            stop_reason = "all_candidates" if len(candidates) <= max_queues else "max_queues"
+    # Rebuild shared derived outputs once per recovery run, not once per 25-good
+    # slice. This keeps round-robin fairness without multiplying rebuild cost.
+    if touched:
+        for date_text, slot in sorted(touched):
+            refresh_latest_slot_from_snapshot(
+                datetime.strptime(date_text, "%Y-%m-%d").date(),
+                slot,
+            )
+        rebuild_latest_product_file()
+        for date_text in sorted({d for d, _ in touched}):
+            rebuild_date_aggregates(datetime.strptime(date_text, "%Y-%m-%d").date())
+        write_history_manifest()
 
     elapsed = time.monotonic() - started
     print(json.dumps({
         "pending_queues": len(candidates),
-        "processed_queue_count": len(results),
+        "selected_queue_count": len(selected),
+        "processed_slices": len(results),
         "processed": results,
         "time_budget_minutes": round(budget_seconds / 60.0, 2),
         "elapsed_seconds": round(elapsed, 1),
