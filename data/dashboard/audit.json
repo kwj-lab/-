@@ -71,16 +71,6 @@
       "reason": "zero_baseline_unverified"
     },
     {
-      "goods_no": "4396299",
-      "brand_name": "알리스",
-      "from_at": "2026-09-17T00:26:10+09:00",
-      "to_at": "2026-09-17T22:37:34+09:00",
-      "before": 0,
-      "after": 2125,
-      "excluded_delta": 2125,
-      "reason": "zero_baseline_unverified"
-    },
-    {
       "goods_no": "4551885",
       "brand_name": "노티카",
       "from_at": "2026-09-01T15:28:51+09:00",
@@ -651,16 +641,6 @@
       "reason": "zero_baseline_unverified"
     },
     {
-      "goods_no": "5479943",
-      "brand_name": "미세키서울",
-      "from_at": "2026-09-01T21:34:14+09:00",
-      "to_at": "2026-09-02T21:34:15+09:00",
-      "before": 0,
-      "after": 348,
-      "excluded_delta": 348,
-      "reason": "zero_baseline_unverified"
-    },
-    {
       "goods_no": "5523580",
       "brand_name": "노티카",
       "from_at": "2026-09-01T15:35:26+09:00",
@@ -998,6 +978,26 @@
       "before": 0,
       "after": 204,
       "excluded_delta": 204,
+      "reason": "zero_baseline_unverified"
+    },
+    {
+      "goods_no": "7192707",
+      "brand_name": "라코스테",
+      "from_at": "2026-09-15T17:59:11+09:00",
+      "to_at": "2026-09-16T17:52:33+09:00",
+      "before": 0,
+      "after": 203,
+      "excluded_delta": 203,
+      "reason": "zero_baseline_unverified"
+    },
+    {
+      "goods_no": "7192679",
+      "brand_name": "라코스테",
+      "from_at": "2026-09-16T17:52:33+09:00",
+      "to_at": "2026-09-17T17:46:23+09:00",
+      "before": 0,
+      "after": 197,
+      "excluded_delta": 197,
       "reason": "zero_baseline_unverified"
     }
   ]
