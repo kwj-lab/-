@@ -7,7 +7,8 @@ permissions:
   contents: write
 
 concurrency:
-  group: musinsa-v9-catalog-init
+  group: musinsa-data-writer
+  queue: max
   cancel-in-progress: false
 
 env:
