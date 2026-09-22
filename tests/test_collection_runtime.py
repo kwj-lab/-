@@ -101,6 +101,17 @@ class WorkflowTests(unittest.TestCase):
                 with self.subTest(workflow=filename, observer=job_name):
                     self.assertNotIn("concurrency", jobs[job_name])
 
+    def test_recovery_yields_to_stale_phase_and_midnight_anchor(self):
+        source = (ROOT / ".github/workflows" / "recover-distributed-v9.yml").read_text()
+        self.assertIn("now.hour % 3 == 2", source)
+        self.assertIn("hour=23, minute=55", source)
+        self.assertIn("minutes_to_next_critical", source)
+
+    def test_primary_workflow_passes_pinned_snapshot_date(self):
+        source = (ROOT / ".github/workflows" / "collect-distributed-v9.yml").read_text()
+        self.assertIn("Resolve intended KST snapshot date", source)
+        self.assertIn('--snapshot-date "${{ steps.snapshot.outputs.snapshot_date }}"', source)
+
     def test_scheduled_primary_and_adaptive_slots_are_pinned_to_cron(self):
         cases = {
             "collect-distributed-v9.yml": {
@@ -174,6 +185,93 @@ class IsolatedCollectorTests(unittest.TestCase):
         collector.write_csv(collector.LATEST_PRODUCT_FILE,
                             [{**self.raw("2026-09-14T03:00:00+09:00"), "slot": 1, "daily_sales": 30}],
                             collector.LATEST_FIELDS)
+
+    def test_discover_slot_honors_pinned_snapshot_date(self):
+        state = self.base / "run_state"
+        collector.write_lines(collector.BRANDS_FILE, [])
+        self.assertEqual(
+            collector.discover_slot(
+                state,
+                7,
+                snapshot_date="2026-09-13",
+            ),
+            0,
+        )
+        self.assertEqual(
+            (state / "snapshot_date.txt").read_text().strip(),
+            "2026-09-13",
+        )
+
+    def test_recovery_rotates_across_large_queues(self):
+        date_text = self.now.date().isoformat()
+        folder = collector.RECOVERY_DIR / date_text
+        paths = []
+        for slot in (0, 1):
+            path = folder / f"slot-{slot}-failed.csv"
+            rows = [
+                {
+                    "date": date_text,
+                    "slot": slot,
+                    "goods_no": str(slot * 1000 + i + 1),
+                    "brand_name": "test-brand",
+                    "product_name": "test knit",
+                    "first_failed_at": self.now.isoformat(),
+                    "last_failed_at": self.now.isoformat(),
+                    "attempts": 1,
+                    "last_error": "mock",
+                    "current_price": 35000,
+                    "product_url": "",
+                }
+                for i in range(30)
+            ]
+            collector.write_csv(path, rows, collector.FAILURE_FIELDS)
+            paths.append(path)
+
+        calls = []
+        counts = {str(path): 0 for path in paths}
+
+        def fake_recover(path, **kwargs):
+            path = Path(path)
+            key = str(path)
+            counts[key] += 1
+            calls.append(path.name)
+            slot = int(path.name.split("-")[1])
+            return {
+                "queue": key,
+                "date": date_text,
+                "slot": slot,
+                "attempted": 25,
+                "recovered": 25,
+                "remaining": 5 if counts[key] == 1 else 0,
+                "deferred": 5 if counts[key] == 1 else 0,
+            }
+
+        with (
+            patch.object(collector.time, "monotonic", return_value=0.0),
+            patch.object(collector, "recover_queue_file", side_effect=fake_recover),
+            patch.object(collector, "refresh_latest_slot_from_snapshot"),
+            patch.object(collector, "rebuild_latest_product_file"),
+            patch.object(collector, "rebuild_date_aggregates"),
+            patch.object(collector, "write_history_manifest"),
+        ):
+            self.assertEqual(
+                collector.recover_pending(
+                    lookback_days=2,
+                    max_queues=32,
+                    time_budget_minutes=50,
+                ),
+                0,
+            )
+
+        self.assertEqual(
+            calls,
+            [
+                "slot-0-failed.csv",
+                "slot-1-failed.csv",
+                "slot-0-failed.csv",
+                "slot-1-failed.csv",
+            ],
+        )
 
     def test_adaptive_collects_and_calendar_reads_its_observation(self):
         self.seed_selection()
