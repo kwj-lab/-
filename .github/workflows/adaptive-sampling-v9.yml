@@ -3,7 +3,7 @@ name: Musinsa Adaptive Sampling v9
 on:
   schedule:
     # KST 01:45,04:45,07:45,10:45,13:45,16:45,19:45,22:45
-    # Each clock slot has its own cron so a delayed GitHub runner cannot change the intended adaptive slot.
+    # Separate cron entries preserve the intended clock slot even when GitHub starts a run late.
     - cron: '45 16 * * *' # slot 0 = 01:45 KST
     - cron: '45 19 * * *' # slot 1 = 04:45 KST
     - cron: '45 22 * * *' # slot 2 = 07:45 KST
@@ -44,7 +44,7 @@ env:
   MUSINSA_ADAPTIVE_MAX_PER_RUN: '15000'
 
 jobs:
-  adaptive:
+  collect:
     runs-on: ubuntu-latest
     timeout-minutes: 360
     steps:
@@ -108,218 +108,65 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.dry_run }}" = "true" ]; then EXTRA="--dry-run"; fi
           python musinsa_collector_v9.py collect-adaptive --clock-slot "${{ steps.slot.outputs.slot }}" $EXTRA
 
-      - name: Wait for older Musinsa workflows before write (writer FIFO)
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-
-          SELF_ID="$GITHUB_RUN_ID"
-          SELF_CREATED="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${SELF_ID}" --jq '.created_at')"
-          WORKFLOWS=(
-            "collect-distributed-v9.yml"
-            "recover-distributed-v9.yml"
-            "adaptive-sampling-v9.yml"
-            "calendar-finalize-v9.yml"
-            "midnight-anchor-v9.yml"
-          )
-
-          echo "Musinsa FIFO: run=${SELF_ID}, created=${SELF_CREATED}"
-
-          while true; do
-            OLDER=""
-
-            for WF in "${WORKFLOWS[@]}"; do
-              MATCHES="$(
-                gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/${WF}/runs?branch=${GITHUB_REF_NAME}&per_page=100" \
-                | jq -r --arg sid "$SELF_ID" --arg sc "$SELF_CREATED" '
-                    .workflow_runs[]
-                    | select(
-                        (.status == "queued" or
-                         .status == "in_progress" or
-                         .status == "waiting" or
-                         .status == "pending" or
-                         .status == "requested")
-                        and ((.id | tostring) != $sid)
-                        and (
-                          (.created_at < $sc)
-                          or (.created_at == $sc and .id < ($sid | tonumber))
-                        )
-                      )
-                    | "\(.id)\t\(.status)\t\(.name)\t\(.created_at)"
-                  '
-              )"
-
-              # FIFO ignores stale queued runs without jobs.
-              while IFS=        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run == true) }}
-        shell: bash
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if [ -e data/observations ]; then git add -- data/observations; fi
-          if [ -e data/adaptive ]; then git add -- data/adaptive; fi
-          if git diff --cached --quiet; then
-            echo "No adaptive observation changes."
-            exit 0
-          fi
-          git commit -m "chore(data): adaptive Musinsa observations [skip ci]"
-          git pull --rebase origin "$GITHUB_REF_NAME"
-          git push origin "HEAD:$GITHUB_REF_NAME"
-
-      - name: Upload adaptive report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: v9-adaptive-${{ github.run_id }}
-          retention-days: 3
-          if-no-files-found: ignore
-          path: data/adaptive/**/*.json
-\t' read -r RUN_ID RUN_STATUS RUN_NAME RUN_CREATED; do
-                if [ -z "$RUN_ID" ]; then continue; fi
-                if [ "$RUN_STATUS" = "queued" ]; then
-                  AGE=$(( $(date +%s) - $(date -d "$RUN_CREATED" +%s) ))
-                  if [ "$AGE" -ge 5400 ]; then
-                    JOBS="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/jobs?per_page=1" --jq '.total_count')"
-                    if [ "$JOBS" = "0" ]; then
-                      echo "Ignoring abandoned queued run ${RUN_ID}: no jobs after ${AGE}s"
-                      continue
-                    fi
-                  fi
-                fi
-                OLDER="${OLDER}${RUN_ID}"        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run == true) }}
-        shell: bash
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if [ -e data/observations ]; then git add -- data/observations; fi
-          if [ -e data/adaptive ]; then git add -- data/adaptive; fi
-          if git diff --cached --quiet; then
-            echo "No adaptive observation changes."
-            exit 0
-          fi
-          git commit -m "chore(data): adaptive Musinsa observations [skip ci]"
-          git pull --rebase origin "$GITHUB_REF_NAME"
-          git push origin "HEAD:$GITHUB_REF_NAME"
-
-      - name: Upload adaptive report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: v9-adaptive-${{ github.run_id }}
-          retention-days: 3
-          if-no-files-found: ignore
-          path: data/adaptive/**/*.json
-\t'"${RUN_STATUS}"        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run == true) }}
-        shell: bash
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if [ -e data/observations ]; then git add -- data/observations; fi
-          if [ -e data/adaptive ]; then git add -- data/adaptive; fi
-          if git diff --cached --quiet; then
-            echo "No adaptive observation changes."
-            exit 0
-          fi
-          git commit -m "chore(data): adaptive Musinsa observations [skip ci]"
-          git pull --rebase origin "$GITHUB_REF_NAME"
-          git push origin "HEAD:$GITHUB_REF_NAME"
-
-      - name: Upload adaptive report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: v9-adaptive-${{ github.run_id }}
-          retention-days: 3
-          if-no-files-found: ignore
-          path: data/adaptive/**/*.json
-\t'"${RUN_NAME}"        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run == true) }}
-        shell: bash
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if [ -e data/observations ]; then git add -- data/observations; fi
-          if [ -e data/adaptive ]; then git add -- data/adaptive; fi
-          if git diff --cached --quiet; then
-            echo "No adaptive observation changes."
-            exit 0
-          fi
-          git commit -m "chore(data): adaptive Musinsa observations [skip ci]"
-          git pull --rebase origin "$GITHUB_REF_NAME"
-          git push origin "HEAD:$GITHUB_REF_NAME"
-
-      - name: Upload adaptive report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: v9-adaptive-${{ github.run_id }}
-          retention-days: 3
-          if-no-files-found: ignore
-          path: data/adaptive/**/*.json
-\t'"${RUN_CREATED}"        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run == true) }}
-        shell: bash
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if [ -e data/observations ]; then git add -- data/observations; fi
-          if [ -e data/adaptive ]; then git add -- data/adaptive; fi
-          if git diff --cached --quiet; then
-            echo "No adaptive observation changes."
-            exit 0
-          fi
-          git commit -m "chore(data): adaptive Musinsa observations [skip ci]"
-          git pull --rebase origin "$GITHUB_REF_NAME"
-          git push origin "HEAD:$GITHUB_REF_NAME"
-
-      - name: Upload adaptive report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: v9-adaptive-${{ github.run_id }}
-          retention-days: 3
-          if-no-files-found: ignore
-          path: data/adaptive/**/*.json
-\n'
-              done <<< "$MATCHES"
-            done
-
-            if [ -z "${OLDER//        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run == true) }}
-        shell: bash
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if [ -e data/observations ]; then git add -- data/observations; fi
-          if [ -e data/adaptive ]; then git add -- data/adaptive; fi
-          if git diff --cached --quiet; then
-            echo "No adaptive observation changes."
-            exit 0
-          fi
-          git commit -m "chore(data): adaptive Musinsa observations [skip ci]"
-          git pull --rebase origin "$GITHUB_REF_NAME"
-          git push origin "HEAD:$GITHUB_REF_NAME"
-
-      - name: Upload adaptive report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: v9-adaptive-${{ github.run_id }}
-          retention-days: 3
-          if-no-files-found: ignore
-          path: data/adaptive/**/*.json
-\n'/}" ]; then
-              echo "Musinsa FIFO turn acquired."
-              break
-            fi
-
-            echo "Older Musinsa runs are active; waiting 20 seconds:"
-            printf '%s' "$OLDER"
-            sleep 20
-          done
-
-      - name: Commit adaptive observations
+      - name: Package adaptive observation payload
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run == true) }}
         shell: bash
         run: |
+          git ls-files -m -o --exclude-standard -- data/observations data/adaptive > adaptive-files.txt
+          if [ -s adaptive-files.txt ]; then
+            tar -czf adaptive-payload.tgz -T adaptive-files.txt
+          fi
+
+      - name: Upload adaptive observation payload
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run == true) }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: v9-adaptive-payload-${{ github.run_id }}
+          retention-days: 1
+          if-no-files-found: ignore
+          path: adaptive-payload.tgz
+
+      - name: Upload adaptive report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v9-adaptive-${{ github.run_id }}
+          retention-days: 3
+          if-no-files-found: ignore
+          path: data/adaptive/**/*.json
+
+  commit:
+    needs: collect
+    if: ${{ needs.collect.result == 'success' && !(github.event_name == 'workflow_dispatch' && inputs.dry_run == true) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: musinsa-data-writer
+      cancel-in-progress: false
+    steps:
+      - name: Checkout latest repository state
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 1
+
+      - name: Download adaptive payload
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: v9-adaptive-payload-${{ github.run_id }}
+          path: payload
+
+      - name: Restore adaptive payload
+        shell: bash
+        run: |
+          if [ -f payload/adaptive-payload.tgz ]; then
+            tar -xzf payload/adaptive-payload.tgz
+          fi
+
+      - name: Commit adaptive observations
+        shell: bash
+        run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           if [ -e data/observations ]; then git add -- data/observations; fi
@@ -331,12 +178,3 @@ jobs:
           git commit -m "chore(data): adaptive Musinsa observations [skip ci]"
           git pull --rebase origin "$GITHUB_REF_NAME"
           git push origin "HEAD:$GITHUB_REF_NAME"
-
-      - name: Upload adaptive report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: v9-adaptive-${{ github.run_id }}
-          retention-days: 3
-          if-no-files-found: ignore
-          path: data/adaptive/**/*.json
