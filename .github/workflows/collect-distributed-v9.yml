@@ -7,8 +7,23 @@ on:
       - 'musinsa_collector_v9.py'
       - '.github/workflows/collect-distributed-v9.yml'
   schedule:
-    # KST 00:15,03:15,06:15,09:15,12:15,15:15,18:15,21:15
-    - cron: '15 0,3,6,9,12,15,18,21 * * *'
+    # Each KST slot has its own cron so FIFO delays cannot change the intended slot.
+    # slot 0 = 00:15 KST = 15:15 UTC (previous UTC day)
+    - cron: '15 15 * * *'
+    # slot 1 = 03:15 KST = 18:15 UTC
+    - cron: '15 18 * * *'
+    # slot 2 = 06:15 KST = 21:15 UTC
+    - cron: '15 21 * * *'
+    # slot 3 = 09:15 KST = 00:15 UTC
+    - cron: '15 0 * * *'
+    # slot 4 = 12:15 KST = 03:15 UTC
+    - cron: '15 3 * * *'
+    # slot 5 = 15:15 KST = 06:15 UTC
+    - cron: '15 6 * * *'
+    # slot 6 = 18:15 KST = 09:15 UTC
+    - cron: '15 9 * * *'
+    # slot 7 = 21:15 KST = 12:15 UTC
+    - cron: '15 12 * * *'
   workflow_dispatch:
     inputs:
       slot:
@@ -128,20 +143,43 @@ jobs:
       - name: Record collector revision
         id: revision
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-      - name: Resolve KST collection slot
+      - name: Resolve intended collection slot
         id: slot
         shell: bash
+        env:
+          EVENT_SCHEDULE: ${{ github.event.schedule }}
         run: |
           python - <<'PY2'
           import os
-          from datetime import datetime, timezone, timedelta
+
           if os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch":
               slot = int("${{ inputs.slot }}")
+              source = "manual"
+          elif os.environ.get("GITHUB_EVENT_NAME") == "schedule":
+              schedule = (os.environ.get("EVENT_SCHEDULE") or "").strip()
+              schedule_to_slot = {
+                  "15 15 * * *": 0,
+                  "15 18 * * *": 1,
+                  "15 21 * * *": 2,
+                  "15 0 * * *": 3,
+                  "15 3 * * *": 4,
+                  "15 6 * * *": 5,
+                  "15 9 * * *": 6,
+                  "15 12 * * *": 7,
+              }
+              if schedule not in schedule_to_slot:
+                  raise SystemExit(f"Unknown scheduled cron: {schedule!r}")
+              slot = schedule_to_slot[schedule]
+              source = f"scheduled:{schedule}"
           else:
-              slot = (datetime.now(timezone(timedelta(hours=9))).hour // 3) % 8
+              # Push-triggered validation runs are not tied to a collection clock.
+              # Keep them deterministic instead of letting FIFO delay choose a different slot.
+              slot = 0
+              source = "push-default"
+
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
               f.write(f"slot={slot}\n")
-          print("KST slot:", slot)
+          print(f"Intended slot: {slot} ({source})")
           PY2
       - name: Discover and refresh prices
         shell: bash
