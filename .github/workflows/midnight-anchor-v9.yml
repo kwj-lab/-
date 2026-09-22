@@ -121,6 +121,7 @@ jobs:
     timeout-minutes: 30
     concurrency:
       group: musinsa-data-writer
+      queue: max
       cancel-in-progress: false
     steps:
       - name: Checkout latest repository state
