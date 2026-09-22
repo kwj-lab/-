@@ -103,9 +103,13 @@ class WorkflowTests(unittest.TestCase):
 
     def test_recovery_yields_to_stale_phase_and_midnight_anchor(self):
         source = (ROOT / ".github/workflows" / "recover-distributed-v9.yml").read_text()
+        self.assertIn("cron: '30 2,5,8,11,14,17,20,23 * * *'", source)
         self.assertIn("now.hour % 3 == 2", source)
         self.assertIn("hour=23, minute=55", source)
         self.assertIn("minutes_to_next_critical", source)
+        self.assertIn("Yield to active priority observations", source)
+        self.assertIn('.name == "discover" or .name == "collect"', source)
+        self.assertIn("steps.priority.outputs.safe == '1'", source)
 
     def test_primary_aggregate_does_not_copy_stale_lifecycle_tree(self):
         source = (
@@ -155,6 +159,33 @@ class WorkflowTests(unittest.TestCase):
                 output.read_text().strip(),
                 "snapshot_date=2026-09-22",
             )
+
+    def test_all_shared_data_writers_use_the_same_non_canceling_queue(self):
+        writer_files = (
+            "collect-distributed-v9.yml",
+            "adaptive-sampling-v9.yml",
+            "recover-distributed-v9.yml",
+            "midnight-anchor-v9.yml",
+            "calendar-finalize-v9.yml",
+            "canonicalize-musinsa-brands-v9.yml",
+            "initialize-catalog-v9.yml",
+            "repair-catalog-v9.yml",
+        )
+        for filename in writer_files:
+            with self.subTest(workflow=filename):
+                source = (ROOT / ".github/workflows" / filename).read_text()
+                self.assertIn("group: musinsa-data-writer", source)
+                self.assertIn("queue: max", source)
+                self.assertIn("cancel-in-progress: false", source)
+
+    def test_multislot_backfill_waits_for_scheduled_and_manual_primary_runs(self):
+        source = (
+            ROOT / ".github/workflows" / "multi-slot-backfill-v9.yml"
+        ).read_text()
+        self.assertIn("list_all_runs()", source)
+        self.assertIn("list_manual_runs()", source)
+        self.assertIn("list_all_runs | python -c", source)
+        self.assertIn("list_manual_runs > /tmp/runs.json", source)
 
     def test_scheduled_primary_and_adaptive_slots_are_pinned_to_cron(self):
         cases = {
