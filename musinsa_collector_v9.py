@@ -2680,6 +2680,22 @@ def merge_discovery_state_into_root(state_dir):
     return catalog_rows, watchlist
 
 
+def merge_discovery_state_command(state_dir):
+    state_dir = Path(state_dir)
+    catalog_rows, watchlist = merge_discovery_state_into_root(state_dir)
+    new_delta = read_csv(state_dir / "new_products_delta.csv")
+    append_new_products(new_delta)
+
+    stats = {
+        "merged_at": now_kst().isoformat(timespec="seconds"),
+        "catalog_products": len(catalog_rows),
+        "watchlist_products": len(watchlist),
+        "new_products_delta": len(new_delta),
+    }
+    print(json.dumps(stats, ensure_ascii=False))
+    return 0
+
+
 def append_new_products(delta):
     if not delta:
         return
@@ -4110,6 +4126,9 @@ def main():
     p.add_argument("--state-dir", default="run_state")
     p.add_argument("--shard-dir", required=True)
 
+    p = sub.add_parser("merge-discovery-state")
+    p.add_argument("--state-dir", default="run_state")
+
     p = sub.add_parser("recover-pending")
     p.add_argument("--lookback-days", type=int, default=2)
     p.add_argument("--max-queues", type=int, default=32)
@@ -4150,6 +4169,8 @@ def main():
         )
     if args.cmd == "aggregate-slot":
         return aggregate_slot(args.state_dir, args.shard_dir)
+    if args.cmd == "merge-discovery-state":
+        return merge_discovery_state_command(args.state_dir)
     if args.cmd == "recover-pending":
         return recover_pending(
             args.lookback_days,
