@@ -441,16 +441,6 @@
       "reason": "zero_baseline_unverified"
     },
     {
-      "goods_no": "2623965",
-      "brand_name": "아디다스",
-      "from_at": "2026-09-20T18:00:37+09:00",
-      "to_at": "2026-09-21T18:30:15+09:00",
-      "before": 0,
-      "after": 460,
-      "excluded_delta": 460,
-      "reason": "zero_baseline_unverified"
-    },
-    {
       "goods_no": "7109260",
       "brand_name": "수아레",
       "from_at": "2026-09-06T22:22:58+09:00",
@@ -768,6 +758,16 @@
       "before": 0,
       "after": 277,
       "excluded_delta": 277,
+      "reason": "zero_baseline_unverified"
+    },
+    {
+      "goods_no": "7013515",
+      "brand_name": "아디다스",
+      "from_at": "2026-09-22T00:42:02+09:00",
+      "to_at": "2026-09-22T17:51:28+09:00",
+      "before": 0,
+      "after": 274,
+      "excluded_delta": 274,
       "reason": "zero_baseline_unverified"
     },
     {
