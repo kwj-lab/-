@@ -641,16 +641,6 @@
       "reason": "zero_baseline_unverified"
     },
     {
-      "goods_no": "5916326",
-      "brand_name": "어반디타입",
-      "from_at": "2026-09-20T16:00:21+09:00",
-      "to_at": "2026-09-21T14:26:16+09:00",
-      "before": 0,
-      "after": 349,
-      "excluded_delta": 349,
-      "reason": "zero_baseline_unverified"
-    },
-    {
       "goods_no": "5479943",
       "brand_name": "미세키서울",
       "from_at": "2026-09-01T21:34:14+09:00",
@@ -771,16 +761,6 @@
       "reason": "zero_baseline_unverified"
     },
     {
-      "goods_no": "6071326",
-      "brand_name": "미레코",
-      "from_at": "2026-09-21T14:30:51+09:00",
-      "to_at": "2026-09-21T16:45:10+09:00",
-      "before": 0,
-      "after": 279,
-      "excluded_delta": 279,
-      "reason": "zero_baseline_unverified"
-    },
-    {
       "goods_no": "7011617",
       "brand_name": "더니트컴퍼니",
       "from_at": "2026-08-31T18:36:14+09:00",
@@ -838,16 +818,6 @@
       "before": 0,
       "after": 233,
       "excluded_delta": 233,
-      "reason": "zero_baseline_unverified"
-    },
-    {
-      "goods_no": "5608773",
-      "brand_name": "노스페이스",
-      "from_at": "2026-09-20T15:55:06+09:00",
-      "to_at": "2026-09-21T14:20:56+09:00",
-      "before": 0,
-      "after": 232,
-      "excluded_delta": 232,
       "reason": "zero_baseline_unverified"
     },
     {
@@ -998,6 +968,36 @@
       "before": 0,
       "after": 205,
       "excluded_delta": 205,
+      "reason": "zero_baseline_unverified"
+    },
+    {
+      "goods_no": "7090063",
+      "brand_name": "베이프",
+      "from_at": "2026-09-20T16:20:29+09:00",
+      "to_at": "2026-09-21T14:46:48+09:00",
+      "before": 0,
+      "after": 204,
+      "excluded_delta": 204,
+      "reason": "zero_baseline_unverified"
+    },
+    {
+      "goods_no": "7192707",
+      "brand_name": "라코스테",
+      "from_at": "2026-09-15T17:59:11+09:00",
+      "to_at": "2026-09-16T17:52:33+09:00",
+      "before": 0,
+      "after": 203,
+      "excluded_delta": 203,
+      "reason": "zero_baseline_unverified"
+    },
+    {
+      "goods_no": "7192679",
+      "brand_name": "라코스테",
+      "from_at": "2026-09-16T17:52:33+09:00",
+      "to_at": "2026-09-17T17:46:23+09:00",
+      "before": 0,
+      "after": 197,
+      "excluded_delta": 197,
       "reason": "zero_baseline_unverified"
     }
   ]
