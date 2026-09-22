@@ -82,7 +82,51 @@ jobs:
           fi
           python musinsa_collector_v9.py collect-midnight-anchor $EXTRA
 
-      - name: Commit midnight anchor observations
+      - name: Wait for older Musinsa workflows before write (writer FIFO)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          SELF_ID="$GITHUB_RUN_ID"
+          SELF_CREATED="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${SELF_ID}" --jq '.created_at')"
+          WORKFLOWS=(
+            "collect-distributed-v9.yml"
+            "recover-distributed-v9.yml"
+            "adaptive-sampling-v9.yml"
+            "calendar-finalize-v9.yml"
+            "midnight-anchor-v9.yml"
+          )
+
+          echo "Musinsa FIFO: run=${SELF_ID}, created=${SELF_CREATED}"
+
+          while true; do
+            OLDER=""
+
+            for WF in "${WORKFLOWS[@]}"; do
+              MATCHES="$(
+                gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/${WF}/runs?branch=${GITHUB_REF_NAME}&per_page=100" \
+                | jq -r --arg sid "$SELF_ID" --arg sc "$SELF_CREATED" '
+                    .workflow_runs[]
+                    | select(
+                        (.status == "queued" or
+                         .status == "in_progress" or
+                         .status == "waiting" or
+                         .status == "pending" or
+                         .status == "requested")
+                        and ((.id | tostring) != $sid)
+                        and (
+                          (.created_at < $sc)
+                          or (.created_at == $sc and .id < ($sid | tonumber))
+                        )
+                      )
+                    | "\(.id)\t\(.status)\t\(.name)\t\(.created_at)"
+                  '
+              )"
+
+              # FIFO ignores stale queued runs without jobs.
+              while IFS=      - name: Commit midnight anchor observations
         if: ${{ steps.window.outputs.run == '1' && !(github.event_name == 'workflow_dispatch' && inputs.dry_run == true) }}
         shell: bash
         run: |
