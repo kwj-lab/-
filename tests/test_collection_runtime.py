@@ -61,14 +61,14 @@ class WorkflowTests(unittest.TestCase):
 
     def test_observations_do_not_wait_for_writer_lock_and_writers_are_serialized(self):
         writer_jobs = {
-            "collect-distributed-v9.yml": {"aggregate"},
+            "collect-distributed-v9.yml": {"aggregate", "merge_discovery"},
             "adaptive-sampling-v9.yml": {"commit"},
             "midnight-anchor-v9.yml": {"commit"},
             "recover-distributed-v9.yml": {"recover"},
             "calendar-finalize-v9.yml": {"finalize"},
         }
         observation_jobs = {
-            "collect-distributed-v9.yml": {"discover", "collect"},
+            "collect-distributed-v9.yml": {"prepare", "discover", "collect"},
             "adaptive-sampling-v9.yml": {"collect"},
             "midnight-anchor-v9.yml": {"collect"},
         }
@@ -108,8 +108,26 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("hour=23, minute=55", source)
         self.assertIn("minutes_to_next_critical", source)
         self.assertIn("Yield to active priority observations", source)
-        self.assertIn('.name == "discover" or .name == "collect"', source)
+        self.assertIn('.name == "collect"', source)
         self.assertIn("steps.priority.outputs.safe == '1'", source)
+
+    def test_primary_observation_does_not_wait_for_slow_discovery(self):
+        data = yaml.safe_load(
+            (ROOT / ".github/workflows" / "collect-distributed-v9.yml").read_text()
+        )
+        jobs = data["jobs"]
+
+        self.assertEqual(jobs["collect"]["needs"], "prepare")
+        self.assertEqual(set(jobs["aggregate"]["needs"]), {"prepare", "collect"})
+        self.assertNotIn("discover", jobs["aggregate"]["needs"])
+        self.assertEqual(
+            set(jobs["merge_discovery"]["needs"]),
+            {"prepare", "discover"},
+        )
+
+        collect_source = json.dumps(jobs["collect"], ensure_ascii=False)
+        self.assertIn("v9-base-state-", collect_source)
+        self.assertNotIn("v9-discovery-state", collect_source)
 
     def test_primary_aggregate_does_not_copy_stale_lifecycle_tree(self):
         source = (
@@ -124,14 +142,21 @@ class WorkflowTests(unittest.TestCase):
     def test_primary_workflow_passes_pinned_snapshot_date(self):
         source = (ROOT / ".github/workflows" / "collect-distributed-v9.yml").read_text()
         self.assertIn("Resolve intended KST snapshot date", source)
-        self.assertIn('--snapshot-date "${{ steps.snapshot.outputs.snapshot_date }}"', source)
+        self.assertIn(
+            '--snapshot-date "${{ needs.prepare.outputs.snapshot_date }}"',
+            source,
+        )
+        self.assertIn(
+            'printf \'%s\\n\' "${{ steps.snapshot.outputs.snapshot_date }}" > run_state/snapshot_date.txt',
+            source,
+        )
 
     def test_delayed_slot7_keeps_previous_kst_snapshot_date(self):
         data = yaml.safe_load(
             (ROOT / ".github/workflows" / "collect-distributed-v9.yml").read_text()
         )
-        discover = data["jobs"]["discover"]
-        step = next(s for s in discover["steps"] if s.get("id") == "snapshot")
+        prepare = data["jobs"]["prepare"]
+        step = next(s for s in prepare["steps"] if s.get("id") == "snapshot")
         match = re.search(r"python - <<'PY2'\n(.*?)\nPY2", step["run"], re.S)
         self.assertIsNotNone(match)
 
