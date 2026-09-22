@@ -223,7 +223,6 @@ jobs:
           path: shard_results
       - name: Aggregate and create recovery queue
         run: |
-          if [ -d run_state/lifecycle ]; then mkdir -p data; cp -R run_state/lifecycle data/; fi
           python musinsa_collector_v9.py aggregate-slot --state-dir run_state --shard-dir shard_results
 
       - name: Recalculate recent calendar-day estimates immediately
