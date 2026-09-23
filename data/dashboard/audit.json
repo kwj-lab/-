@@ -61,16 +61,6 @@
       "reason": "zero_baseline_unverified"
     },
     {
-      "goods_no": "5425127",
-      "brand_name": "르아르",
-      "from_at": "2026-09-17T17:08:52+09:00",
-      "to_at": "2026-09-18T18:11:46+09:00",
-      "before": 0,
-      "after": 2205,
-      "excluded_delta": 2205,
-      "reason": "zero_baseline_unverified"
-    },
-    {
       "goods_no": "4551885",
       "brand_name": "노티카",
       "from_at": "2026-09-01T15:28:51+09:00",
@@ -201,6 +191,16 @@
       "reason": "zero_baseline_unverified"
     },
     {
+      "goods_no": "5350580",
+      "brand_name": "벨리에",
+      "from_at": "2026-09-22T18:54:36+09:00",
+      "to_at": "2026-09-23T15:52:13+09:00",
+      "before": 0,
+      "after": 788,
+      "excluded_delta": 788,
+      "reason": "zero_baseline_unverified"
+    },
+    {
       "goods_no": "7013623",
       "brand_name": "아디다스",
       "from_at": "2026-09-16T17:47:26+09:00",
@@ -218,6 +218,16 @@
       "before": 0,
       "after": 730,
       "excluded_delta": 730,
+      "reason": "zero_baseline_unverified"
+    },
+    {
+      "goods_no": "5317845",
+      "brand_name": "벨리에",
+      "from_at": "2026-09-22T18:53:42+09:00",
+      "to_at": "2026-09-23T15:51:22+09:00",
+      "before": 0,
+      "after": 663,
+      "excluded_delta": 663,
       "reason": "zero_baseline_unverified"
     },
     {
@@ -901,6 +911,16 @@
       "reason": "zero_baseline_unverified"
     },
     {
+      "goods_no": "4967557",
+      "brand_name": "벨리에",
+      "from_at": "2026-09-22T18:47:01+09:00",
+      "to_at": "2026-09-23T15:45:00+09:00",
+      "before": 0,
+      "after": 220,
+      "excluded_delta": 220,
+      "reason": "zero_baseline_unverified"
+    },
+    {
       "goods_no": "6979994",
       "brand_name": "카키포인트",
       "from_at": "2026-08-27T13:40:22+09:00",
@@ -978,26 +998,6 @@
       "before": 0,
       "after": 204,
       "excluded_delta": 204,
-      "reason": "zero_baseline_unverified"
-    },
-    {
-      "goods_no": "7192707",
-      "brand_name": "라코스테",
-      "from_at": "2026-09-15T17:59:11+09:00",
-      "to_at": "2026-09-16T17:52:33+09:00",
-      "before": 0,
-      "after": 203,
-      "excluded_delta": 203,
-      "reason": "zero_baseline_unverified"
-    },
-    {
-      "goods_no": "7192679",
-      "brand_name": "라코스테",
-      "from_at": "2026-09-16T17:52:33+09:00",
-      "to_at": "2026-09-17T17:46:23+09:00",
-      "before": 0,
-      "after": 197,
-      "excluded_delta": 197,
       "reason": "zero_baseline_unverified"
     }
   ]
