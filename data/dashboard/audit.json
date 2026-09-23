@@ -841,16 +841,6 @@
       "reason": "zero_baseline_unverified"
     },
     {
-      "goods_no": "4959252",
-      "brand_name": "락케이크",
-      "from_at": "2026-09-18T07:24:23+09:00",
-      "to_at": "2026-09-19T07:33:50+09:00",
-      "before": 0,
-      "after": 227,
-      "excluded_delta": 227,
-      "reason": "zero_baseline_unverified"
-    },
-    {
       "goods_no": "7249434",
       "brand_name": "스웨이드",
       "from_at": "2026-09-09T04:11:29+09:00",
@@ -995,6 +985,16 @@
       "brand_name": "라코스테",
       "from_at": "2026-09-15T17:59:11+09:00",
       "to_at": "2026-09-16T17:52:33+09:00",
+      "before": 0,
+      "after": 203,
+      "excluded_delta": 203,
+      "reason": "zero_baseline_unverified"
+    },
+    {
+      "goods_no": "6139302",
+      "brand_name": "노아",
+      "from_at": "2026-09-23T07:05:10+09:00",
+      "to_at": "2026-09-24T06:51:56+09:00",
       "before": 0,
       "after": 203,
       "excluded_delta": 203,
