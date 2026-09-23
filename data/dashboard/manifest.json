@@ -1,7 +1,7 @@
 {
   "sales_policy_version": "2026-09-18-gap-reconstruction-v2",
-  "source_fingerprint": "a0d350c6abd04d8cca9b3ef4c0d05cd26bf08ad939031b1ec0115bee3673b78f",
-  "updated_at": "2026-09-24T07:19:46+09:00",
+  "source_fingerprint": "789c49491a37ee1f2ffdd11cc00e49ba0972cbade21415f8c8e1c91c6469c574",
+  "updated_at": "2026-09-24T07:29:10+09:00",
   "as_of_date": "2026-09-24",
   "latest_date": "2026-09-24",
   "latest_finalized_date": "2026-09-24",
@@ -45,7 +45,7 @@
   "last_observed_at": "2026-09-24T07:05:10+09:00",
   "source_files": 533,
   "source_rows": 6756412,
-  "product_count": 256719,
+  "product_count": 256782,
   "excluded_boundaries": {
     "zero_baseline_unverified": 3406,
     "counter_reset": 10514,
@@ -55,10 +55,10 @@
   "latest_summary": {
     "date": "2026-09-24",
     "brand_name": "",
-    "checked_at": "2026-09-24T07:19:46+09:00",
-    "product_count": 256719,
+    "checked_at": "2026-09-24T07:29:10+09:00",
+    "product_count": 256782,
     "calculated_product_count": 85908,
-    "excluded_product_count": 170811,
+    "excluded_product_count": 170874,
     "complete_product_count": 0,
     "product_coverage_pct": 33.46,
     "average_time_coverage_pct": 5.04,
