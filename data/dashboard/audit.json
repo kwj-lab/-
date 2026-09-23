@@ -131,16 +131,6 @@
       "reason": "zero_baseline_unverified"
     },
     {
-      "goods_no": "5964910",
-      "brand_name": "무드인사이드",
-      "from_at": "2026-09-23T16:56:26+09:00",
-      "to_at": "2026-09-24T00:08:21+09:00",
-      "before": 0,
-      "after": 934,
-      "excluded_delta": 934,
-      "reason": "zero_baseline_unverified"
-    },
-    {
       "goods_no": "5495049",
       "brand_name": "길라아카이브",
       "from_at": "2026-09-01T12:36:27+09:00",
@@ -998,6 +988,16 @@
       "before": 0,
       "after": 204,
       "excluded_delta": 204,
+      "reason": "zero_baseline_unverified"
+    },
+    {
+      "goods_no": "7192707",
+      "brand_name": "라코스테",
+      "from_at": "2026-09-15T17:59:11+09:00",
+      "to_at": "2026-09-16T17:52:33+09:00",
+      "before": 0,
+      "after": 203,
+      "excluded_delta": 203,
       "reason": "zero_baseline_unverified"
     }
   ]
