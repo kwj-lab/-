@@ -491,6 +491,16 @@
       "reason": "zero_baseline_unverified"
     },
     {
+      "goods_no": "7261784",
+      "brand_name": "어널러코드",
+      "from_at": "2026-09-23T13:57:35+09:00",
+      "to_at": "2026-09-23T16:38:01+09:00",
+      "before": 0,
+      "after": 448,
+      "excluded_delta": 448,
+      "reason": "zero_baseline_unverified"
+    },
+    {
       "goods_no": "4318523",
       "brand_name": "프렌다",
       "from_at": "2026-08-27T13:32:09+09:00",
@@ -988,16 +998,6 @@
       "before": 0,
       "after": 205,
       "excluded_delta": 205,
-      "reason": "zero_baseline_unverified"
-    },
-    {
-      "goods_no": "7090063",
-      "brand_name": "베이프",
-      "from_at": "2026-09-20T16:20:29+09:00",
-      "to_at": "2026-09-21T14:46:48+09:00",
-      "before": 0,
-      "after": 204,
-      "excluded_delta": 204,
       "reason": "zero_baseline_unverified"
     }
   ]
