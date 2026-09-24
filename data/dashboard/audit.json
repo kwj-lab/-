@@ -201,16 +201,6 @@
       "reason": "zero_baseline_unverified"
     },
     {
-      "goods_no": "7013623",
-      "brand_name": "아디다스",
-      "from_at": "2026-09-16T17:47:26+09:00",
-      "to_at": "2026-09-17T17:41:31+09:00",
-      "before": 0,
-      "after": 771,
-      "excluded_delta": 771,
-      "reason": "zero_baseline_unverified"
-    },
-    {
       "goods_no": "6947522",
       "brand_name": "웬즈데이오아시스 포 우먼",
       "from_at": "2026-09-20T03:08:57+09:00",
@@ -998,6 +988,16 @@
       "before": 0,
       "after": 203,
       "excluded_delta": 203,
+      "reason": "zero_baseline_unverified"
+    },
+    {
+      "goods_no": "7192679",
+      "brand_name": "라코스테",
+      "from_at": "2026-09-16T17:52:33+09:00",
+      "to_at": "2026-09-17T17:46:23+09:00",
+      "before": 0,
+      "after": 197,
+      "excluded_delta": 197,
       "reason": "zero_baseline_unverified"
     }
   ]
