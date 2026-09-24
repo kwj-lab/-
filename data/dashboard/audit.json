@@ -31,16 +31,6 @@
       "reason": "zero_baseline_unverified"
     },
     {
-      "goods_no": "3113942",
-      "brand_name": "내셔널지오그래픽",
-      "from_at": "2026-09-22T16:53:28+09:00",
-      "to_at": "2026-09-23T00:07:48+09:00",
-      "before": 0,
-      "after": 10000,
-      "excluded_delta": 10000,
-      "reason": "zero_baseline_unverified"
-    },
-    {
       "goods_no": "2349446",
       "brand_name": "아웃스탠딩",
       "from_at": "2026-08-31T03:17:33+09:00",
@@ -998,6 +988,16 @@
       "before": 0,
       "after": 197,
       "excluded_delta": 197,
+      "reason": "zero_baseline_unverified"
+    },
+    {
+      "goods_no": "6139303",
+      "brand_name": "노아",
+      "from_at": "2026-09-23T07:05:10+09:00",
+      "to_at": "2026-09-24T06:51:56+09:00",
+      "before": 0,
+      "after": 193,
+      "excluded_delta": 193,
       "reason": "zero_baseline_unverified"
     }
   ]
