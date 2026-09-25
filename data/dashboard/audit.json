@@ -71,16 +71,6 @@
       "reason": "zero_baseline_unverified"
     },
     {
-      "goods_no": "5217527",
-      "brand_name": "르아르",
-      "from_at": "2026-09-17T17:04:04+09:00",
-      "to_at": "2026-09-18T18:06:45+09:00",
-      "before": 0,
-      "after": 1406,
-      "excluded_delta": 1406,
-      "reason": "zero_baseline_unverified"
-    },
-    {
       "goods_no": "7184025",
       "brand_name": "스파오",
       "from_at": "2026-09-05T07:16:16+09:00",
@@ -528,16 +518,6 @@
       "before": 0,
       "after": 391,
       "excluded_delta": 391,
-      "reason": "zero_baseline_unverified"
-    },
-    {
-      "goods_no": "6120333",
-      "brand_name": "타미진스",
-      "from_at": "2026-09-17T17:24:36+09:00",
-      "to_at": "2026-09-18T18:27:32+09:00",
-      "before": 0,
-      "after": 387,
-      "excluded_delta": 387,
       "reason": "zero_baseline_unverified"
     },
     {
@@ -998,6 +978,26 @@
       "before": 0,
       "after": 193,
       "excluded_delta": 193,
+      "reason": "zero_baseline_unverified"
+    },
+    {
+      "goods_no": "7057877",
+      "brand_name": "브랜디드",
+      "from_at": "2026-09-08T20:23:04+09:00",
+      "to_at": "2026-09-09T19:16:32+09:00",
+      "before": 0,
+      "after": 191,
+      "excluded_delta": 191,
+      "reason": "zero_baseline_unverified"
+    },
+    {
+      "goods_no": "7192612",
+      "brand_name": "라코스테",
+      "from_at": "2026-09-15T17:59:10+09:00",
+      "to_at": "2026-09-16T17:52:32+09:00",
+      "before": 0,
+      "after": 188,
+      "excluded_delta": 188,
       "reason": "zero_baseline_unverified"
     }
   ]
