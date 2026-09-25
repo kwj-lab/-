@@ -1,16 +1,6 @@
 {
   "largest_excluded_boundaries": [
     {
-      "goods_no": "2058188",
-      "brand_name": "브라운브레스",
-      "from_at": "2026-09-18T12:00:01+09:00",
-      "to_at": "2026-09-18T16:23:48+09:00",
-      "before": 0,
-      "after": 62104,
-      "excluded_delta": 62104,
-      "reason": "zero_baseline_unverified"
-    },
-    {
       "goods_no": "1547899",
       "brand_name": "아웃스탠딩",
       "from_at": "2026-08-31T03:17:25+09:00",
@@ -998,6 +988,16 @@
       "before": 0,
       "after": 183,
       "excluded_delta": 183,
+      "reason": "zero_baseline_unverified"
+    },
+    {
+      "goods_no": "6499206",
+      "brand_name": "르아르",
+      "from_at": "2026-09-14T19:17:31+09:00",
+      "to_at": "2026-09-15T17:46:40+09:00",
+      "before": 0,
+      "after": 174,
+      "excluded_delta": 174,
       "reason": "zero_baseline_unverified"
     }
   ]
