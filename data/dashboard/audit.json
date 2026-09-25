@@ -331,16 +331,6 @@
       "reason": "zero_baseline_unverified"
     },
     {
-      "goods_no": "4598301",
-      "brand_name": "트리밍버드",
-      "from_at": "2026-09-15T02:58:30+09:00",
-      "to_at": "2026-09-16T22:31:40+09:00",
-      "before": 0,
-      "after": 506,
-      "excluded_delta": 506,
-      "reason": "zero_baseline_unverified"
-    },
-    {
       "goods_no": "6156277",
       "brand_name": "르아르",
       "from_at": "2026-09-16T17:30:45+09:00",
@@ -998,6 +988,16 @@
       "before": 0,
       "after": 184,
       "excluded_delta": 184,
+      "reason": "zero_baseline_unverified"
+    },
+    {
+      "goods_no": "5493414",
+      "brand_name": "벨리에",
+      "from_at": "2026-09-22T18:57:49+09:00",
+      "to_at": "2026-09-23T15:55:13+09:00",
+      "before": 0,
+      "after": 183,
+      "excluded_delta": 183,
       "reason": "zero_baseline_unverified"
     }
   ]
