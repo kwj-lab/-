@@ -91,16 +91,6 @@
       "reason": "zero_baseline_unverified"
     },
     {
-      "goods_no": "4448520",
-      "brand_name": "락케이크",
-      "from_at": "2026-09-18T07:20:25+09:00",
-      "to_at": "2026-09-19T07:29:49+09:00",
-      "before": 0,
-      "after": 935,
-      "excluded_delta": 935,
-      "reason": "zero_baseline_unverified"
-    },
-    {
       "goods_no": "5495049",
       "brand_name": "길라아카이브",
       "from_at": "2026-09-01T12:36:27+09:00",
@@ -998,6 +988,16 @@
       "before": 0,
       "after": 171,
       "excluded_delta": 171,
+      "reason": "zero_baseline_unverified"
+    },
+    {
+      "goods_no": "7145502",
+      "brand_name": "스파오",
+      "from_at": "2026-09-05T07:16:00+09:00",
+      "to_at": "2026-09-06T07:15:40+09:00",
+      "before": 0,
+      "after": 168,
+      "excluded_delta": 168,
       "reason": "zero_baseline_unverified"
     }
   ]
