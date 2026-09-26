@@ -56362,5 +56362,40 @@
     "evidence_date": "2025-05-14",
     "tracker_start_date": "2026-08-27",
     "checked_at": "2026-09-27T01:24:06+09:00"
+  },
+  "5052409": {
+    "status": "preexisting_confirmed",
+    "evidence_type": "qna",
+    "evidence_date": "2025-07-22",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-27T04:13:29+09:00"
+  },
+  "4659515": {
+    "status": "preexisting_probable",
+    "evidence_type": "goods_no_before_start_ceiling",
+    "evidence_date": "2026-08-27",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-27T04:13:42+09:00"
+  },
+  "2386122": {
+    "status": "preexisting_confirmed",
+    "evidence_type": "qna",
+    "evidence_date": "2022-12-25",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-27T04:13:54+09:00"
+  },
+  "4649095": {
+    "status": "preexisting_confirmed",
+    "evidence_type": "qna",
+    "evidence_date": "2025-03-05",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-27T04:14:07+09:00"
+  },
+  "4649088": {
+    "status": "preexisting_confirmed",
+    "evidence_type": "qna",
+    "evidence_date": "2025-01-13",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-27T04:14:19+09:00"
   }
 }
