@@ -56187,5 +56187,12 @@
     "evidence_date": "2026-08-27",
     "tracker_start_date": "2026-08-27",
     "checked_at": "2026-09-25T13:22:43+09:00"
+  },
+  "4747040": {
+    "status": "preexisting_confirmed",
+    "evidence_type": "qna",
+    "evidence_date": "2025-08-07",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-26T14:00:55+09:00"
   }
 }
