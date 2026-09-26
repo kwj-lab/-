@@ -841,16 +841,6 @@
       "reason": "zero_baseline_unverified"
     },
     {
-      "goods_no": "5697784",
-      "brand_name": "런던다다",
-      "from_at": "2026-09-09T10:22:11+09:00",
-      "to_at": "2026-09-10T10:17:22+09:00",
-      "before": 0,
-      "after": 216,
-      "excluded_delta": 216,
-      "reason": "zero_baseline_unverified"
-    },
-    {
       "goods_no": "3773908",
       "brand_name": "커버낫",
       "from_at": "2026-09-21T11:14:51+09:00",
@@ -998,6 +988,16 @@
       "before": 0,
       "after": 174,
       "excluded_delta": 174,
+      "reason": "zero_baseline_unverified"
+    },
+    {
+      "goods_no": "7096087",
+      "brand_name": "알리스",
+      "from_at": "2026-08-29T21:35:58+09:00",
+      "to_at": "2026-08-30T21:36:17+09:00",
+      "before": 0,
+      "after": 173,
+      "excluded_delta": 173,
       "reason": "zero_baseline_unverified"
     }
   ]
