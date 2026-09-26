@@ -961,16 +961,6 @@
       "reason": "zero_baseline_unverified"
     },
     {
-      "goods_no": "5994912",
-      "brand_name": "르아르",
-      "from_at": "2026-09-15T17:32:32+09:00",
-      "to_at": "2026-09-16T17:24:20+09:00",
-      "before": 0,
-      "after": 184,
-      "excluded_delta": 184,
-      "reason": "zero_baseline_unverified"
-    },
-    {
       "goods_no": "5493414",
       "brand_name": "벨리에",
       "from_at": "2026-09-22T18:57:49+09:00",
@@ -998,6 +988,16 @@
       "before": 0,
       "after": 173,
       "excluded_delta": 173,
+      "reason": "zero_baseline_unverified"
+    },
+    {
+      "goods_no": "6965900",
+      "brand_name": "언탭트 스튜디오",
+      "from_at": "2026-09-10T04:13:55+09:00",
+      "to_at": "2026-09-16T14:47:36+09:00",
+      "before": 0,
+      "after": 171,
+      "excluded_delta": 171,
       "reason": "zero_baseline_unverified"
     }
   ]
