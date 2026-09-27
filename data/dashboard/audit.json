@@ -941,6 +941,16 @@
       "reason": "zero_baseline_unverified"
     },
     {
+      "goods_no": "5714833",
+      "brand_name": "노스페이스",
+      "from_at": "2026-09-27T12:55:31+09:00",
+      "to_at": "2026-09-27T18:48:36+09:00",
+      "before": 0,
+      "after": 187,
+      "excluded_delta": 187,
+      "reason": "zero_baseline_unverified"
+    },
+    {
       "goods_no": "5493414",
       "brand_name": "벨리에",
       "from_at": "2026-09-22T18:57:49+09:00",
@@ -985,16 +995,6 @@
       "brand_name": "스파오",
       "from_at": "2026-09-05T07:16:00+09:00",
       "to_at": "2026-09-06T07:15:40+09:00",
-      "before": 0,
-      "after": 168,
-      "excluded_delta": 168,
-      "reason": "zero_baseline_unverified"
-    },
-    {
-      "goods_no": "4668832",
-      "brand_name": "커버낫",
-      "from_at": "2026-09-21T11:25:25+09:00",
-      "to_at": "2026-09-22T11:49:19+09:00",
       "before": 0,
       "after": 168,
       "excluded_delta": 168,
