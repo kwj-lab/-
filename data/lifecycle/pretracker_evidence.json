@@ -56929,5 +56929,19 @@
     "evidence_date": "2025-02-12",
     "tracker_start_date": "2026-08-27",
     "checked_at": "2026-09-27T16:49:25+09:00"
+  },
+  "5706927": {
+    "status": "preexisting_confirmed",
+    "evidence_type": "qna",
+    "evidence_date": "2026-02-21",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-27T20:30:32+09:00"
+  },
+  "5706908": {
+    "status": "preexisting_confirmed",
+    "evidence_type": "qna",
+    "evidence_date": "2026-03-02",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-27T20:30:44+09:00"
   }
 }
