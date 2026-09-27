@@ -511,16 +511,6 @@
       "reason": "zero_baseline_unverified"
     },
     {
-      "goods_no": "6334181",
-      "brand_name": "미세키서울 맨",
-      "from_at": "2026-09-15T17:43:20+09:00",
-      "to_at": "2026-09-16T17:35:46+09:00",
-      "before": 0,
-      "after": 374,
-      "excluded_delta": 374,
-      "reason": "zero_baseline_unverified"
-    },
-    {
       "goods_no": "5406315",
       "brand_name": "카키포인트",
       "from_at": "2026-09-18T07:29:10+09:00",
@@ -995,6 +985,16 @@
       "brand_name": "스파오",
       "from_at": "2026-09-05T07:16:00+09:00",
       "to_at": "2026-09-06T07:15:40+09:00",
+      "before": 0,
+      "after": 168,
+      "excluded_delta": 168,
+      "reason": "zero_baseline_unverified"
+    },
+    {
+      "goods_no": "4668832",
+      "brand_name": "커버낫",
+      "from_at": "2026-09-21T11:25:25+09:00",
+      "to_at": "2026-09-22T11:49:19+09:00",
       "before": 0,
       "after": 168,
       "excluded_delta": 168,
