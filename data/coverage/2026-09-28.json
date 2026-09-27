@@ -3,14 +3,14 @@
   "slots": {
     "0": {
       "slot": 0,
-      "expected": 34816,
-      "success": 34816,
+      "expected": 34822,
+      "success": 34822,
       "failed": 0,
       "coverage_pct": 100.0,
       "status": "complete",
       "stage": "primary",
       "first_collected_at": "2026-09-28T01:52:56+09:00",
-      "last_updated_at": "2026-09-28T01:52:56+09:00",
+      "last_updated_at": "2026-09-28T05:14:10+09:00",
       "failed_goods_sample": []
     },
     "1": {
@@ -29,10 +29,10 @@
   "overall": {
     "slots_collected": 2,
     "complete_slots": 2,
-    "expected": 56512,
-    "success": 56512,
+    "expected": 56518,
+    "success": 56518,
     "failed": 0,
     "coverage_pct": 100.0
   },
-  "updated_at": "2026-09-28T04:20:38+09:00"
+  "updated_at": "2026-09-28T05:14:10+09:00"
 }
