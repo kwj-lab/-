@@ -361,16 +361,6 @@
       "reason": "zero_baseline_unverified"
     },
     {
-      "goods_no": "3555930",
-      "brand_name": "락케이크",
-      "from_at": "2026-09-17T07:17:15+09:00",
-      "to_at": "2026-09-18T07:15:39+09:00",
-      "before": 0,
-      "after": 490,
-      "excluded_delta": 490,
-      "reason": "zero_baseline_unverified"
-    },
-    {
       "goods_no": "7050459",
       "brand_name": "웬즈데이오아시스",
       "from_at": "2026-09-20T09:18:18+09:00",
@@ -995,6 +985,16 @@
       "brand_name": "스파오",
       "from_at": "2026-09-05T07:16:00+09:00",
       "to_at": "2026-09-06T07:15:40+09:00",
+      "before": 0,
+      "after": 168,
+      "excluded_delta": 168,
+      "reason": "zero_baseline_unverified"
+    },
+    {
+      "goods_no": "4668832",
+      "brand_name": "커버낫",
+      "from_at": "2026-09-21T11:25:25+09:00",
+      "to_at": "2026-09-22T11:49:19+09:00",
       "before": 0,
       "after": 168,
       "excluded_delta": 168,
