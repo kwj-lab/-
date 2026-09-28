@@ -171,6 +171,16 @@
       "reason": "zero_baseline_unverified"
     },
     {
+      "goods_no": "7323122",
+      "brand_name": "더니트컴퍼니",
+      "from_at": "2026-09-28T19:02:06+09:00",
+      "to_at": "2026-09-29T03:34:57+09:00",
+      "before": 0,
+      "after": 672,
+      "excluded_delta": 672,
+      "reason": "zero_baseline_unverified"
+    },
+    {
       "goods_no": "5317845",
       "brand_name": "벨리에",
       "from_at": "2026-09-22T18:53:42+09:00",
@@ -988,16 +998,6 @@
       "before": 0,
       "after": 191,
       "excluded_delta": 191,
-      "reason": "zero_baseline_unverified"
-    },
-    {
-      "goods_no": "6124910",
-      "brand_name": "노스페이스",
-      "from_at": "2026-09-27T18:58:21+09:00",
-      "to_at": "2026-09-28T13:04:10+09:00",
-      "before": 0,
-      "after": 189,
-      "excluded_delta": 189,
       "reason": "zero_baseline_unverified"
     }
   ]
