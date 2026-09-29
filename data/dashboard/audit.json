@@ -91,16 +91,6 @@
       "reason": "zero_baseline_unverified"
     },
     {
-      "goods_no": "6938943",
-      "brand_name": "미쏘",
-      "from_at": "2026-09-29T15:14:26+09:00",
-      "to_at": "2026-09-29T15:50:33+09:00",
-      "before": 0,
-      "after": 1129,
-      "excluded_delta": 1129,
-      "reason": "zero_baseline_unverified"
-    },
-    {
       "goods_no": "7184025",
       "brand_name": "스파오",
       "from_at": "2026-09-05T07:16:16+09:00",
@@ -998,6 +988,16 @@
       "before": 0,
       "after": 199,
       "excluded_delta": 199,
+      "reason": "zero_baseline_unverified"
+    },
+    {
+      "goods_no": "7300979",
+      "brand_name": "내셔널지오그래픽",
+      "from_at": "2026-09-28T09:38:09+09:00",
+      "to_at": "2026-09-29T10:25:06+09:00",
+      "before": 0,
+      "after": 198,
+      "excluded_delta": 198,
       "reason": "zero_baseline_unverified"
     }
   ]
