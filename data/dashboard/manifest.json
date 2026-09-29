@@ -1,7 +1,7 @@
 {
   "sales_policy_version": "2026-09-18-gap-reconstruction-v2",
-  "source_fingerprint": "c0b137b8e57b92b05661c7ebc28823208d4f1eeb567f8aba858bca32d4baed47",
-  "updated_at": "2026-09-30T03:52:47+09:00",
+  "source_fingerprint": "70fb771b0318e26a1c2101a6d333526e6b1f7982ceeba64737b894ea6ddae9e3",
+  "updated_at": "2026-09-30T04:03:28+09:00",
   "as_of_date": "2026-09-30",
   "latest_date": "2026-09-30",
   "latest_finalized_date": "2026-09-30",
@@ -48,12 +48,12 @@
     "2026-09"
   ],
   "history_buckets": 64,
-  "last_observed_at": "2026-09-30T01:39:53+09:00",
-  "source_files": 750,
-  "source_rows": 10526358,
+  "last_observed_at": "2026-09-30T01:53:40+09:00",
+  "source_files": 751,
+  "source_rows": 10528978,
   "product_count": 258830,
   "excluded_boundaries": {
-    "counter_reset": 10420,
+    "counter_reset": 10281,
     "zero_baseline_unverified": 4957,
     "counter_jump_unverified": 219,
     "reactivation_baseline": 7
@@ -61,16 +61,16 @@
   "latest_summary": {
     "date": "2026-09-30",
     "brand_name": "",
-    "checked_at": "2026-09-30T03:52:47+09:00",
+    "checked_at": "2026-09-30T04:03:28+09:00",
     "product_count": 258830,
-    "calculated_product_count": 67711,
-    "excluded_product_count": 191119,
+    "calculated_product_count": 69593,
+    "excluded_product_count": 189237,
     "complete_product_count": 0,
-    "product_coverage_pct": 26.16,
-    "average_time_coverage_pct": 1.13,
-    "estimated_sales": 2160.75,
-    "estimated_gmv": 93606080,
-    "price_change_products": 763,
+    "product_coverage_pct": 26.89,
+    "average_time_coverage_pct": 1.19,
+    "estimated_sales": 7790.15,
+    "estimated_gmv": 331571795,
+    "price_change_products": 766,
     "sales_policy_version": "2026-09-18-gap-reconstruction-v2"
   },
   "method": "First cumulative value is a baseline; structurally valid deltas are allocated by KST day overlap. Gaps over 36h are reconstructed but excluded from observed coverage. Current day is partial through the latest observation. Unknown is not zero."
