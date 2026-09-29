@@ -331,16 +331,6 @@
       "reason": "zero_baseline_unverified"
     },
     {
-      "goods_no": "5944296",
-      "brand_name": "르아르",
-      "from_at": "2026-09-27T21:50:01+09:00",
-      "to_at": "2026-09-28T16:41:05+09:00",
-      "before": 0,
-      "after": 516,
-      "excluded_delta": 516,
-      "reason": "zero_baseline_unverified"
-    },
-    {
       "goods_no": "3773909",
       "brand_name": "커버낫",
       "from_at": "2026-09-21T11:14:51+09:00",
@@ -731,16 +721,6 @@
       "reason": "zero_baseline_unverified"
     },
     {
-      "goods_no": "7013515",
-      "brand_name": "아디다스",
-      "from_at": "2026-09-22T00:42:02+09:00",
-      "to_at": "2026-09-22T17:51:28+09:00",
-      "before": 0,
-      "after": 274,
-      "excluded_delta": 274,
-      "reason": "zero_baseline_unverified"
-    },
-    {
       "goods_no": "6982338",
       "brand_name": "필루미네이트",
       "from_at": "2026-08-31T13:13:38+09:00",
@@ -998,6 +978,26 @@
       "before": 0,
       "after": 203,
       "excluded_delta": 203,
+      "reason": "zero_baseline_unverified"
+    },
+    {
+      "goods_no": "7092024",
+      "brand_name": "룰루레몬",
+      "from_at": "2026-09-29T11:29:32+09:00",
+      "to_at": "2026-09-29T13:48:52+09:00",
+      "before": 0,
+      "after": 199,
+      "excluded_delta": 199,
+      "reason": "zero_baseline_unverified"
+    },
+    {
+      "goods_no": "7300979",
+      "brand_name": "내셔널지오그래픽",
+      "from_at": "2026-09-28T09:38:09+09:00",
+      "to_at": "2026-09-29T10:25:06+09:00",
+      "before": 0,
+      "after": 198,
+      "excluded_delta": 198,
       "reason": "zero_baseline_unverified"
     }
   ]
