@@ -1,7 +1,7 @@
 {
   "sales_policy_version": "2026-09-18-gap-reconstruction-v2",
-  "source_fingerprint": "2e7b73d3a982d81c71230a58107ac17d0e557e9e02f82f41e4363bf05cdf964a",
-  "updated_at": "2026-09-30T05:15:18+09:00",
+  "source_fingerprint": "48f2122421593160f6fdda9cc2f7a4e8d39e3f02b03070931a1e33e567358f5e",
+  "updated_at": "2026-09-30T05:28:53+09:00",
   "as_of_date": "2026-09-30",
   "latest_date": "2026-09-30",
   "latest_finalized_date": "2026-09-30",
@@ -61,7 +61,7 @@
   "latest_summary": {
     "date": "2026-09-30",
     "brand_name": "",
-    "checked_at": "2026-09-30T05:15:18+09:00",
+    "checked_at": "2026-09-30T05:28:53+09:00",
     "product_count": 258831,
     "calculated_product_count": 71496,
     "excluded_product_count": 187335,
