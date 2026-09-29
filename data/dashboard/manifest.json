@@ -1,7 +1,7 @@
 {
   "sales_policy_version": "2026-09-18-gap-reconstruction-v2",
-  "source_fingerprint": "6129fbc4491a606a57aaa0d63fa397c8faef02f0952cce4f5df88da167566ac3",
-  "updated_at": "2026-09-29T19:19:39+09:00",
+  "source_fingerprint": "1d647dedd389ba7bc5acf2fe8887db1c20dc1f5970f8d2dd34a0a80effee6dc8",
+  "updated_at": "2026-09-29T19:47:27+09:00",
   "as_of_date": "2026-09-29",
   "latest_date": "2026-09-29",
   "latest_finalized_date": "2026-09-29",
@@ -47,12 +47,12 @@
     "2026-09"
   ],
   "history_buckets": 64,
-  "last_observed_at": "2026-09-29T19:03:56+09:00",
-  "source_files": 732,
-  "source_rows": 10170033,
+  "last_observed_at": "2026-09-29T19:40:29+09:00",
+  "source_files": 733,
+  "source_rows": 10173160,
   "product_count": 258493,
   "excluded_boundaries": {
-    "counter_reset": 10606,
+    "counter_reset": 10554,
     "zero_baseline_unverified": 4870,
     "counter_jump_unverified": 219,
     "reactivation_baseline": 7
@@ -60,15 +60,15 @@
   "latest_summary": {
     "date": "2026-09-29",
     "brand_name": "",
-    "checked_at": "2026-09-29T19:19:39+09:00",
+    "checked_at": "2026-09-29T19:47:27+09:00",
     "product_count": 258493,
     "calculated_product_count": 228658,
     "excluded_product_count": 29835,
     "complete_product_count": 0,
     "product_coverage_pct": 88.46,
-    "average_time_coverage_pct": 43.59,
-    "estimated_sales": 58816.93,
-    "estimated_gmv": 2766794447,
+    "average_time_coverage_pct": 43.62,
+    "estimated_sales": 60333.93,
+    "estimated_gmv": 2837645707,
     "price_change_products": 17602,
     "sales_policy_version": "2026-09-18-gap-reconstruction-v2"
   },
