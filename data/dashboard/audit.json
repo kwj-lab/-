@@ -971,6 +971,16 @@
       "reason": "zero_baseline_unverified"
     },
     {
+      "goods_no": "7300979",
+      "brand_name": "내셔널지오그래픽",
+      "from_at": "2026-09-28T09:38:09+09:00",
+      "to_at": "2026-09-29T10:25:06+09:00",
+      "before": 0,
+      "after": 198,
+      "excluded_delta": 198,
+      "reason": "zero_baseline_unverified"
+    },
+    {
       "goods_no": "7192679",
       "brand_name": "라코스테",
       "from_at": "2026-09-16T17:52:33+09:00",
@@ -988,16 +998,6 @@
       "before": 0,
       "after": 193,
       "excluded_delta": 193,
-      "reason": "zero_baseline_unverified"
-    },
-    {
-      "goods_no": "7057877",
-      "brand_name": "브랜디드",
-      "from_at": "2026-09-08T20:23:04+09:00",
-      "to_at": "2026-09-09T19:16:32+09:00",
-      "before": 0,
-      "after": 191,
-      "excluded_delta": 191,
       "reason": "zero_baseline_unverified"
     }
   ]
