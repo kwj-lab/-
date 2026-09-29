@@ -611,16 +611,6 @@
       "reason": "zero_baseline_unverified"
     },
     {
-      "goods_no": "7042800",
-      "brand_name": "브라운브레스",
-      "from_at": "2026-09-29T10:21:02+09:00",
-      "to_at": "2026-09-29T10:38:50+09:00",
-      "before": 0,
-      "after": 322,
-      "excluded_delta": 322,
-      "reason": "zero_baseline_unverified"
-    },
-    {
       "goods_no": "4799193",
       "brand_name": "본투윈",
       "from_at": "2026-09-03T17:27:38+09:00",
@@ -998,6 +988,16 @@
       "before": 0,
       "after": 197,
       "excluded_delta": 197,
+      "reason": "zero_baseline_unverified"
+    },
+    {
+      "goods_no": "6139303",
+      "brand_name": "노아",
+      "from_at": "2026-09-23T07:05:10+09:00",
+      "to_at": "2026-09-24T06:51:56+09:00",
+      "before": 0,
+      "after": 193,
+      "excluded_delta": 193,
       "reason": "zero_baseline_unverified"
     }
   ]
