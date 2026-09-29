@@ -461,16 +461,6 @@
       "reason": "zero_baseline_unverified"
     },
     {
-      "goods_no": "5944376",
-      "brand_name": "르아르",
-      "from_at": "2026-09-29T17:08:11+09:00",
-      "to_at": "2026-09-29T17:13:40+09:00",
-      "before": 0,
-      "after": 423,
-      "excluded_delta": 423,
-      "reason": "zero_baseline_unverified"
-    },
-    {
       "goods_no": "7275561",
       "brand_name": "뉴발란스",
       "from_at": "2026-09-27T15:23:45+09:00",
@@ -998,6 +988,16 @@
       "before": 0,
       "after": 198,
       "excluded_delta": 198,
+      "reason": "zero_baseline_unverified"
+    },
+    {
+      "goods_no": "7192679",
+      "brand_name": "라코스테",
+      "from_at": "2026-09-16T17:52:33+09:00",
+      "to_at": "2026-09-17T17:46:23+09:00",
+      "before": 0,
+      "after": 197,
+      "excluded_delta": 197,
       "reason": "zero_baseline_unverified"
     }
   ]
