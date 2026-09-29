@@ -51,6 +51,16 @@
       "reason": "zero_baseline_unverified"
     },
     {
+      "goods_no": "5046318",
+      "brand_name": "1993스튜디오",
+      "from_at": "2026-09-29T15:15:48+09:00",
+      "to_at": "2026-09-29T16:09:27+09:00",
+      "before": 0,
+      "after": 2749,
+      "excluded_delta": 2749,
+      "reason": "zero_baseline_unverified"
+    },
+    {
       "goods_no": "4551885",
       "brand_name": "노티카",
       "from_at": "2026-09-01T15:28:51+09:00",
@@ -988,16 +998,6 @@
       "before": 0,
       "after": 203,
       "excluded_delta": 203,
-      "reason": "zero_baseline_unverified"
-    },
-    {
-      "goods_no": "7092024",
-      "brand_name": "룰루레몬",
-      "from_at": "2026-09-29T11:29:32+09:00",
-      "to_at": "2026-09-29T13:48:52+09:00",
-      "before": 0,
-      "after": 199,
-      "excluded_delta": 199,
       "reason": "zero_baseline_unverified"
     }
   ]
