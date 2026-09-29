@@ -21,6 +21,16 @@
       "reason": "zero_baseline_unverified"
     },
     {
+      "goods_no": "4750067",
+      "brand_name": "워크온바디오프",
+      "from_at": "2026-09-29T11:31:22+09:00",
+      "to_at": "2026-09-29T15:08:59+09:00",
+      "before": 0,
+      "after": 4974,
+      "excluded_delta": 4974,
+      "reason": "zero_baseline_unverified"
+    },
+    {
       "goods_no": "2349446",
       "brand_name": "아웃스탠딩",
       "from_at": "2026-08-31T03:17:33+09:00",
@@ -68,6 +78,16 @@
       "before": 0,
       "after": 1471,
       "excluded_delta": 1471,
+      "reason": "zero_baseline_unverified"
+    },
+    {
+      "goods_no": "6938943",
+      "brand_name": "미쏘",
+      "from_at": "2026-09-29T15:14:26+09:00",
+      "to_at": "2026-09-29T15:50:33+09:00",
+      "before": 0,
+      "after": 1129,
+      "excluded_delta": 1129,
       "reason": "zero_baseline_unverified"
     },
     {
@@ -119,16 +139,6 @@
       "after": 960,
       "excluded_delta": 876,
       "reason": "counter_jump_unverified"
-    },
-    {
-      "goods_no": "5361996",
-      "brand_name": "워크온바디오프",
-      "from_at": "2026-09-16T20:16:53+09:00",
-      "to_at": "2026-09-17T11:11:07+09:00",
-      "before": 0,
-      "after": 858,
-      "excluded_delta": 858,
-      "reason": "zero_baseline_unverified"
     },
     {
       "goods_no": "7210135",
@@ -988,16 +998,6 @@
       "before": 0,
       "after": 199,
       "excluded_delta": 199,
-      "reason": "zero_baseline_unverified"
-    },
-    {
-      "goods_no": "7300979",
-      "brand_name": "내셔널지오그래픽",
-      "from_at": "2026-09-28T09:38:09+09:00",
-      "to_at": "2026-09-29T10:25:06+09:00",
-      "before": 0,
-      "after": 198,
-      "excluded_delta": 198,
       "reason": "zero_baseline_unverified"
     }
   ]
