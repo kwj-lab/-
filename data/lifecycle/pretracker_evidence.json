@@ -68052,5 +68052,12 @@
     "evidence_date": "2025-10-21",
     "tracker_start_date": "2026-08-27",
     "checked_at": "2026-09-30T05:58:29+09:00"
+  },
+  "5259572": {
+    "status": "preexisting_confirmed",
+    "evidence_type": "qna",
+    "evidence_date": "2026-02-07",
+    "tracker_start_date": "2026-08-27",
+    "checked_at": "2026-09-30T08:06:17+09:00"
   }
 }
