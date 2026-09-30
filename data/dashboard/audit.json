@@ -771,6 +771,16 @@
       "reason": "zero_baseline_unverified"
     },
     {
+      "goods_no": "7360641",
+      "brand_name": "스웨이드",
+      "from_at": "2026-09-30T08:09:33+09:00",
+      "to_at": "2026-10-01T04:48:07+09:00",
+      "before": 0,
+      "after": 243,
+      "excluded_delta": 243,
+      "reason": "zero_baseline_unverified"
+    },
+    {
       "goods_no": "7225507",
       "brand_name": "커스텀어클락",
       "from_at": "2026-09-27T15:22:35+09:00",
@@ -988,16 +998,6 @@
       "before": 0,
       "after": 198,
       "excluded_delta": 198,
-      "reason": "zero_baseline_unverified"
-    },
-    {
-      "goods_no": "7192679",
-      "brand_name": "라코스테",
-      "from_at": "2026-09-16T17:52:33+09:00",
-      "to_at": "2026-09-17T17:46:23+09:00",
-      "before": 0,
-      "after": 197,
-      "excluded_delta": 197,
       "reason": "zero_baseline_unverified"
     }
   ]
