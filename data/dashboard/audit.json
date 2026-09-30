@@ -941,16 +941,6 @@
       "reason": "zero_baseline_unverified"
     },
     {
-      "goods_no": "3801449",
-      "brand_name": "던스트",
-      "from_at": "2026-09-20T15:33:03+09:00",
-      "to_at": "2026-09-21T13:58:24+09:00",
-      "before": 0,
-      "after": 205,
-      "excluded_delta": 205,
-      "reason": "zero_baseline_unverified"
-    },
-    {
       "goods_no": "7090063",
       "brand_name": "베이프",
       "from_at": "2026-09-20T16:20:29+09:00",
@@ -998,6 +988,16 @@
       "before": 0,
       "after": 198,
       "excluded_delta": 198,
+      "reason": "zero_baseline_unverified"
+    },
+    {
+      "goods_no": "7192679",
+      "brand_name": "라코스테",
+      "from_at": "2026-09-16T17:52:33+09:00",
+      "to_at": "2026-09-17T17:46:23+09:00",
+      "before": 0,
+      "after": 197,
+      "excluded_delta": 197,
       "reason": "zero_baseline_unverified"
     }
   ]
