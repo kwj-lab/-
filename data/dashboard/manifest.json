@@ -1,10 +1,10 @@
 {
   "sales_policy_version": "2026-09-18-gap-reconstruction-v2",
-  "source_fingerprint": "7a65799fed1e1318379c20177ab3d9075de40bfa3a5c278aded9c7dbf65ab2af",
-  "updated_at": "2026-10-01T02:18:38+09:00",
+  "source_fingerprint": "bf3747485ede9caa736736722d0762aeec94be38ecdfeb78019e11111e895145",
+  "updated_at": "2026-10-01T02:43:40+09:00",
   "as_of_date": "2026-10-01",
-  "latest_date": "2026-09-30",
-  "latest_finalized_date": "2026-09-30",
+  "latest_date": "2026-10-01",
+  "latest_finalized_date": "2026-10-01",
   "latest_closed_date": "2026-09-30",
   "dates": [
     "2026-08-27",
@@ -50,29 +50,29 @@
     "2026-10"
   ],
   "history_buckets": 64,
-  "last_observed_at": "2026-09-30T23:30:54+09:00",
-  "source_files": 801,
-  "source_rows": 11450849,
+  "last_observed_at": "2026-10-01T00:15:00+09:00",
+  "source_files": 803,
+  "source_rows": 11457826,
   "product_count": 259791,
   "excluded_boundaries": {
-    "counter_reset": 11686,
+    "counter_reset": 11512,
     "zero_baseline_unverified": 5108,
     "counter_jump_unverified": 221,
-    "reactivation_baseline": 7
+    "reactivation_baseline": 8
   },
   "latest_summary": {
-    "date": "2026-09-30",
+    "date": "2026-10-01",
     "brand_name": "",
-    "checked_at": "2026-10-01T02:18:38+09:00",
+    "checked_at": "2026-10-01T02:43:40+09:00",
     "product_count": 259791,
-    "calculated_product_count": 259382,
-    "excluded_product_count": 409,
+    "calculated_product_count": 5859,
+    "excluded_product_count": 253932,
     "complete_product_count": 0,
-    "product_coverage_pct": 99.84,
-    "average_time_coverage_pct": 62.77,
-    "estimated_sales": 75301.47,
-    "estimated_gmv": 3500608132,
-    "price_change_products": 5385,
+    "product_coverage_pct": 2.26,
+    "average_time_coverage_pct": 0.01,
+    "estimated_sales": 179.09,
+    "estimated_gmv": 9665273,
+    "price_change_products": 40,
     "sales_policy_version": "2026-09-18-gap-reconstruction-v2"
   },
   "method": "First cumulative value is a baseline; structurally valid deltas are allocated by KST day overlap. Gaps over 36h are reconstructed but excluded from observed coverage. Current day is partial through the latest observation. Unknown is not zero."
