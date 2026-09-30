@@ -21,16 +21,6 @@
       "reason": "zero_baseline_unverified"
     },
     {
-      "goods_no": "4750067",
-      "brand_name": "워크온바디오프",
-      "from_at": "2026-09-29T11:31:22+09:00",
-      "to_at": "2026-09-29T15:08:59+09:00",
-      "before": 0,
-      "after": 4974,
-      "excluded_delta": 4974,
-      "reason": "zero_baseline_unverified"
-    },
-    {
       "goods_no": "2349446",
       "brand_name": "아웃스탠딩",
       "from_at": "2026-08-31T03:17:33+09:00",
@@ -998,6 +988,16 @@
       "before": 0,
       "after": 203,
       "excluded_delta": 203,
+      "reason": "zero_baseline_unverified"
+    },
+    {
+      "goods_no": "7092024",
+      "brand_name": "룰루레몬",
+      "from_at": "2026-09-29T11:29:32+09:00",
+      "to_at": "2026-09-29T13:48:52+09:00",
+      "before": 0,
+      "after": 199,
+      "excluded_delta": 199,
       "reason": "zero_baseline_unverified"
     }
   ]
