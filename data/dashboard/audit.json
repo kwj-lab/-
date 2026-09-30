@@ -51,6 +51,16 @@
       "reason": "zero_baseline_unverified"
     },
     {
+      "goods_no": "4693840",
+      "brand_name": "무드인사이드",
+      "from_at": "2026-09-29T10:11:29+09:00",
+      "to_at": "2026-09-30T08:14:22+09:00",
+      "before": 0,
+      "after": 1925,
+      "excluded_delta": 1925,
+      "reason": "zero_baseline_unverified"
+    },
+    {
       "goods_no": "4551885",
       "brand_name": "노티카",
       "from_at": "2026-09-01T15:28:51+09:00",
@@ -148,6 +158,16 @@
       "before": 0,
       "after": 802,
       "excluded_delta": 802,
+      "reason": "zero_baseline_unverified"
+    },
+    {
+      "goods_no": "5658688",
+      "brand_name": "무드인사이드",
+      "from_at": "2026-09-29T10:22:44+09:00",
+      "to_at": "2026-09-30T08:25:37+09:00",
+      "before": 0,
+      "after": 798,
+      "excluded_delta": 798,
       "reason": "zero_baseline_unverified"
     },
     {
@@ -269,6 +289,16 @@
       "after": 953,
       "excluded_delta": 602,
       "reason": "counter_jump_unverified"
+    },
+    {
+      "goods_no": "5658711",
+      "brand_name": "무드인사이드",
+      "from_at": "2026-09-29T10:22:45+09:00",
+      "to_at": "2026-09-30T08:25:37+09:00",
+      "before": 0,
+      "after": 601,
+      "excluded_delta": 601,
+      "reason": "zero_baseline_unverified"
     },
     {
       "goods_no": "5943431",
@@ -641,6 +671,16 @@
       "reason": "zero_baseline_unverified"
     },
     {
+      "goods_no": "7387766",
+      "brand_name": "스파오",
+      "from_at": "2026-09-29T10:43:33+09:00",
+      "to_at": "2026-09-30T08:46:32+09:00",
+      "before": 0,
+      "after": 302,
+      "excluded_delta": 302,
+      "reason": "zero_baseline_unverified"
+    },
+    {
       "goods_no": "7145574",
       "brand_name": "스파오",
       "from_at": "2026-09-05T07:16:00+09:00",
@@ -958,46 +998,6 @@
       "before": 0,
       "after": 203,
       "excluded_delta": 203,
-      "reason": "zero_baseline_unverified"
-    },
-    {
-      "goods_no": "7092024",
-      "brand_name": "룰루레몬",
-      "from_at": "2026-09-29T11:29:32+09:00",
-      "to_at": "2026-09-29T13:48:52+09:00",
-      "before": 0,
-      "after": 199,
-      "excluded_delta": 199,
-      "reason": "zero_baseline_unverified"
-    },
-    {
-      "goods_no": "7300979",
-      "brand_name": "내셔널지오그래픽",
-      "from_at": "2026-09-28T09:38:09+09:00",
-      "to_at": "2026-09-29T10:25:06+09:00",
-      "before": 0,
-      "after": 198,
-      "excluded_delta": 198,
-      "reason": "zero_baseline_unverified"
-    },
-    {
-      "goods_no": "7192679",
-      "brand_name": "라코스테",
-      "from_at": "2026-09-16T17:52:33+09:00",
-      "to_at": "2026-09-17T17:46:23+09:00",
-      "before": 0,
-      "after": 197,
-      "excluded_delta": 197,
-      "reason": "zero_baseline_unverified"
-    },
-    {
-      "goods_no": "6139303",
-      "brand_name": "노아",
-      "from_at": "2026-09-23T07:05:10+09:00",
-      "to_at": "2026-09-24T06:51:56+09:00",
-      "before": 0,
-      "after": 193,
-      "excluded_delta": 193,
       "reason": "zero_baseline_unverified"
     }
   ]
