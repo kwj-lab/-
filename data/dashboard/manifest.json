@@ -1,7 +1,7 @@
 {
   "sales_policy_version": "2026-09-18-gap-reconstruction-v2",
-  "source_fingerprint": "3392c711e526bf46055af58a346d4039fec415ca977053e201ce6b3d3f8f64f0",
-  "updated_at": "2026-09-30T19:53:01+09:00",
+  "source_fingerprint": "16679888e732d42b3e33ec567cb67b628044779a5277980db728a62e8192808b",
+  "updated_at": "2026-09-30T20:04:19+09:00",
   "as_of_date": "2026-09-30",
   "latest_date": "2026-09-30",
   "latest_finalized_date": "2026-09-30",
@@ -48,12 +48,12 @@
     "2026-09"
   ],
   "history_buckets": 64,
-  "last_observed_at": "2026-09-30T19:17:09+09:00",
-  "source_files": 787,
-  "source_rows": 11214643,
-  "product_count": 259672,
+  "last_observed_at": "2026-09-30T19:48:36+09:00",
+  "source_files": 788,
+  "source_rows": 11217509,
+  "product_count": 259720,
   "excluded_boundaries": {
-    "counter_reset": 11507,
+    "counter_reset": 11476,
     "zero_baseline_unverified": 5088,
     "counter_jump_unverified": 221,
     "reactivation_baseline": 7
@@ -61,16 +61,16 @@
   "latest_summary": {
     "date": "2026-09-30",
     "brand_name": "",
-    "checked_at": "2026-09-30T19:53:01+09:00",
-    "product_count": 259672,
+    "checked_at": "2026-09-30T20:04:19+09:00",
+    "product_count": 259720,
     "calculated_product_count": 259006,
-    "excluded_product_count": 666,
+    "excluded_product_count": 714,
     "complete_product_count": 0,
-    "product_coverage_pct": 99.74,
-    "average_time_coverage_pct": 50.18,
-    "estimated_sales": 51756.4,
-    "estimated_gmv": 2450042629,
-    "price_change_products": 4929,
+    "product_coverage_pct": 99.73,
+    "average_time_coverage_pct": 50.32,
+    "estimated_sales": 56911.13,
+    "estimated_gmv": 2686818106,
+    "price_change_products": 4941,
     "sales_policy_version": "2026-09-18-gap-reconstruction-v2"
   },
   "method": "First cumulative value is a baseline; structurally valid deltas are allocated by KST day overlap. Gaps over 36h are reconstructed but excluded from observed coverage. Current day is partial through the latest observation. Unknown is not zero."
