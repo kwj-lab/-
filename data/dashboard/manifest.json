@@ -1,7 +1,7 @@
 {
   "sales_policy_version": "2026-09-18-gap-reconstruction-v2",
-  "source_fingerprint": "3c4fddb33cf66296008258ef0e3aa147d6dcd3fab55df1131d872002bd06ff6d",
-  "updated_at": "2026-09-30T09:42:43+09:00",
+  "source_fingerprint": "ca477a67d7cc8241c3b0e6779b307f40d3a1a9c5174a2bd1d7c76d01998ceb7e",
+  "updated_at": "2026-09-30T09:59:09+09:00",
   "as_of_date": "2026-09-30",
   "latest_date": "2026-09-30",
   "latest_finalized_date": "2026-09-30",
@@ -48,12 +48,12 @@
     "2026-09"
   ],
   "history_buckets": 64,
-  "last_observed_at": "2026-09-30T07:49:36+09:00",
-  "source_files": 770,
-  "source_rows": 10813459,
+  "last_observed_at": "2026-09-30T08:09:53+09:00",
+  "source_files": 771,
+  "source_rows": 10835284,
   "product_count": 258886,
   "excluded_boundaries": {
-    "counter_reset": 10567,
+    "counter_reset": 10561,
     "zero_baseline_unverified": 4972,
     "counter_jump_unverified": 219,
     "reactivation_baseline": 7
@@ -61,16 +61,16 @@
   "latest_summary": {
     "date": "2026-09-30",
     "brand_name": "",
-    "checked_at": "2026-09-30T09:42:43+09:00",
+    "checked_at": "2026-09-30T09:59:09+09:00",
     "product_count": 258886,
-    "calculated_product_count": 114912,
-    "excluded_product_count": 143974,
+    "calculated_product_count": 114965,
+    "excluded_product_count": 143921,
     "complete_product_count": 0,
-    "product_coverage_pct": 44.39,
-    "average_time_coverage_pct": 7.79,
-    "estimated_sales": 18944.69,
-    "estimated_gmv": 864841760,
-    "price_change_products": 1095,
+    "product_coverage_pct": 44.41,
+    "average_time_coverage_pct": 8.79,
+    "estimated_sales": 19075.96,
+    "estimated_gmv": 871791739,
+    "price_change_products": 2347,
     "sales_policy_version": "2026-09-18-gap-reconstruction-v2"
   },
   "method": "First cumulative value is a baseline; structurally valid deltas are allocated by KST day overlap. Gaps over 36h are reconstructed but excluded from observed coverage. Current day is partial through the latest observation. Unknown is not zero."
