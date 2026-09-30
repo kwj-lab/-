@@ -171,16 +171,6 @@
       "reason": "zero_baseline_unverified"
     },
     {
-      "goods_no": "5431532",
-      "brand_name": "레테르코모",
-      "from_at": "2026-09-29T13:19:59+09:00",
-      "to_at": "2026-09-29T19:22:09+09:00",
-      "before": 0,
-      "after": 740,
-      "excluded_delta": 740,
-      "reason": "zero_baseline_unverified"
-    },
-    {
       "goods_no": "6947522",
       "brand_name": "웬즈데이오아시스 포 우먼",
       "from_at": "2026-09-20T03:08:57+09:00",
@@ -998,6 +988,16 @@
       "before": 0,
       "after": 199,
       "excluded_delta": 199,
+      "reason": "zero_baseline_unverified"
+    },
+    {
+      "goods_no": "7300979",
+      "brand_name": "내셔널지오그래픽",
+      "from_at": "2026-09-28T09:38:09+09:00",
+      "to_at": "2026-09-29T10:25:06+09:00",
+      "before": 0,
+      "after": 198,
+      "excluded_delta": 198,
       "reason": "zero_baseline_unverified"
     }
   ]
