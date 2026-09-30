@@ -1,11 +1,11 @@
 {
   "sales_policy_version": "2026-09-18-gap-reconstruction-v2",
-  "source_fingerprint": "1555e003faf79e7bf80a77041b5ecaa4ecf48bc0a04daf0b493d09536a05c566",
-  "updated_at": "2026-09-30T23:48:54+09:00",
-  "as_of_date": "2026-09-30",
+  "source_fingerprint": "72cdb45856eb95852184de9fcc954db3cd9f3691136f13ba8cbf13106ee50fab",
+  "updated_at": "2026-10-01T00:16:29+09:00",
+  "as_of_date": "2026-10-01",
   "latest_date": "2026-09-30",
   "latest_finalized_date": "2026-09-30",
-  "latest_closed_date": "2026-09-29",
+  "latest_closed_date": "2026-09-30",
   "dates": [
     "2026-08-27",
     "2026-08-28",
@@ -41,19 +41,21 @@
     "2026-09-27",
     "2026-09-28",
     "2026-09-29",
-    "2026-09-30"
+    "2026-09-30",
+    "2026-10-01"
   ],
   "months": [
     "2026-08",
-    "2026-09"
+    "2026-09",
+    "2026-10"
   ],
   "history_buckets": 64,
-  "last_observed_at": "2026-09-30T22:39:52+09:00",
-  "source_files": 795,
-  "source_rows": 11380376,
-  "product_count": 259777,
+  "last_observed_at": "2026-09-30T22:44:38+09:00",
+  "source_files": 796,
+  "source_rows": 11410893,
+  "product_count": 259791,
   "excluded_boundaries": {
-    "counter_reset": 11732,
+    "counter_reset": 11730,
     "zero_baseline_unverified": 5108,
     "counter_jump_unverified": 221,
     "reactivation_baseline": 7
@@ -61,15 +63,15 @@
   "latest_summary": {
     "date": "2026-09-30",
     "brand_name": "",
-    "checked_at": "2026-09-30T23:48:54+09:00",
-    "product_count": 259777,
+    "checked_at": "2026-10-01T00:16:29+09:00",
+    "product_count": 259791,
     "calculated_product_count": 259325,
-    "excluded_product_count": 452,
+    "excluded_product_count": 466,
     "complete_product_count": 0,
-    "product_coverage_pct": 99.83,
-    "average_time_coverage_pct": 62.32,
-    "estimated_sales": 69429.09,
-    "estimated_gmv": 3255717787,
+    "product_coverage_pct": 99.82,
+    "average_time_coverage_pct": 62.36,
+    "estimated_sales": 69522.09,
+    "estimated_gmv": 3259906007,
     "price_change_products": 5117,
     "sales_policy_version": "2026-09-18-gap-reconstruction-v2"
   },
