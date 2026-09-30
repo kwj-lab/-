@@ -661,6 +661,16 @@
       "reason": "zero_baseline_unverified"
     },
     {
+      "goods_no": "4386834",
+      "brand_name": "미드나잇 무브",
+      "from_at": "2026-09-30T13:46:13+09:00",
+      "to_at": "2026-09-30T19:51:13+09:00",
+      "before": 0,
+      "after": 300,
+      "excluded_delta": 300,
+      "reason": "zero_baseline_unverified"
+    },
+    {
       "goods_no": "7145574",
       "brand_name": "스파오",
       "from_at": "2026-09-05T07:16:00+09:00",
@@ -988,16 +998,6 @@
       "before": 0,
       "after": 198,
       "excluded_delta": 198,
-      "reason": "zero_baseline_unverified"
-    },
-    {
-      "goods_no": "7192679",
-      "brand_name": "라코스테",
-      "from_at": "2026-09-16T17:52:33+09:00",
-      "to_at": "2026-09-17T17:46:23+09:00",
-      "before": 0,
-      "after": 197,
-      "excluded_delta": 197,
       "reason": "zero_baseline_unverified"
     }
   ]
