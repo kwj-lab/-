@@ -24,15 +24,27 @@
       "first_collected_at": "2026-09-30T06:33:16+09:00",
       "last_updated_at": "2026-09-30T09:46:09+09:00",
       "failed_goods_sample": []
+    },
+    "2": {
+      "slot": 2,
+      "expected": 25504,
+      "success": 25504,
+      "failed": 0,
+      "coverage_pct": 100.0,
+      "status": "complete",
+      "stage": "primary",
+      "first_collected_at": "2026-09-30T10:09:28+09:00",
+      "last_updated_at": "2026-09-30T10:09:28+09:00",
+      "failed_goods_sample": []
     }
   },
   "overall": {
-    "slots_collected": 2,
-    "complete_slots": 2,
-    "expected": 56795,
-    "success": 56795,
+    "slots_collected": 3,
+    "complete_slots": 3,
+    "expected": 82299,
+    "success": 82299,
     "failed": 0,
     "coverage_pct": 100.0
   },
-  "updated_at": "2026-09-30T09:46:09+09:00"
+  "updated_at": "2026-09-30T10:09:28+09:00"
 }
