@@ -771,16 +771,6 @@
       "reason": "zero_baseline_unverified"
     },
     {
-      "goods_no": "5994565",
-      "brand_name": "노스페이스",
-      "from_at": "2026-09-28T12:59:49+09:00",
-      "to_at": "2026-09-28T19:26:44+09:00",
-      "before": 0,
-      "after": 237,
-      "excluded_delta": 237,
-      "reason": "zero_baseline_unverified"
-    },
-    {
       "goods_no": "7249563",
       "brand_name": "스웨이드",
       "from_at": "2026-09-09T04:11:29+09:00",
@@ -998,6 +988,16 @@
       "before": 0,
       "after": 198,
       "excluded_delta": 198,
+      "reason": "zero_baseline_unverified"
+    },
+    {
+      "goods_no": "7192679",
+      "brand_name": "라코스테",
+      "from_at": "2026-09-16T17:52:33+09:00",
+      "to_at": "2026-09-17T17:46:23+09:00",
+      "before": 0,
+      "after": 197,
+      "excluded_delta": 197,
       "reason": "zero_baseline_unverified"
     }
   ]
